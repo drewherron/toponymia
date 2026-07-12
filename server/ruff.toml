@@ -1,0 +1,12 @@
+line-length = 88
+target-version = "py314"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "DJ"]
+
+[lint.per-file-ignores]
+# Generated validator names overflow the line limit
+"config/settings.py" = ["E501"]
+
+[format]
+quote-style = "single"
