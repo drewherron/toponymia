@@ -1,0 +1,115 @@
+"""Overpass API client and element selection for click resolution.
+
+Pure logic, no Django imports: everything here works on plain dicts as
+returned by the Overpass JSON API.
+"""
+
+import math
+import re
+
+import requests
+
+OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+TIMEOUT_S = 15
+
+# Click radius: ~20px at the given zoom/latitude, clamped so low zooms
+# don't sweep in half a country and high zooms still catch label offsets.
+MIN_RADIUS_M = 50
+MAX_RADIUS_M = 10_000
+
+QID_RE = re.compile(r'^Q\d+$')
+
+_TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
+
+
+class OverpassError(Exception):
+    """Overpass was unreachable or returned an unusable response."""
+
+
+def radius_for_click(zoom, lat):
+    if zoom is None:
+        return 500
+    meters_per_px = 156543.03 * math.cos(math.radians(lat)) / 2 ** zoom
+    return int(min(max(meters_per_px * 20, MIN_RADIUS_M), MAX_RADIUS_M))
+
+
+def _escape(value):
+    return value.replace('\\', '\\\\').replace('"', '\\"')
+
+
+def fetch_elements(name, lat, lon, radius):
+    """All named OSM elements matching `name` around the click point.
+
+    Uses `out center bb` so ways/relations come back with a representative
+    point and bounding box but not their (potentially huge) full geometry.
+    """
+    query = (
+        '[out:json][timeout:10];'
+        f'nwr["name"="{_escape(name)}"](around:{radius},{lat},{lon});'
+        'out tags center bb;'
+    )
+    return _call(query)
+
+
+def fetch_way_geometry(way_id):
+    """Coordinate list [(lon, lat), ...] for a way, or None."""
+    query = f'[out:json][timeout:10];way({way_id});out geom;'
+    for element in _call(query):
+        geometry = element.get('geometry')
+        if geometry:
+            return [(point['lon'], point['lat']) for point in geometry]
+    return None
+
+
+def _call(query):
+    try:
+        response = requests.post(
+            OVERPASS_URL, data={'data': query}, timeout=TIMEOUT_S
+        )
+        response.raise_for_status()
+        return response.json().get('elements', [])
+    except (requests.RequestException, ValueError) as exc:
+        raise OverpassError(str(exc)) from exc
+
+
+def choose_element(elements):
+    """Pick the best anchor candidate per the ladder in DESIGN.md §3.
+
+    Elements carrying a wikidata QID win (they anchor at level 1), then
+    relations over ways over nodes ("prefer the relation that ways belong
+    to"), then proximity to the click as a tiebreak.
+    """
+    if not elements:
+        return None
+
+    def sort_key(element):
+        has_qid = qid_of(element) is not None
+        return (0 if has_qid else 1, _TYPE_RANK.get(element['type'], 3))
+
+    return min(elements, key=sort_key)
+
+
+def qid_of(element):
+    qid = element.get('tags', {}).get('wikidata', '')
+    return qid if QID_RE.match(qid) else None
+
+
+def center_of(element):
+    """(lon, lat) for any element type, or None."""
+    if element['type'] == 'node':
+        return (element['lon'], element['lat'])
+    center = element.get('center')
+    if center:
+        return (center['lon'], center['lat'])
+    return None
+
+
+def bounds_of(element):
+    """(min_lon, min_lat, max_lon, max_lat) or None."""
+    bounds = element.get('bounds')
+    if bounds:
+        return (
+            bounds['minlon'], bounds['minlat'],
+            bounds['maxlon'], bounds['maxlat'],
+        )
+    return None
