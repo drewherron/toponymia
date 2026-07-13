@@ -7,6 +7,8 @@ select = ["E", "F", "W", "I", "UP", "B", "DJ"]
 [lint.per-file-ignores]
 # Generated validator names overflow the line limit
 "config/settings.py" = ["E501"]
+# Generated migrations aren't hand-formatted
+"*/migrations/*" = ["E501"]
 
 [format]
 quote-style = "single"
