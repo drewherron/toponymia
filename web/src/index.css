@@ -99,6 +99,54 @@ body,
   cursor: pointer;
 }
 
+.anchor-info {
+  margin-bottom: 14px;
+  font-size: 0.85rem;
+}
+
+.anchor-pending {
+  color: #888;
+}
+
+.anchor-error {
+  color: #a15c00;
+}
+
+.anchor-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #eee;
+  color: #444;
+}
+
+.anchor-wikidata {
+  background: #e3f0e3;
+  color: #1d5c2e;
+}
+
+.anchor-osm {
+  background: #e6eef7;
+  color: #1f4f7a;
+}
+
+.anchor-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.anchor-links a {
+  color: #1f4f7a;
+}
+
+.anchor-slug {
+  color: #888;
+}
+
 .feature-pane-note {
   font-size: 0.9rem;
   color: #666;

@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
-import type { FeatureCandidate } from '../types'
+import type { ClickContext, FeatureCandidate } from '../types'
 import { toCandidates } from './features'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
@@ -11,6 +11,7 @@ interface MapViewProps {
   onClickFeatures: (
     candidates: FeatureCandidate[],
     point: { x: number; y: number },
+    click: ClickContext,
   ) => void
   onMoveStart: () => void
 }
@@ -41,10 +42,14 @@ function MapView({ onClickFeatures, onMoveStart }: MapViewProps) {
         [e.point.x - t, e.point.y - t],
         [e.point.x + t, e.point.y + t],
       ])
-      handlersRef.current.onClickFeatures(toCandidates(features), {
-        x: e.point.x,
-        y: e.point.y,
-      })
+      handlersRef.current.onClickFeatures(
+        toCandidates(features),
+        { x: e.point.x, y: e.point.y },
+        {
+          lngLat: { lng: e.lngLat.lng, lat: e.lngLat.lat },
+          zoom: map.getZoom(),
+        },
+      )
     })
     map.on('movestart', () => {
       handlersRef.current.onMoveStart()
