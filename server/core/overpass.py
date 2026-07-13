@@ -9,7 +9,12 @@ import re
 
 import requests
 
-OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+# Tried in order: overpass-api.de rate-limits to 2 concurrent slots per
+# IP, so fall back to the Kumi Systems mirror when it rejects us.
+OVERPASS_URLS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+]
 TIMEOUT_S = 15
 # overpass-api.de 406es generic client user agents; identify ourselves.
 USER_AGENT = 'toponymia/0.1 (dherron@mailbox.org)'
@@ -65,17 +70,20 @@ def fetch_way_geometry(way_id):
 
 
 def _call(query):
-    try:
-        response = requests.post(
-            OVERPASS_URL,
-            data={'data': query},
-            headers={'User-Agent': USER_AGENT},
-            timeout=TIMEOUT_S,
-        )
-        response.raise_for_status()
-        return response.json().get('elements', [])
-    except (requests.RequestException, ValueError) as exc:
-        raise OverpassError(str(exc)) from exc
+    error = None
+    for url in OVERPASS_URLS:
+        try:
+            response = requests.post(
+                url,
+                data={'data': query},
+                headers={'User-Agent': USER_AGENT},
+                timeout=TIMEOUT_S,
+            )
+            response.raise_for_status()
+            return response.json().get('elements', [])
+        except (requests.RequestException, ValueError) as exc:
+            error = exc
+    raise OverpassError(str(error)) from error
 
 
 def choose_element(elements):
