@@ -11,6 +11,8 @@ import requests
 
 OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
 TIMEOUT_S = 15
+# overpass-api.de 406es generic client user agents; identify ourselves.
+USER_AGENT = 'toponymia/0.1 (dherron@mailbox.org)'
 
 # Click radius: ~20px at the given zoom/latitude, clamped so low zooms
 # don't sweep in half a country and high zooms still catch label offsets.
@@ -40,13 +42,14 @@ def _escape(value):
 def fetch_elements(name, lat, lon, radius):
     """All named OSM elements matching `name` around the click point.
 
-    Uses `out center bb` so ways/relations come back with a representative
-    point and bounding box but not their (potentially huge) full geometry.
+    Uses `out bb` so ways/relations come back with a bounding box but not
+    their (potentially huge) full geometry. (`center` can't be combined
+    with `bb`; center_of derives a point from the bounds instead.)
     """
     query = (
         '[out:json][timeout:10];'
         f'nwr["name"="{_escape(name)}"](around:{radius},{lat},{lon});'
-        'out tags center bb;'
+        'out tags bb;'
     )
     return _call(query)
 
@@ -64,7 +67,10 @@ def fetch_way_geometry(way_id):
 def _call(query):
     try:
         response = requests.post(
-            OVERPASS_URL, data={'data': query}, timeout=TIMEOUT_S
+            OVERPASS_URL,
+            data={'data': query},
+            headers={'User-Agent': USER_AGENT},
+            timeout=TIMEOUT_S,
         )
         response.raise_for_status()
         return response.json().get('elements', [])
@@ -101,6 +107,9 @@ def center_of(element):
     center = element.get('center')
     if center:
         return (center['lon'], center['lat'])
+    bounds = bounds_of(element)
+    if bounds:
+        return ((bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2)
     return None
 
 

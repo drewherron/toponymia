@@ -4,7 +4,13 @@ from django.test import TestCase
 from django.urls import reverse
 
 from .models import Place
-from .overpass import OverpassError, choose_element, qid_of, radius_for_click
+from .overpass import (
+    OverpassError,
+    center_of,
+    choose_element,
+    qid_of,
+    radius_for_click,
+)
 
 
 def _relation(osm_id=1236, name='Mississippi River', qid='Q1497', **extra):
@@ -61,6 +67,13 @@ class OverpassLogicTests(TestCase):
 
     def test_malformed_qid_ignored(self):
         self.assertIsNone(qid_of(_relation(qid='not-a-qid')))
+
+    def test_center_falls_back_to_bounds_midpoint(self):
+        relation = _relation()
+        del relation['center']
+        lon, lat = center_of(relation)
+        self.assertAlmostEqual(lon, -92.15)
+        self.assertAlmostEqual(lat, 38.2)
 
     def test_radius_clamped(self):
         self.assertEqual(radius_for_click(1, 0), 10_000)
