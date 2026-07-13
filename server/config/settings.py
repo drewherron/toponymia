@@ -45,6 +45,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.gis',
     'rest_framework',
+    'allauth',
+    'allauth.account',
+    'allauth.headless',
     'core',
 ]
 
@@ -56,6 +59,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -125,6 +129,22 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+
+# Authentication — django-allauth in headless-only mode: the React SPA
+# talks JSON to /_allauth/browser/v1/* using the session cookie. No email
+# sending in v1, so verification is off and email is optional.
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
+
+ACCOUNT_LOGIN_METHODS = {'username'}
+ACCOUNT_SIGNUP_FIELDS = ['username*', 'email', 'password1*']
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+HEADLESS_ONLY = True
+HEADLESS_CLIENTS = ('browser',)
 
 
 # Static files (CSS, JavaScript, Images)

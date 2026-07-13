@@ -1,0 +1,49 @@
+"""Validation of article content — the JSON snapshot stored per Revision
+(DESIGN.md §4). Kept as plain Serializers: content is a document, not a
+model row."""
+
+from rest_framework import serializers
+
+
+class NameSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255)
+    language = serializers.CharField(
+        max_length=16, allow_blank=True, default=''
+    )
+    from_languages = serializers.ListField(
+        child=serializers.CharField(max_length=16), default=list
+    )
+    is_endonym = serializers.BooleanField(default=False)
+    etymology_md = serializers.CharField(
+        allow_blank=True, trim_whitespace=False, default=''
+    )
+    references = serializers.ListField(
+        child=serializers.CharField(max_length=1000), default=list
+    )
+
+
+class DerivationSerializer(serializers.Serializer):
+    term = serializers.CharField(max_length=255)
+    note = serializers.CharField(max_length=1000, allow_blank=True, default='')
+    url = serializers.URLField(allow_blank=True, default='')
+
+
+class ContentSerializer(serializers.Serializer):
+    body_md = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    names = NameSerializer(many=True, default=list)
+    derivations = DerivationSerializer(many=True, default=list)
+    see_also = serializers.ListField(
+        child=serializers.CharField(max_length=255), default=list
+    )
+
+    def validate(self, data):
+        if not data['body_md'].strip() and not data['names']:
+            raise serializers.ValidationError(
+                'article needs a body or at least one name'
+            )
+        return data
+
+
+class ArticleEditSerializer(serializers.Serializer):
+    content = ContentSerializer()
+    comment = serializers.CharField(max_length=255, allow_blank=True, default='')

@@ -1,14 +1,31 @@
+from django.shortcuts import get_object_or_404
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from . import resolve as resolution
+from .articles import save_edit
+from .models import Place
 from .overpass import OverpassError
+from .serializers import ArticleEditSerializer
 
 
 @api_view(['GET'])
 def health(request):
     return Response({'status': 'ok'})
+
+
+@api_view(['GET'])
+@ensure_csrf_cookie
+def me(request):
+    """Session probe for the SPA; also plants the CSRF cookie the client
+    needs before it can POST to /api or /_allauth."""
+    user = request.user
+    if not user.is_authenticated:
+        return Response({'user': None})
+    return Response({'user': {'id': user.id, 'username': user.username}})
 
 
 def _place_json(place):
@@ -61,3 +78,50 @@ def resolve(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     return Response({'place': _place_json(place), 'created': created})
+
+
+def _article_json(article):
+    revision = article.current_revision
+    if revision is None:
+        return None
+    return {
+        'content': revision.content,
+        'revision_id': revision.id,
+        'author': revision.author.username,
+        'created': revision.created.isoformat(),
+        'comment': revision.comment,
+        'protection_level': article.protection_level,
+    }
+
+
+@api_view(['GET'])
+def place_detail(request, slug):
+    place = get_object_or_404(
+        Place.objects.select_related(
+            'article__current_revision__author'
+        ),
+        slug=slug,
+    )
+    article = getattr(place, 'article', None)
+    return Response(
+        {
+            'place': _place_json(place),
+            'article': _article_json(article) if article else None,
+        }
+    )
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def article_edit(request, slug):
+    place = get_object_or_404(Place, slug=slug)
+    serializer = ArticleEditSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    revision = save_edit(
+        place,
+        request.user,
+        serializer.validated_data['content'],
+        serializer.validated_data['comment'],
+    )
+    return Response({'article': _article_json(revision.article)})

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.gis.db import models
 
 
@@ -37,3 +38,81 @@ class Place(models.Model):
 
     def __str__(self):
         return f'{self.display_name} ({self.anchor_level})'
+
+
+class Article(models.Model):
+    """The wiki article for a Place (DESIGN.md §4). Content lives in
+    Revision snapshots; this row is the stable identity + pointer."""
+
+    class Protection(models.TextChoices):
+        NONE = 'none'
+        REGISTERED = 'registered'
+        ADMIN = 'admin'
+
+    place = models.OneToOneField(
+        Place, on_delete=models.CASCADE, related_name='article'
+    )
+    current_revision = models.ForeignKey(
+        'Revision',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    protection_level = models.CharField(
+        max_length=16, choices=Protection.choices, default=Protection.NONE
+    )
+    created = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Article: {self.place.display_name}'
+
+
+class Revision(models.Model):
+    """Full JSON snapshot per edit (wiki core). content:
+    { body_md, names: [ { name, language, from_languages[], is_endonym,
+      etymology_md, references[] } ], derivations: [ { term, note, url } ],
+      see_also: [] }"""
+
+    article = models.ForeignKey(
+        Article, on_delete=models.CASCADE, related_name='revisions'
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='revisions'
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    comment = models.CharField(max_length=255, blank=True)
+    content = models.JSONField()
+
+    class Meta:
+        ordering = ['-created', '-id']
+
+    def __str__(self):
+        return f'r{self.id} of {self.article}'
+
+
+class PlaceName(models.Model):
+    """Materialized from the *current* revision's names[] — the relational
+    query surface for map filtering and search. Rewritten on every edit;
+    never edited directly. Language is a bare ISO 639 code for now (the
+    Language table arrives with the language-filter work)."""
+
+    place = models.ForeignKey(
+        Place, on_delete=models.CASCADE, related_name='names'
+    )
+    name = models.CharField(max_length=255)
+    language = models.CharField(max_length=16, blank=True)
+    is_endonym = models.BooleanField(default=False)
+    from_languages = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['place', 'name', 'language'],
+                name='unique_place_name_language',
+            ),
+        ]
+        indexes = [models.Index(fields=['name'])]
+
+    def __str__(self):
+        return f'{self.name} [{self.language or "?"}]'

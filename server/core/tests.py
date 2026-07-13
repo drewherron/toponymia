@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
+from django.contrib.auth.models import User
+from django.contrib.gis.geos import Point
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Place
+from .models import Place, PlaceName, Revision
 from .overpass import (
     OverpassError,
     center_of,
@@ -175,3 +177,161 @@ class ResolveApiTests(TestCase):
             name='Springfield', **{'class': 'city'}, lngLat=[10.0, 50.0]
         ).json()['place']
         self.assertEqual(second['slug'], 'springfield-2')
+
+
+def _make_place(name='Testville', slug='testville'):
+    return Place.objects.create(
+        slug=slug,
+        anchor_level=Place.AnchorLevel.NAME,
+        display_name=name,
+        feature_class='city',
+        centroid=Point(10.0, 50.0, srid=4326),
+    )
+
+
+def _content(**overrides):
+    content = {
+        'body_md': 'Founded as a test fixture in 2026.',
+        'names': [
+            {
+                'name': 'Testville',
+                'language': 'eng',
+                'is_endonym': True,
+                'etymology_md': '*test* + *-ville*',
+            },
+        ],
+    }
+    content.update(overrides)
+    return content
+
+
+class ArticleApiTests(TestCase):
+    def setUp(self):
+        self.place = _make_place()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+
+    def _put(self, content=None, comment='first draft'):
+        return self.client.put(
+            reverse('core:article-edit', args=[self.place.slug]),
+            {'content': content or _content(), 'comment': comment},
+            content_type='application/json',
+        )
+
+    def test_detail_without_article(self):
+        response = self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIsNone(body['article'])
+        self.assertEqual(body['place']['slug'], 'testville')
+
+    def test_detail_unknown_slug_404s(self):
+        response = self.client.get(
+            reverse('core:place-detail', args=['nowhere'])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_anonymous_edit_rejected(self):
+        response = self._put()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_create_article(self):
+        self.client.force_login(self.user)
+        response = self._put()
+        self.assertEqual(response.status_code, 200)
+        article = response.json()['article']
+        self.assertEqual(article['author'], 'drew')
+        self.assertEqual(article['comment'], 'first draft')
+        self.assertEqual(
+            article['content']['names'][0]['name'], 'Testville'
+        )
+        # serializer fills structural defaults into the stored snapshot
+        self.assertEqual(article['content']['derivations'], [])
+        names = PlaceName.objects.filter(place=self.place)
+        self.assertEqual(names.count(), 1)
+        self.assertTrue(names.get().is_endonym)
+
+    def test_edit_appends_revision_and_rematerializes(self):
+        self.client.force_login(self.user)
+        self._put()
+        second = _content(
+            names=[
+                {'name': 'Testville', 'language': 'eng'},
+                {'name': 'Probeburg', 'language': 'deu'},
+                {'name': 'Probeburg', 'language': 'deu'},  # dupe collapses
+            ]
+        )
+        response = self._put(content=second, comment='add German exonym')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Revision.objects.count(), 2)
+        current = self.place.article.current_revision
+        self.assertEqual(current.comment, 'add German exonym')
+        self.assertEqual(
+            sorted(
+                PlaceName.objects.filter(place=self.place).values_list(
+                    'name', flat=True
+                )
+            ),
+            ['Probeburg', 'Testville'],
+        )
+
+    def test_empty_content_rejected(self):
+        self.client.force_login(self.user)
+        response = self._put(content={'body_md': '   ', 'names': []})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_detail_returns_current_article(self):
+        self.client.force_login(self.user)
+        self._put()
+        self.client.logout()
+        body = self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        ).json()
+        self.assertEqual(body['article']['author'], 'drew')
+        self.assertIn('Founded', body['article']['content']['body_md'])
+
+
+class AuthApiTests(TestCase):
+    def test_me_anonymous(self):
+        response = self.client.get(reverse('core:me'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['user'])
+        self.assertIn('csrftoken', response.cookies)
+
+    def test_me_logged_in(self):
+        user = User.objects.create_user('drew', password='pw12345!')
+        self.client.force_login(user)
+        self.assertEqual(
+            self.client.get(reverse('core:me')).json()['user']['username'],
+            'drew',
+        )
+
+    def test_headless_signup_and_session(self):
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {'username': 'newuser', 'password': 'sturdy-passphrase-9'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse('core:me')).json()['user']['username'],
+            'newuser',
+        )
+
+    def test_headless_login_logout(self):
+        User.objects.create_user('drew', password='sturdy-passphrase-9')
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/login',
+            {'username': 'drew', 'password': 'sturdy-passphrase-9'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        response = self.client.delete('/_allauth/browser/v1/auth/session')
+        # allauth answers 401 ("no longer authenticated") on logout
+        self.assertEqual(response.status_code, 401)
+        self.assertIsNone(
+            self.client.get(reverse('core:me')).json()['user']
+        )
