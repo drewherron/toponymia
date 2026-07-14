@@ -118,6 +118,10 @@ class ResolveApiTests(TestCase):
         self.assertEqual(place['slug'], 'mississippi-river')
         db_place = Place.objects.get(pk=place['id'])
         self.assertIsNotNone(db_place.bbox)
+        # dots hang at the click, the only point known to be ON the river
+        self.assertEqual(
+            (db_place.label_point.x, db_place.label_point.y), (-91.0, 32.0)
+        )
 
     @patch('core.resolve.overpass.fetch_elements')
     def test_same_qid_from_distant_click_reuses_place(self, fetch):
@@ -161,6 +165,10 @@ class ResolveApiTests(TestCase):
         self.assertEqual(place['anchor_level'], 'name')
         self.assertIsNone(place['osm_id'])
         self.assertEqual(place['centroid'], [-91.0, 32.0])
+        db_place = Place.objects.get(pk=place['id'])
+        self.assertEqual(
+            (db_place.label_point.x, db_place.label_point.y), (-91.0, 32.0)
+        )
 
     @patch('core.resolve.overpass.fetch_elements')
     def test_overpass_outage_returns_503_and_creates_nothing(self, fetch):
@@ -359,6 +367,14 @@ class HighlightApiTests(TestCase):
         self.assertEqual(features[0]['geometry']['coordinates'], [30.0, 55.0])
         # viewport far away: nothing
         self.assertEqual(self._get('-20,-10,-18,-8').json()['features'], [])
+
+    def test_label_point_preferred_over_centroid(self):
+        place = _make_place()
+        place.label_point = Point(10.5, 50.5, srid=4326)
+        place.save(update_fields=['label_point'])
+        _publish(place, self.user)
+        feature = self._get().json()['features'][0]
+        self.assertEqual(feature['geometry']['coordinates'], [10.5, 50.5])
 
     def test_relation_included_by_bbox(self):
         # Relations cache no geometry, only centroid+bbox; the bbox keeps

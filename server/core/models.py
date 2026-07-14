@@ -24,6 +24,10 @@ class Place(models.Model):
     # centroid+bbox for now (full member geometry can be huge).
     geometry = models.GeometryField(geography=True, null=True, blank=True)
     centroid = models.PointField(geography=True)
+    # A point guaranteed to lie ON the feature — the click that created
+    # the place. The bbox-derived centroid of a long/curvy feature can sit
+    # far off it, so article dots hang here instead. Null → use centroid.
+    label_point = models.PointField(geography=True, null=True, blank=True)
     bbox = models.PolygonField(geography=True, null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
 

@@ -22,6 +22,7 @@ def resolve(name, feature_class, lng, lat, zoom=None):
         Place.objects.filter(display_name=name, feature_class=feature_class)
         .filter(
             Q(centroid__dwithin=(click, D(m=radius)))
+            | Q(label_point__dwithin=(click, D(m=radius)))
             | Q(geometry__dwithin=(click, D(m=radius)))
         )
         .first()
@@ -79,6 +80,9 @@ def _create_from_element(element, qid, name, feature_class, click):
         feature_class=feature_class,
         geometry=geometry,
         centroid=centroid,
+        # a node IS the feature; for ways/relations the click is the only
+        # point known to lie on it (bbox centroids can sit far off)
+        label_point=centroid if element['type'] == 'node' else click,
         bbox=bbox,
     )
 
@@ -91,6 +95,7 @@ def _create_name_anchor(name, feature_class, click):
         feature_class=feature_class,
         geometry=click,
         centroid=click,
+        label_point=click,
     )
 
 

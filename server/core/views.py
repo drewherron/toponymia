@@ -140,7 +140,9 @@ def highlights(request):
         features.append(
             {
                 'type': 'Feature',
-                'geometry': json.loads(place.centroid.geojson),
+                'geometry': json.loads(
+                    (place.label_point or place.centroid).geojson
+                ),
                 'properties': {
                     'slug': place.slug,
                     'display_name': place.display_name,
