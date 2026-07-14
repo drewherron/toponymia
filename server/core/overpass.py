@@ -69,6 +69,22 @@ def fetch_way_geometry(way_id):
     return None
 
 
+def fetch_relation_geometry(relation_id):
+    """Member-way coordinate lists [[(lon, lat), ...], ...], or None.
+
+    `out geom` inlines each member way's geometry; node members (labels,
+    admin centres) carry none and are skipped.
+    """
+    query = f'[out:json][timeout:25];relation({relation_id});out geom;'
+    parts = []
+    for element in _call(query):
+        for member in element.get('members', []):
+            geometry = member.get('geometry')
+            if member.get('type') == 'way' and geometry and len(geometry) >= 2:
+                parts.append([(point['lon'], point['lat']) for point in geometry])
+    return parts or None
+
+
 def _call(query):
     error = None
     for url in OVERPASS_URLS:

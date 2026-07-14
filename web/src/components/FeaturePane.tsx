@@ -17,6 +17,7 @@ interface FeaturePaneProps {
   user: User | null
   onRequestAuth: () => void
   onClose: () => void
+  onArticleSaved: () => void
 }
 
 type Resolution =
@@ -83,6 +84,7 @@ function FeaturePane({
   user,
   onRequestAuth,
   onClose,
+  onArticleSaved,
 }: FeaturePaneProps) {
   const [resolution, setResolution] = useState<Resolution>({
     status: 'loading',
@@ -120,6 +122,7 @@ function FeaturePane({
         : prev,
     )
     setEditing(false)
+    onArticleSaved()
   }
 
   const place = resolution.status === 'done' ? resolution.place : null

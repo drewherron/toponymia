@@ -23,6 +23,8 @@ function App() {
   const [selected, setSelected] = useState<Selection | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
+  const [articlesOnly, setArticlesOnly] = useState(false)
+  const [highlightsEpoch, setHighlightsEpoch] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -56,6 +58,11 @@ function App() {
 
   const handleMoveStart = useCallback(() => setPicker(null), [])
 
+  const handleArticleSaved = useCallback(
+    () => setHighlightsEpoch((epoch) => epoch + 1),
+    [],
+  )
+
   const handlePick = useCallback(
     (candidate: FeatureCandidate) => {
       if (!picker) return
@@ -70,6 +77,8 @@ function App() {
       <MapView
         onClickFeatures={handleClickFeatures}
         onMoveStart={handleMoveStart}
+        articlesOnly={articlesOnly}
+        highlightsEpoch={highlightsEpoch}
       />
       <AuthControl
         user={user}
@@ -77,6 +86,14 @@ function App() {
         open={authOpen}
         onOpenChange={setAuthOpen}
       />
+      <button
+        type="button"
+        className={`articles-toggle${articlesOnly ? ' active' : ''}`}
+        onClick={() => setArticlesOnly((value) => !value)}
+        aria-pressed={articlesOnly}
+      >
+        Articles only
+      </button>
       {picker && (
         <FeaturePicker
           x={picker.x}
@@ -92,6 +109,7 @@ function App() {
           user={user}
           onRequestAuth={() => setAuthOpen(true)}
           onClose={() => setSelected(null)}
+          onArticleSaved={handleArticleSaved}
         />
       )}
     </div>

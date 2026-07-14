@@ -1,3 +1,9 @@
+import json
+
+from django.contrib.gis.db.models import GeometryField
+from django.contrib.gis.geos import Polygon
+from django.db.models import Q
+from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
@@ -6,10 +12,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from . import resolve as resolution
-from .articles import save_edit
+from .articles import ensure_geometry, save_edit
 from .models import Place
 from .overpass import OverpassError
 from .serializers import ArticleEditSerializer
+
+MAX_HIGHLIGHTS = 500
 
 
 @api_view(['GET'])
@@ -80,6 +88,61 @@ def resolve(request):
     return Response({'place': _place_json(place), 'created': created})
 
 
+@api_view(['GET'])
+def highlights(request):
+    """GeoJSON of places with articles in the viewport (DESIGN.md §2.2).
+
+    The overlay paints these directly: lines get a tint, points a glow.
+    """
+    raw = request.query_params.get('bbox', '')
+    try:
+        min_lng, min_lat, max_lng, max_lat = (
+            float(value) for value in raw.split(',')
+        )
+    except ValueError:
+        return Response(
+            {'error': 'expected bbox=minLng,minLat,maxLng,maxLat'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    min_lat, max_lat = max(min_lat, -90.0), min(max_lat, 90.0)
+    # A wrapped or antimeridian-crossing viewport degenerates to the full
+    # longitude range: over-fetches a little, never misses a highlight.
+    if not (-180 <= min_lng < max_lng <= 180):
+        min_lng, max_lng = -180.0, 180.0
+    if min_lat >= max_lat:
+        return Response({'type': 'FeatureCollection', 'features': []})
+
+    viewport = Polygon.from_bbox((min_lng, min_lat, max_lng, max_lat))
+    viewport.srid = 4326
+    # Cast the geography columns to planar geometry: a viewport is a
+    # lon/lat rectangle, but geography edges are great-circle arcs, which
+    # misbehave for boxes wider than 180 degrees.
+    planar = GeometryField(srid=4326)
+    places = Place.objects.filter(
+        article__current_revision__isnull=False
+    ).annotate(
+        geometry_plane=Cast('geometry', planar),
+        centroid_plane=Cast('centroid', planar),
+    ).filter(
+        Q(geometry_plane__intersects=viewport)
+        | Q(centroid_plane__intersects=viewport)
+    )[:MAX_HIGHLIGHTS]
+
+    features = [
+        {
+            'type': 'Feature',
+            'geometry': json.loads((place.geometry or place.centroid).geojson),
+            'properties': {
+                'slug': place.slug,
+                'display_name': place.display_name,
+                'feature_class': place.feature_class,
+            },
+        }
+        for place in places
+    ]
+    return Response({'type': 'FeatureCollection', 'features': features})
+
+
 def _article_json(article):
     revision = article.current_revision
     if revision is None:
@@ -124,4 +187,5 @@ def article_edit(request, slug):
         serializer.validated_data['content'],
         serializer.validated_data['comment'],
     )
+    ensure_geometry(place)
     return Response({'article': _article_json(revision.article)})

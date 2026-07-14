@@ -1,3 +1,4 @@
+import type { FeatureCollection } from 'geojson'
 import type {
   ArticleContent,
   ArticleData,
@@ -38,6 +39,20 @@ export async function resolveFeature(
   })
   if (!response.ok) {
     throw new Error(`resolve failed: ${response.status}`)
+  }
+  return response.json()
+}
+
+/** GeoJSON of places with articles in the given viewport. */
+export async function fetchHighlights(
+  bbox: [number, number, number, number],
+  signal?: AbortSignal,
+): Promise<FeatureCollection> {
+  const response = await fetch(`/api/highlights/?bbox=${bbox.join(',')}`, {
+    signal,
+  })
+  if (!response.ok) {
+    throw new Error(`highlights failed: ${response.status}`)
   }
   return response.json()
 }
