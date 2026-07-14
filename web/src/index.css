@@ -173,3 +173,294 @@ body,
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* Auth control (top-right corner) */
+
+.auth-control {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.auth-control > .auth-link,
+.auth-username {
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+  padding: 6px 12px;
+}
+
+.auth-control > div {
+  display: flex;
+  gap: 8px;
+}
+
+.auth-link {
+  border: none;
+  font: inherit;
+  color: #1f4f7a;
+  cursor: pointer;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+  padding: 6px 12px;
+}
+
+.auth-username {
+  font-weight: 600;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 240px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  padding: 14px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.auth-tabs button {
+  flex: 1;
+  border: none;
+  background: #eee;
+  font: inherit;
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.auth-tabs button.active {
+  background: #1f4f7a;
+  color: #fff;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.auth-form input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.auth-form button[type='submit'] {
+  font: inherit;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: #1f4f7a;
+  color: #fff;
+  cursor: pointer;
+}
+
+.auth-form button[type='submit']:disabled {
+  opacity: 0.6;
+}
+
+.auth-error {
+  color: #a12c00;
+  font-size: 0.85rem;
+}
+
+/* Article view */
+
+.article-edit-button,
+.article-write-button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 4px;
+  background: #1f4f7a;
+  color: #fff;
+  cursor: pointer;
+  margin-bottom: 14px;
+}
+
+.article-body {
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.article-body p,
+.article-name p {
+  margin-bottom: 10px;
+}
+
+.article h2 {
+  font-size: 1.05rem;
+  margin: 18px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #eee;
+}
+
+.article-name h3 {
+  font-size: 0.95rem;
+  margin: 10px 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.name-language {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1f4f7a;
+  text-transform: uppercase;
+}
+
+.name-endonym {
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #e3f0e3;
+  color: #1d5c2e;
+  padding: 1px 7px;
+  border-radius: 9px;
+}
+
+.name-from {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.name-references {
+  font-size: 0.8rem;
+  color: #666;
+  padding-left: 18px;
+  margin-bottom: 8px;
+}
+
+.article-derivations ul,
+.article-see-also ul {
+  font-size: 0.9rem;
+  padding-left: 18px;
+}
+
+.article-byline {
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+  font-size: 0.8rem;
+  color: #777;
+}
+
+/* Article editor */
+
+.article-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+.article-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #444;
+}
+
+.article-editor input,
+.article-editor textarea {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.article-editor textarea {
+  resize: vertical;
+}
+
+.article-editor h2 {
+  font-size: 1rem;
+  margin-top: 6px;
+}
+
+.name-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.name-editor-row {
+  display: flex;
+  gap: 10px;
+}
+
+.name-editor-row label:first-child {
+  flex: 1;
+}
+
+.name-editor-lang {
+  width: 80px;
+}
+
+.name-editor-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+
+.name-editor-remove,
+.article-editor-add {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.article-editor-error {
+  color: #a12c00;
+}
+
+.article-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.article-editor-actions button {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+.article-editor-actions button[type='submit'] {
+  background: #1f4f7a;
+  border-color: #1f4f7a;
+  color: #fff;
+}
+
+.article-editor-actions button:disabled {
+  opacity: 0.6;
+}

@@ -1,8 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { fetchMe } from './api'
+import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
 import MapView from './map/MapView'
-import type { ClickContext, FeatureCandidate } from './types'
+import type { ClickContext, FeatureCandidate, User } from './types'
 
 interface PickerState {
   x: number
@@ -19,6 +21,19 @@ interface Selection {
 function App() {
   const [picker, setPicker] = useState<PickerState | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
+  const [user, setUser] = useState<User | null>(null)
+  const [authOpen, setAuthOpen] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    // also plants the CSRF cookie needed for resolve/login/save
+    fetchMe(controller.signal)
+      .then(setUser)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) console.error(error)
+      })
+    return () => controller.abort()
+  }, [])
 
   const handleClickFeatures = useCallback(
     (
@@ -56,6 +71,12 @@ function App() {
         onClickFeatures={handleClickFeatures}
         onMoveStart={handleMoveStart}
       />
+      <AuthControl
+        user={user}
+        onUserChange={setUser}
+        open={authOpen}
+        onOpenChange={setAuthOpen}
+      />
       {picker && (
         <FeaturePicker
           x={picker.x}
@@ -68,6 +89,8 @@ function App() {
         <FeaturePane
           feature={selected.feature}
           click={selected.click}
+          user={user}
+          onRequestAuth={() => setAuthOpen(true)}
           onClose={() => setSelected(null)}
         />
       )}

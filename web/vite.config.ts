@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 const apiProxy = {
   '/api': 'http://localhost:8000',
+  '/_allauth': 'http://localhost:8000',
 }
 
 // https://vite.dev/config/

@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react'
-import { resolveFeature } from '../api'
-import type { ClickContext, FeatureCandidate, ResolvedPlace } from '../types'
+import { getPlace, resolveFeature } from '../api'
+import type {
+  ArticleData,
+  ClickContext,
+  FeatureCandidate,
+  PlaceDetail,
+  ResolvedPlace,
+  User,
+} from '../types'
+import ArticleEditor from './ArticleEditor'
+import ArticleView from './ArticleView'
 
 interface FeaturePaneProps {
   feature: FeatureCandidate
   click: ClickContext
+  user: User | null
+  onRequestAuth: () => void
   onClose: () => void
 }
 
@@ -12,6 +23,11 @@ type Resolution =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'done'; place: ResolvedPlace }
+
+type Detail =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'done'; detail: PlaceDetail }
 
 const ANCHOR_LABEL: Record<ResolvedPlace['anchor_level'], string> = {
   wikidata: 'Anchored to Wikidata',
@@ -61,35 +77,60 @@ function AnchorInfo({ resolution }: { resolution: Resolution }) {
   )
 }
 
-function FeaturePane({ feature, click, onClose }: FeaturePaneProps) {
+function FeaturePane({
+  feature,
+  click,
+  user,
+  onRequestAuth,
+  onClose,
+}: FeaturePaneProps) {
   const [resolution, setResolution] = useState<Resolution>({
     status: 'loading',
   })
+  const [detail, setDetail] = useState<Detail>({ status: 'loading' })
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
     setResolution({ status: 'loading' })
+    setDetail({ status: 'loading' })
+    setEditing(false)
     resolveFeature(feature.name, feature.kind, click, controller.signal)
-      .then((response) => setResolution({ status: 'done', place: response.place }))
+      .then((response) => {
+        setResolution({ status: 'done', place: response.place })
+        return getPlace(response.place.slug, controller.signal)
+      })
+      .then((placeDetail) => setDetail({ status: 'done', detail: placeDetail }))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           console.error(error)
-          setResolution({ status: 'error' })
+          setResolution((prev) =>
+            prev.status === 'done' ? prev : { status: 'error' },
+          )
+          setDetail({ status: 'error' })
         }
       })
     return () => controller.abort()
   }, [feature, click])
+
+  const handleSaved = (article: ArticleData) => {
+    setDetail((prev) =>
+      prev.status === 'done'
+        ? { status: 'done', detail: { ...prev.detail, article } }
+        : prev,
+    )
+    setEditing(false)
+  }
+
+  const place = resolution.status === 'done' ? resolution.place : null
+  const article = detail.status === 'done' ? detail.detail.article : null
 
   return (
     <aside className="feature-pane">
       <div className="feature-pane-header">
         <div>
           <span className="feature-kind">{feature.kind}</span>
-          <h1>
-            {resolution.status === 'done'
-              ? resolution.place.display_name
-              : feature.name}
-          </h1>
+          <h1>{place ? place.display_name : feature.name}</h1>
         </div>
         <button
           type="button"
@@ -101,20 +142,70 @@ function FeaturePane({ feature, click, onClose }: FeaturePaneProps) {
         </button>
       </div>
       <AnchorInfo resolution={resolution} />
-      <p className="feature-pane-note">
-        No article yet. Article view coming in a later milestone — below is the
-        raw map feature.
-      </p>
-      <table className="feature-props">
-        <tbody>
-          {Object.entries(feature.properties).map(([key, value]) => (
-            <tr key={key}>
-              <th>{key}</th>
-              <td>{String(value)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {place && editing && (
+        <ArticleEditor
+          slug={place.slug}
+          displayName={place.display_name}
+          initial={article?.content ?? null}
+          onSaved={handleSaved}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+
+      {place && !editing && detail.status === 'loading' && (
+        <p className="feature-pane-note">Loading article…</p>
+      )}
+
+      {place && !editing && article && (
+        <>
+          {user && (
+            <button
+              type="button"
+              className="article-edit-button"
+              onClick={() => setEditing(true)}
+            >
+              Edit article
+            </button>
+          )}
+          <ArticleView article={article} />
+        </>
+      )}
+
+      {place && !editing && detail.status === 'done' && !article && (
+        <div className="article-stub">
+          <p className="feature-pane-note">
+            No article about this place name yet.
+          </p>
+          {user ? (
+            <button
+              type="button"
+              className="article-write-button"
+              onClick={() => setEditing(true)}
+            >
+              Write this article
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="article-write-button"
+              onClick={onRequestAuth}
+            >
+              Log in to write this article
+            </button>
+          )}
+          <table className="feature-props">
+            <tbody>
+              {Object.entries(feature.properties).map(([key, value]) => (
+                <tr key={key}>
+                  <th>{key}</th>
+                  <td>{String(value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </aside>
   )
 }
