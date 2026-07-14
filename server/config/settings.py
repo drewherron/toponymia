@@ -33,6 +33,19 @@ ALLOWED_HOSTS = [
     h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h
 ]
 
+# The Vite dev/preview proxy forwards to :8000 with the browser's Origin
+# intact, so those origins must be trusted for CSRF checks in dev.
+CSRF_TRUSTED_ORIGINS = [
+    o
+    for o in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',')
+    if o
+]
+if DEBUG:
+    CSRF_TRUSTED_ORIGINS += [
+        'http://localhost:5173',
+        'http://localhost:4173',
+    ]
+
 
 # Application definition
 
