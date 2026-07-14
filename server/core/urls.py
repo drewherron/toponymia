@@ -15,4 +15,30 @@ urlpatterns = [
         views.article_edit,
         name='article-edit',
     ),
+    path(
+        'places/<slug:slug>/revisions/',
+        views.revision_list,
+        name='revision-list',
+    ),
+    path(
+        'places/<slug:slug>/revisions/<int:revision_id>/',
+        views.revision_detail,
+        name='revision-detail',
+    ),
+    path(
+        'places/<slug:slug>/revert/',
+        views.article_revert,
+        name='article-revert',
+    ),
+    path('places/<slug:slug>/talk/', views.talk, name='talk'),
+    path(
+        'talk/<int:thread_id>/posts/',
+        views.talk_reply,
+        name='talk-reply',
+    ),
+    path(
+        'talk/posts/<int:post_id>/',
+        views.talk_post_edit,
+        name='talk-post-edit',
+    ),
 ]

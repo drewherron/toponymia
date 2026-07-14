@@ -95,6 +95,46 @@ class Revision(models.Model):
         return f'r{self.id} of {self.article}'
 
 
+class TalkThread(models.Model):
+    """A discussion topic about a Place (DESIGN.md §4/§6). Attached to the
+    Place, not the Article, so a stub can be discussed before anyone
+    writes it. Author/timestamps of the conversation live on the posts."""
+
+    place = models.ForeignKey(
+        Place, on_delete=models.CASCADE, related_name='talk_threads'
+    )
+    title = models.CharField(max_length=255)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created', 'id']
+
+    def __str__(self):
+        return f'{self.title} ({self.place.display_name})'
+
+
+class TalkPost(models.Model):
+    """One message in a thread. Flat within the thread; chronological."""
+
+    thread = models.ForeignKey(
+        TalkThread, on_delete=models.CASCADE, related_name='posts'
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='talk_posts',
+    )
+    body_md = models.TextField()
+    created = models.DateTimeField(auto_now_add=True)
+    edited = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created', 'id']
+
+    def __str__(self):
+        return f'post {self.id} in {self.thread}'
+
+
 class PlaceName(models.Model):
     """Materialized from the *current* revision's names[] — the relational
     query surface for map filtering and search. Rewritten on every edit;

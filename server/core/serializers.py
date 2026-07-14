@@ -47,3 +47,21 @@ class ContentSerializer(serializers.Serializer):
 class ArticleEditSerializer(serializers.Serializer):
     content = ContentSerializer()
     comment = serializers.CharField(max_length=255, allow_blank=True, default='')
+
+
+class RevertSerializer(serializers.Serializer):
+    revision_id = serializers.IntegerField()
+    comment = serializers.CharField(max_length=255, allow_blank=True, default='')
+
+
+class TalkPostSerializer(serializers.Serializer):
+    body_md = serializers.CharField(max_length=10000, trim_whitespace=False)
+
+    def validate_body_md(self, value):
+        if not value.strip():
+            raise serializers.ValidationError('post cannot be empty')
+        return value
+
+
+class TalkThreadSerializer(TalkPostSerializer):
+    title = serializers.CharField(max_length=255)

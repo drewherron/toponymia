@@ -5,6 +5,7 @@ from django.contrib.gis.geos import Polygon
 from django.db.models import Q
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -13,9 +14,14 @@ from rest_framework.response import Response
 
 from . import resolve as resolution
 from .articles import save_edit
-from .models import Place
+from .models import Place, Revision, TalkPost, TalkThread
 from .overpass import OverpassError
-from .serializers import ArticleEditSerializer
+from .serializers import (
+    ArticleEditSerializer,
+    RevertSerializer,
+    TalkPostSerializer,
+    TalkThreadSerializer,
+)
 
 MAX_HIGHLIGHTS = 500
 
@@ -185,6 +191,88 @@ def place_detail(request, slug):
     )
 
 
+def _revision_json(revision, current_id, with_content=False):
+    data = {
+        'id': revision.id,
+        'author': revision.author.username,
+        'created': revision.created.isoformat(),
+        'comment': revision.comment,
+        'is_current': revision.id == current_id,
+    }
+    if with_content:
+        data['content'] = revision.content
+    return data
+
+
+@api_view(['GET'])
+def revision_list(request, slug):
+    """Edit history of a place's article, newest first. A place without
+    an article has an empty history rather than a 404 — the History tab
+    is shown for stubs too."""
+    place = get_object_or_404(
+        Place.objects.select_related('article'), slug=slug
+    )
+    article = getattr(place, 'article', None)
+    if article is None:
+        return Response({'revisions': []})
+    revisions = article.revisions.select_related('author')
+    return Response(
+        {
+            'revisions': [
+                _revision_json(revision, article.current_revision_id)
+                for revision in revisions
+            ]
+        }
+    )
+
+
+@api_view(['GET'])
+def revision_detail(request, slug, revision_id):
+    revision = get_object_or_404(
+        Revision.objects.select_related('author', 'article'),
+        id=revision_id,
+        article__place__slug=slug,
+    )
+    return Response(
+        {
+            'revision': _revision_json(
+                revision,
+                revision.article.current_revision_id,
+                with_content=True,
+            )
+        }
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def article_revert(request, slug):
+    """Revert = a new revision copying an old snapshot (DESIGN.md §6)."""
+    serializer = RevertSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    place = get_object_or_404(
+        Place.objects.select_related('article'), slug=slug
+    )
+    article = getattr(place, 'article', None)
+    old = get_object_or_404(
+        Revision,
+        id=serializer.validated_data['revision_id'],
+        article__place__slug=slug,
+    )
+    if article.current_revision_id == old.id:
+        return Response(
+            {'error': 'already the current revision'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    comment = (
+        serializer.validated_data['comment']
+        or f'Reverted to revision {old.id}'
+    )
+    revision = save_edit(place, request.user, old.content, comment)
+    return Response({'article': _article_json(revision.article)})
+
+
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def article_edit(request, slug):
@@ -199,3 +287,85 @@ def article_edit(request, slug):
         serializer.validated_data['comment'],
     )
     return Response({'article': _article_json(revision.article)})
+
+
+def _post_json(post):
+    return {
+        'id': post.id,
+        'author': post.author.username,
+        'body_md': post.body_md,
+        'created': post.created.isoformat(),
+        'edited': post.edited.isoformat() if post.edited else None,
+    }
+
+
+def _thread_json(thread):
+    return {
+        'id': thread.id,
+        'title': thread.title,
+        'created': thread.created.isoformat(),
+        'posts': [_post_json(post) for post in thread.posts.all()],
+    }
+
+
+@api_view(['GET', 'POST'])
+def talk(request, slug):
+    """Threaded discussion for a Place. GET is public; POST (new thread
+    with its opening post) needs an account."""
+    place = get_object_or_404(Place, slug=slug)
+    if request.method == 'GET':
+        threads = place.talk_threads.prefetch_related('posts__author')
+        return Response(
+            {'threads': [_thread_json(thread) for thread in threads]}
+        )
+
+    if not request.user.is_authenticated:
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    serializer = TalkThreadSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    thread = TalkThread.objects.create(
+        place=place, title=serializer.validated_data['title']
+    )
+    TalkPost.objects.create(
+        thread=thread,
+        author=request.user,
+        body_md=serializer.validated_data['body_md'],
+    )
+    return Response(
+        {'thread': _thread_json(thread)}, status=status.HTTP_201_CREATED
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def talk_reply(request, thread_id):
+    thread = get_object_or_404(TalkThread, id=thread_id)
+    serializer = TalkPostSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    post = TalkPost.objects.create(
+        thread=thread,
+        author=request.user,
+        body_md=serializer.validated_data['body_md'],
+    )
+    return Response({'post': _post_json(post)}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def talk_post_edit(request, post_id):
+    """Edit-own only (DESIGN.md §6); mods get more in M7."""
+    post = get_object_or_404(TalkPost, id=post_id)
+    if post.author_id != request.user.id:
+        return Response(
+            {'error': 'you can only edit your own posts'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    serializer = TalkPostSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    post.body_md = serializer.validated_data['body_md']
+    post.edited = timezone.now()
+    post.save(update_fields=['body_md', 'edited'])
+    return Response({'post': _post_json(post)})

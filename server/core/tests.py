@@ -302,6 +302,194 @@ class ArticleApiTests(TestCase):
         self.assertIn('Founded', body['article']['content']['body_md'])
 
 
+class RevisionApiTests(TestCase):
+    def setUp(self):
+        self.place = _make_place()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+        self.client.force_login(self.user)
+        self._put(comment='first draft')
+        self._put(
+            content=_content(body_md='Rewritten in revision two.'),
+            comment='rewrite',
+        )
+
+    def _put(self, content=None, comment=''):
+        return self.client.put(
+            reverse('core:article-edit', args=[self.place.slug]),
+            {'content': content or _content(), 'comment': comment},
+            content_type='application/json',
+        )
+
+    def test_list_newest_first_marks_current(self):
+        response = self.client.get(
+            reverse('core:revision-list', args=[self.place.slug])
+        )
+        self.assertEqual(response.status_code, 200)
+        revisions = response.json()['revisions']
+        self.assertEqual(len(revisions), 2)
+        self.assertEqual(revisions[0]['comment'], 'rewrite')
+        self.assertTrue(revisions[0]['is_current'])
+        self.assertFalse(revisions[1]['is_current'])
+        self.assertNotIn('content', revisions[0])
+
+    def test_list_for_stub_is_empty(self):
+        stub = _make_place(name='Stubton', slug='stubton')
+        response = self.client.get(
+            reverse('core:revision-list', args=[stub.slug])
+        )
+        self.assertEqual(response.json()['revisions'], [])
+
+    def test_detail_carries_content(self):
+        first = Revision.objects.order_by('id').first()
+        response = self.client.get(
+            reverse(
+                'core:revision-detail', args=[self.place.slug, first.id]
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        revision = response.json()['revision']
+        self.assertIn('Founded', revision['content']['body_md'])
+        self.assertFalse(revision['is_current'])
+
+    def test_detail_wrong_slug_404s(self):
+        other = _make_place(name='Elsewhere', slug='elsewhere')
+        first = Revision.objects.order_by('id').first()
+        response = self.client.get(
+            reverse('core:revision-detail', args=[other.slug, first.id])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_revert_copies_snapshot_and_rematerializes(self):
+        first = Revision.objects.order_by('id').first()
+        second = _content(
+            names=[{'name': 'Renamedville', 'language': 'eng'}]
+        )
+        self._put(content=second, comment='rename')
+        response = self.client.post(
+            reverse('core:article-revert', args=[self.place.slug]),
+            {'revision_id': first.id},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        article = response.json()['article']
+        self.assertEqual(article['comment'], f'Reverted to revision {first.id}')
+        self.assertIn('Founded', article['content']['body_md'])
+        self.assertEqual(Revision.objects.count(), 4)
+        self.assertEqual(
+            list(
+                PlaceName.objects.filter(place=self.place).values_list(
+                    'name', flat=True
+                )
+            ),
+            ['Testville'],
+        )
+
+    def test_revert_to_current_rejected(self):
+        current = self.place.article.current_revision
+        response = self.client.post(
+            reverse('core:article-revert', args=[self.place.slug]),
+            {'revision_id': current.id},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Revision.objects.count(), 2)
+
+    def test_revert_needs_login(self):
+        self.client.logout()
+        first = Revision.objects.order_by('id').first()
+        response = self.client.post(
+            reverse('core:article-revert', args=[self.place.slug]),
+            {'revision_id': first.id},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_revert_foreign_revision_404s(self):
+        other = _make_place(name='Elsewhere', slug='elsewhere')
+        first = Revision.objects.order_by('id').first()
+        response = self.client.post(
+            reverse('core:article-revert', args=[other.slug]),
+            {'revision_id': first.id},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 404)
+
+
+class TalkApiTests(TestCase):
+    def setUp(self):
+        self.place = _make_place()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+        self.other = User.objects.create_user('sam', password='pw12345!')
+
+    def _create_thread(self, title='Etymology dispute', body='Sources?'):
+        return self.client.post(
+            reverse('core:talk', args=[self.place.slug]),
+            {'title': title, 'body_md': body},
+            content_type='application/json',
+        )
+
+    def test_get_empty(self):
+        response = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['threads'], [])
+
+    def test_anonymous_cannot_post(self):
+        self.assertEqual(self._create_thread().status_code, 403)
+
+    def test_thread_reply_and_ordering(self):
+        self.client.force_login(self.user)
+        thread_id = self._create_thread().json()['thread']['id']
+        self._create_thread(title='Second topic')
+        self.client.force_login(self.other)
+        response = self.client.post(
+            reverse('core:talk-reply', args=[thread_id]),
+            {'body_md': 'Herodotus, book 4.'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        threads = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()['threads']
+        self.assertEqual(len(threads), 2)
+        self.assertEqual(threads[0]['title'], 'Etymology dispute')
+        posts = threads[0]['posts']
+        self.assertEqual(
+            [post['author'] for post in posts], ['drew', 'sam']
+        )
+        self.assertIsNone(posts[0]['edited'])
+
+    def test_blank_post_rejected(self):
+        self.client.force_login(self.user)
+        response = self._create_thread(body='   ')
+        self.assertEqual(response.status_code, 400)
+
+    def test_edit_own_post(self):
+        self.client.force_login(self.user)
+        post = self._create_thread().json()['thread']['posts'][0]
+        response = self.client.put(
+            reverse('core:talk-post-edit', args=[post['id']]),
+            {'body_md': 'Sources, please?'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        updated = response.json()['post']
+        self.assertEqual(updated['body_md'], 'Sources, please?')
+        self.assertIsNotNone(updated['edited'])
+
+    def test_cannot_edit_others_post(self):
+        self.client.force_login(self.user)
+        post = self._create_thread().json()['thread']['posts'][0]
+        self.client.force_login(self.other)
+        response = self.client.put(
+            reverse('core:talk-post-edit', args=[post['id']]),
+            {'body_md': 'hijacked'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+
 def _publish(place, user):
     """Give a place a current revision, making it a highlight candidate."""
     article = Article.objects.create(place=place)
