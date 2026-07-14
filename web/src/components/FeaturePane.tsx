@@ -97,11 +97,18 @@ function FeaturePane({
     setResolution({ status: 'loading' })
     setDetail({ status: 'loading' })
     setEditing(false)
-    resolveFeature(feature.name, feature.kind, click, controller.signal)
-      .then((response) => {
-        setResolution({ status: 'done', place: response.place })
-        return getPlace(response.place.slug, controller.signal)
-      })
+    // An article dot already knows its place: skip resolution entirely.
+    const detailPromise = feature.slug
+      ? getPlace(feature.slug, controller.signal).then((placeDetail) => {
+          setResolution({ status: 'done', place: placeDetail.place })
+          return placeDetail
+        })
+      : resolveFeature(feature.name, feature.kind, click, controller.signal)
+          .then((response) => {
+            setResolution({ status: 'done', place: response.place })
+            return getPlace(response.place.slug, controller.signal)
+          })
+    detailPromise
       .then((placeDetail) => setDetail({ status: 'done', detail: placeDetail }))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {

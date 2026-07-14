@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.contrib.gis.geos import LineString, Point
+from django.contrib.gis.geos import LineString, Point, Polygon
 from django.test import TestCase
 from django.urls import reverse
 
@@ -323,8 +323,10 @@ class HighlightApiTests(TestCase):
         self.assertEqual(body['type'], 'FeatureCollection')
         self.assertEqual(body['features'], [])
 
-    def test_centroid_fallback_point_feature(self):
-        _publish(_make_place(), self.user)  # centroid (10, 50), no geometry
+    def test_centroid_feature_with_materialized_names(self):
+        place = _make_place()  # centroid (10, 50)
+        PlaceName.objects.create(place=place, name='Probeburg', language='deu')
+        _publish(place, self.user)
         features = self._get().json()['features']
         self.assertEqual(len(features), 1)
         feature = features[0]
@@ -332,8 +334,14 @@ class HighlightApiTests(TestCase):
         self.assertEqual(feature['geometry']['coordinates'], [10.0, 50.0])
         self.assertEqual(feature['properties']['slug'], 'testville')
         self.assertEqual(feature['properties']['display_name'], 'Testville')
+        self.assertEqual(
+            feature['properties']['names'], ['Probeburg', 'Testville']
+        )
 
-    def test_line_geometry_returned_and_bbox_filtered(self):
+    def test_line_place_included_by_geometry_not_centroid(self):
+        # River crosses the viewport but its centroid sits far outside:
+        # labels in view must still recolor, and the feature stays a
+        # centroid point (the client never paints geometry).
         river = Place.objects.create(
             slug='test-river',
             anchor_level=Place.AnchorLevel.OSM,
@@ -341,74 +349,40 @@ class HighlightApiTests(TestCase):
             osm_id=99,
             display_name='Test River',
             feature_class='waterway',
-            geometry=LineString([(9.5, 50.2), (10.5, 50.4)], srid=4326),
-            centroid=Point(10.0, 50.3, srid=4326),
+            geometry=LineString([(9.5, 50.2), (30.0, 55.0)], srid=4326),
+            centroid=Point(30.0, 55.0, srid=4326),
         )
         _publish(river, self.user)
         features = self._get().json()['features']
         self.assertEqual(len(features), 1)
-        self.assertEqual(features[0]['geometry']['type'], 'LineString')
+        self.assertEqual(features[0]['geometry']['type'], 'Point')
+        self.assertEqual(features[0]['geometry']['coordinates'], [30.0, 55.0])
         # viewport far away: nothing
         self.assertEqual(self._get('-20,-10,-18,-8').json()['features'], [])
+
+    def test_relation_included_by_bbox(self):
+        # Relations cache no geometry, only centroid+bbox; the bbox keeps
+        # a big river's labels lit anywhere along its course.
+        river = Place.objects.create(
+            slug='big-river',
+            anchor_level=Place.AnchorLevel.WIKIDATA,
+            wikidata_qid='Q1497',
+            osm_type='relation',
+            osm_id=17,
+            display_name='Big River',
+            feature_class='waterway',
+            centroid=Point(30.0, 55.0, srid=4326),
+            bbox=Polygon.from_bbox((8.0, 48.0, 31.0, 56.0)),
+        )
+        _publish(river, self.user)
+        features = self._get().json()['features']
+        self.assertEqual(len(features), 1)
+        self.assertEqual(features[0]['properties']['slug'], 'big-river')
 
     def test_wrapped_viewport_falls_back_to_world(self):
         _publish(_make_place(), self.user)
         features = self._get('150,-60,210,60').json()['features']
         self.assertEqual(len(features), 1)
-
-
-class RelationGeometryTests(TestCase):
-    """First article save backfills simplified relation geometry."""
-
-    def setUp(self):
-        self.user = User.objects.create_user('drew', password='pw12345!')
-        self.place = Place.objects.create(
-            slug='test-river',
-            anchor_level=Place.AnchorLevel.WIKIDATA,
-            wikidata_qid='Q999999',
-            osm_type='relation',
-            osm_id=555,
-            display_name='Test River',
-            feature_class='waterway',
-            centroid=Point(10.0, 50.0, srid=4326),
-        )
-        self.client.force_login(self.user)
-
-    def _put(self):
-        return self.client.put(
-            reverse('core:article-edit', args=[self.place.slug]),
-            {'content': _content(), 'comment': 'draft'},
-            content_type='application/json',
-        )
-
-    @patch('core.articles.overpass.fetch_relation_geometry')
-    def test_save_fetches_and_simplifies_relation_geometry(self, fetch):
-        fetch.return_value = [
-            [(10.0, 50.0), (10.00001, 50.00001), (10.1, 50.1)],
-            [(10.1, 50.1), (10.2, 50.2)],
-        ]
-        self.assertEqual(self._put().status_code, 200)
-        fetch.assert_called_once_with(555)
-        self.place.refresh_from_db()
-        self.assertEqual(self.place.geometry.geom_type, 'MultiLineString')
-        # the near-duplicate vertex is simplified away
-        self.assertEqual(len(self.place.geometry[0]), 2)
-
-    @patch('core.articles.overpass.fetch_relation_geometry')
-    def test_second_save_does_not_refetch(self, fetch):
-        fetch.return_value = [[(10.0, 50.0), (10.1, 50.1)]]
-        self._put()
-        fetch.reset_mock()
-        self.assertEqual(self._put().status_code, 200)
-        fetch.assert_not_called()
-
-    @patch('core.articles.overpass.fetch_relation_geometry')
-    def test_overpass_outage_does_not_break_save(self, fetch):
-        fetch.side_effect = OverpassError('boom')
-        self.assertEqual(self._put().status_code, 200)
-        self.place.refresh_from_db()
-        self.assertIsNone(self.place.geometry)
-        self.assertEqual(Revision.objects.count(), 1)
 
 
 class AuthApiTests(TestCase):

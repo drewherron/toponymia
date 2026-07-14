@@ -3,6 +3,9 @@ export interface FeatureCandidate {
   kind: string
   sourceLayer: string
   properties: Record<string, unknown>
+  /** Set when the candidate is an article dot: selection can skip
+   *  resolution and fetch the place directly. */
+  slug?: string
 }
 
 /** Where on the map the candidates were clicked. */

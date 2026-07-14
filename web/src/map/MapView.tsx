@@ -8,11 +8,18 @@ import { toCandidates } from './features'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 const CLICK_TOLERANCE_PX = 6
-const HIGHLIGHT_COLOR = '#d97706'
+// Darker amber for label text (readability at small sizes), brighter for dots.
+const LABEL_COLOR = '#b45309'
+const DOT_COLOR = '#d97706'
 
 const EMPTY_COLLECTION: FeatureCollection = {
   type: 'FeatureCollection',
   features: [],
+}
+
+interface LabelLayer {
+  id: string
+  originalColor: unknown
 }
 
 interface MapViewProps {
@@ -22,8 +29,8 @@ interface MapViewProps {
     click: ClickContext,
   ) => void
   onMoveStart: () => void
-  /** Dim the basemap so only highlighted (article-bearing) features pop. */
-  articlesOnly: boolean
+  /** Show dots for articles whose basemap label isn't rendered here. */
+  allArticles: boolean
   /** Bump to force a highlight refetch (e.g. after saving an article). */
   highlightsEpoch: number
 }
@@ -31,18 +38,67 @@ interface MapViewProps {
 function MapView({
   onClickFeatures,
   onMoveStart,
-  articlesOnly,
+  allArticles,
   highlightsEpoch,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const layersReadyRef = useRef(false)
+  const readyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
-  const propsRef = useRef({ onClickFeatures, onMoveStart, articlesOnly })
+  const propsRef = useRef({ onClickFeatures, onMoveStart, allArticles })
+  const labelLayersRef = useRef<LabelLayer[]>([])
+  const articleNamesRef = useRef<string[]>([])
+  const collectionRef = useRef<FeatureCollection>(EMPTY_COLLECTION)
+  const hiddenDotsRef = useRef('')
 
   useEffect(() => {
-    propsRef.current = { onClickFeatures, onMoveStart, articlesOnly }
-  }, [onClickFeatures, onMoveStart, articlesOnly])
+    propsRef.current = { onClickFeatures, onMoveStart, allArticles }
+  }, [onClickFeatures, onMoveStart, allArticles])
+
+  /** Wrap every label layer's text color: article names go amber. */
+  const applyLabelColors = (map: maplibregl.Map) => {
+    const names = articleNamesRef.current
+    for (const { id, originalColor } of labelLayersRef.current) {
+      map.setPaintProperty(id, 'text-color', [
+        'case',
+        ['in', ['get', 'name'], ['literal', names]],
+        LABEL_COLOR,
+        originalColor,
+      ])
+    }
+  }
+
+  /**
+   * A dot only stands in for a missing label: hide it as soon as any of
+   * the place's names is currently rendered as a basemap label. Runs on
+   * 'idle', so the dot→label handoff follows tile/collision changes.
+   */
+  const updateDotFilter = (map: maplibregl.Map) => {
+    const layerIds = labelLayersRef.current.map((layer) => layer.id)
+    const renderedNames = new Set<string>()
+    for (const feature of map.queryRenderedFeatures({ layers: layerIds })) {
+      const name = feature.properties?.name
+      if (typeof name === 'string') renderedNames.add(name)
+    }
+    const hidden: string[] = []
+    for (const feature of collectionRef.current.features) {
+      const props = feature.properties as {
+        slug?: string
+        names?: string[]
+      } | null
+      if (!props?.slug) continue
+      if ((props.names ?? []).some((name) => renderedNames.has(name))) {
+        hidden.push(props.slug)
+      }
+    }
+    const key = hidden.sort().join('|')
+    if (key === hiddenDotsRef.current) return
+    hiddenDotsRef.current = key
+    map.setFilter('article-dots', [
+      '!',
+      ['in', ['get', 'slug'], ['literal', hidden]],
+    ])
+  }
 
   const refreshHighlights = (map: maplibregl.Map) => {
     abortRef.current?.abort()
@@ -59,10 +115,19 @@ function MapView({
       controller.signal,
     )
       .then((collection) => {
+        collectionRef.current = collection
+        const names = new Set<string>()
+        for (const feature of collection.features) {
+          const list = (feature.properties as { names?: string[] })?.names
+          for (const name of list ?? []) names.add(name)
+        }
+        articleNamesRef.current = [...names]
         const source = map.getSource('highlights') as
           | maplibregl.GeoJSONSource
           | undefined
         source?.setData(collection)
+        applyLabelColors(map)
+        // the paint change re-renders; 'idle' then refreshes the dot filter
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) console.error(error)
@@ -83,90 +148,68 @@ function MapView({
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
-      // Semi-opaque veil over the whole basemap; the highlight layers sit
-      // above it, so toggling it on leaves only article geometry vivid.
-      map.addLayer({
-        id: 'articles-only-dim',
-        type: 'background',
-        layout: {
-          visibility: propsRef.current.articlesOnly ? 'visible' : 'none',
-        },
-        paint: {
-          'background-color': '#f5f2ec',
-          'background-opacity': 0.8,
-        },
-      })
+      // Every basemap layer that draws a feature's name (skips shields,
+      // which label the `ref` property).
+      const labelLayers: LabelLayer[] = []
+      for (const layer of map.getStyle().layers ?? []) {
+        if (layer.type !== 'symbol') continue
+        const textField = layer.layout?.['text-field']
+        if (!textField || !JSON.stringify(textField).includes('"name"')) {
+          continue
+        }
+        labelLayers.push({
+          id: layer.id,
+          originalColor: layer.paint?.['text-color'] ?? '#333',
+        })
+      }
+      labelLayersRef.current = labelLayers
+
       map.addSource('highlights', {
         type: 'geojson',
         data: EMPTY_COLLECTION,
       })
       map.addLayer({
-        id: 'highlight-line-glow',
-        type: 'line',
-        source: 'highlights',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': HIGHLIGHT_COLOR,
-          'line-opacity': 0.3,
-          'line-blur': 4,
-          'line-width': [
-            'interpolate', ['linear'], ['zoom'], 4, 6, 10, 12, 16, 20,
-          ],
-        },
-      })
-      map.addLayer({
-        id: 'highlight-line',
-        type: 'line',
-        source: 'highlights',
-        filter: ['==', ['geometry-type'], 'LineString'],
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': HIGHLIGHT_COLOR,
-          'line-opacity': 0.85,
-          'line-width': [
-            'interpolate', ['linear'], ['zoom'], 4, 1.5, 10, 3, 16, 5,
-          ],
-        },
-      })
-      map.addLayer({
-        id: 'highlight-point-glow',
+        id: 'article-dots',
         type: 'circle',
         source: 'highlights',
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: {
-          'circle-color': HIGHLIGHT_COLOR,
-          'circle-radius': 14,
-          'circle-opacity': 0.25,
-          'circle-blur': 0.8,
+        layout: {
+          visibility: propsRef.current.allArticles ? 'visible' : 'none',
         },
-      })
-      map.addLayer({
-        id: 'highlight-point',
-        type: 'circle',
-        source: 'highlights',
-        filter: ['==', ['geometry-type'], 'Point'],
         paint: {
-          'circle-color': HIGHLIGHT_COLOR,
-          'circle-radius': 4.5,
+          'circle-color': DOT_COLOR,
+          'circle-radius': 5,
           'circle-opacity': 0.9,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 1.5,
         },
       })
-      layersReadyRef.current = true
+      readyRef.current = true
       refreshHighlights(map)
     })
-    map.on('moveend', () => refreshHighlights(map))
+    map.on('idle', () => {
+      if (readyRef.current) updateDotFilter(map)
+    })
+    map.on('moveend', () => {
+      if (readyRef.current) refreshHighlights(map)
+    })
+    map.on('mouseenter', 'article-dots', () => {
+      map.getCanvas().style.cursor = 'pointer'
+    })
+    map.on('mouseleave', 'article-dots', () => {
+      map.getCanvas().style.cursor = ''
+    })
 
     map.on('click', (e) => {
       const t = CLICK_TOLERANCE_PX
-      const features = map.queryRenderedFeatures([
+      const box: [maplibregl.PointLike, maplibregl.PointLike] = [
         [e.point.x - t, e.point.y - t],
         [e.point.x + t, e.point.y + t],
-      ])
+      ]
+      const dots = readyRef.current
+        ? map.queryRenderedFeatures(box, { layers: ['article-dots'] })
+        : []
       propsRef.current.onClickFeatures(
-        toCandidates(features),
+        toCandidates(map.queryRenderedFeatures(box), dots),
         { x: e.point.x, y: e.point.y },
         {
           lngLat: { lng: e.lngLat.lng, lat: e.lngLat.lat },
@@ -180,7 +223,7 @@ function MapView({
 
     return () => {
       abortRef.current?.abort()
-      layersReadyRef.current = false
+      readyRef.current = false
       mapRef.current = null
       map.remove()
     }
@@ -188,17 +231,17 @@ function MapView({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !layersReadyRef.current) return
+    if (!map || !readyRef.current) return
     map.setLayoutProperty(
-      'articles-only-dim',
+      'article-dots',
       'visibility',
-      articlesOnly ? 'visible' : 'none',
+      allArticles ? 'visible' : 'none',
     )
-  }, [articlesOnly])
+  }, [allArticles])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !layersReadyRef.current) return
+    if (!map || !readyRef.current) return
     refreshHighlights(map)
   }, [highlightsEpoch])
 

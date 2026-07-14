@@ -23,12 +23,36 @@ function kindOf(feature: MapGeoJSONFeature): string {
 /**
  * Collapse raw rendered features (one per layer fragment: casing, line,
  * label, ...) into named, deduplicated candidates for the picker.
+ *
+ * Article dots come first: they carry the place's slug, so selecting one
+ * skips the resolve round-trip and opens the article directly.
  */
 export function toCandidates(
   features: MapGeoJSONFeature[],
+  dots: MapGeoJSONFeature[] = [],
 ): FeatureCandidate[] {
   const seen = new Set<string>()
   const candidates: FeatureCandidate[] = []
+  for (const dot of dots) {
+    const props = dot.properties ?? {}
+    const name = props.display_name
+    const slug = props.slug
+    if (typeof name !== 'string' || typeof slug !== 'string') continue
+    const kind =
+      typeof props.feature_class === 'string' && props.feature_class
+        ? props.feature_class
+        : 'place'
+    const key = `${name}|${kind}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    candidates.push({
+      name,
+      kind,
+      sourceLayer: 'article-dots',
+      slug,
+      properties: { ...props },
+    })
+  }
   for (const feature of features) {
     const name = feature.properties?.name
     if (typeof name !== 'string' || !name) continue

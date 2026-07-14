@@ -23,7 +23,7 @@ function App() {
   const [selected, setSelected] = useState<Selection | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
-  const [articlesOnly, setArticlesOnly] = useState(false)
+  const [allArticles, setAllArticles] = useState(false)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
 
   useEffect(() => {
@@ -77,7 +77,7 @@ function App() {
       <MapView
         onClickFeatures={handleClickFeatures}
         onMoveStart={handleMoveStart}
-        articlesOnly={articlesOnly}
+        allArticles={allArticles}
         highlightsEpoch={highlightsEpoch}
       />
       <AuthControl
@@ -88,11 +88,11 @@ function App() {
       />
       <button
         type="button"
-        className={`articles-toggle${articlesOnly ? ' active' : ''}`}
-        onClick={() => setArticlesOnly((value) => !value)}
-        aria-pressed={articlesOnly}
+        className={`articles-toggle${allArticles ? ' active' : ''}`}
+        onClick={() => setAllArticles((value) => !value)}
+        aria-pressed={allArticles}
       >
-        Articles only
+        All articles
       </button>
       {picker && (
         <FeaturePicker

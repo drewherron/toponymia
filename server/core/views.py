@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from . import resolve as resolution
-from .articles import ensure_geometry, save_edit
+from .articles import save_edit
 from .models import Place
 from .overpass import OverpassError
 from .serializers import ArticleEditSerializer
@@ -90,9 +90,12 @@ def resolve(request):
 
 @api_view(['GET'])
 def highlights(request):
-    """GeoJSON of places with articles in the viewport (DESIGN.md §2.2).
+    """Places with articles in the viewport, as centroid GeoJSON.
 
-    The overlay paints these directly: lines get a tint, points a glow.
+    The client recolors basemap labels matching `names` (DESIGN.md §2.2)
+    and paints dots at the centroids in all-articles mode. Inclusion is
+    tested against cached geometry/bbox too, so a river whose centroid is
+    far away still lights its labels inside the viewport.
     """
     raw = request.query_params.get('bbox', '')
     try:
@@ -122,24 +125,30 @@ def highlights(request):
         article__current_revision__isnull=False
     ).annotate(
         geometry_plane=Cast('geometry', planar),
+        bbox_plane=Cast('bbox', planar),
         centroid_plane=Cast('centroid', planar),
     ).filter(
         Q(geometry_plane__intersects=viewport)
+        | Q(bbox_plane__intersects=viewport)
         | Q(centroid_plane__intersects=viewport)
-    )[:MAX_HIGHLIGHTS]
+    ).prefetch_related('names')[:MAX_HIGHLIGHTS]
 
-    features = [
-        {
-            'type': 'Feature',
-            'geometry': json.loads((place.geometry or place.centroid).geojson),
-            'properties': {
-                'slug': place.slug,
-                'display_name': place.display_name,
-                'feature_class': place.feature_class,
-            },
-        }
-        for place in places
-    ]
+    features = []
+    for place in places:
+        names = {place.display_name}
+        names.update(entry.name for entry in place.names.all())
+        features.append(
+            {
+                'type': 'Feature',
+                'geometry': json.loads(place.centroid.geojson),
+                'properties': {
+                    'slug': place.slug,
+                    'display_name': place.display_name,
+                    'feature_class': place.feature_class,
+                    'names': sorted(names),
+                },
+            }
+        )
     return Response({'type': 'FeatureCollection', 'features': features})
 
 
@@ -187,5 +196,4 @@ def article_edit(request, slug):
         serializer.validated_data['content'],
         serializer.validated_data['comment'],
     )
-    ensure_geometry(place)
     return Response({'article': _article_json(revision.article)})
