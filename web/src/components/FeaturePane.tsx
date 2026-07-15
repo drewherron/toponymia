@@ -10,6 +10,8 @@ import type {
 } from '../types'
 import ArticleEditor from './ArticleEditor'
 import ArticleView from './ArticleView'
+import HistoryTab from './HistoryTab'
+import TalkTab from './TalkTab'
 
 interface FeaturePaneProps {
   feature: FeatureCandidate
@@ -29,6 +31,14 @@ type Detail =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'done'; detail: PlaceDetail }
+
+type Tab = 'article' | 'talk' | 'history'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'article', label: 'Article' },
+  { id: 'talk', label: 'Talk' },
+  { id: 'history', label: 'History' },
+]
 
 const ANCHOR_LABEL: Record<ResolvedPlace['anchor_level'], string> = {
   wikidata: 'Anchored to Wikidata',
@@ -91,12 +101,15 @@ function FeaturePane({
   })
   const [detail, setDetail] = useState<Detail>({ status: 'loading' })
   const [editing, setEditing] = useState(false)
+  const [tab, setTab] = useState<Tab>('article')
+  const [wide, setWide] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
     setResolution({ status: 'loading' })
     setDetail({ status: 'loading' })
     setEditing(false)
+    setTab('article')
     // An article dot already knows its place: skip resolution entirely.
     const detailPromise = feature.slug
       ? getPlace(feature.slug, controller.signal).then((placeDetail) => {
@@ -136,7 +149,7 @@ function FeaturePane({
   const article = detail.status === 'done' ? detail.detail.article : null
 
   return (
-    <aside className="feature-pane">
+    <aside className={`feature-pane${wide ? ' wide' : ''}`}>
       <div className="feature-pane-header">
         <div>
           <span className="feature-kind">{feature.kind}</span>
@@ -153,6 +166,34 @@ function FeaturePane({
       </div>
       <AnchorInfo resolution={resolution} />
 
+      {place && !editing && (
+        <nav className="pane-tabs">
+          {TABS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              className={`pane-tab${tab === id ? ' active' : ''}`}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {place && !editing && tab === 'talk' && (
+        <TalkTab slug={place.slug} user={user} onRequestAuth={onRequestAuth} />
+      )}
+
+      {place && !editing && tab === 'history' && (
+        <HistoryTab
+          slug={place.slug}
+          user={user}
+          onReverted={handleSaved}
+          onWideChange={setWide}
+        />
+      )}
+
       {place && editing && (
         <ArticleEditor
           slug={place.slug}
@@ -163,11 +204,11 @@ function FeaturePane({
         />
       )}
 
-      {place && !editing && detail.status === 'loading' && (
+      {place && !editing && tab === 'article' && detail.status === 'loading' && (
         <p className="feature-pane-note">Loading article…</p>
       )}
 
-      {place && !editing && article && (
+      {place && !editing && tab === 'article' && article && (
         <>
           {user && (
             <button
@@ -182,7 +223,7 @@ function FeaturePane({
         </>
       )}
 
-      {place && !editing && detail.status === 'done' && !article && (
+      {place && !editing && tab === 'article' && detail.status === 'done' && !article && (
         <div className="article-stub">
           <p className="feature-pane-note">
             No article about this place name yet.

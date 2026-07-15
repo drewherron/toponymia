@@ -487,3 +487,360 @@ body,
 .article-editor-actions button:disabled {
   opacity: 0.6;
 }
+
+/* Pane tabs (Article · Talk · History) */
+
+.pane-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 14px;
+}
+
+.pane-tab {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 6px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: #555;
+  cursor: pointer;
+}
+
+.pane-tab.active {
+  color: #1f4f7a;
+  border-bottom-color: #1f4f7a;
+  font-weight: 600;
+}
+
+.feature-pane.wide {
+  width: 760px;
+}
+
+/* History tab */
+
+.history-compare {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #1f4f7a;
+  color: #fff;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.history-compare:disabled {
+  opacity: 0.5;
+}
+
+.revision-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.revision-item {
+  display: flex;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid #eee;
+  align-items: baseline;
+}
+
+.revision-radios {
+  white-space: nowrap;
+}
+
+.revision-meta {
+  line-height: 1.5;
+}
+
+.revision-view {
+  font: inherit;
+  font-size: 0.88rem;
+  border: none;
+  background: none;
+  padding: 0;
+  color: #1f4f7a;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.revision-current {
+  background: #e7f0e7;
+  color: #2c662c;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 0.75rem;
+  margin-left: 6px;
+}
+
+.revision-comment {
+  color: #666;
+  font-style: italic;
+  margin-left: 6px;
+}
+
+.revision-revert,
+.diff-back {
+  font: inherit;
+  font-size: 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  padding: 2px 8px;
+  cursor: pointer;
+  margin-left: 6px;
+}
+
+.revision-revert:disabled {
+  opacity: 0.5;
+}
+
+.diff-back {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  padding: 5px 10px;
+}
+
+.revision-banner {
+  background: #fdf6e3;
+  border: 1px solid #eadfbc;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+}
+
+.revision-banner p {
+  margin: 0 0 8px;
+}
+
+.revision-banner-actions button {
+  font: inherit;
+  font-size: 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  padding: 3px 10px;
+  cursor: pointer;
+  margin-right: 6px;
+}
+
+/* Side-by-side diff */
+
+.diff-side-headers,
+.diff-field-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.diff-side-header {
+  font-size: 0.82rem;
+  color: #444;
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.diff-rows {
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  border: 1px solid #e3e3e3;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.diff-row + .diff-row {
+  border-top: 1px solid #f0f0f0;
+}
+
+.diff-cell {
+  padding: 2px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.diff-cell + .diff-cell {
+  border-left: 1px solid #e3e3e3;
+}
+
+.diff-row.changed .diff-cell:first-child {
+  background: #fff5f5;
+}
+
+.diff-row.changed .diff-cell:last-child {
+  background: #f2fbf2;
+}
+
+.diff-cell.absent {
+  background: #fafafa !important;
+}
+
+.diff-del {
+  background: #ffd7d5;
+  text-decoration: line-through;
+  text-decoration-color: #b34240;
+}
+
+.diff-add {
+  background: #c8f0c8;
+}
+
+.diff-fields {
+  margin-top: 16px;
+  font-size: 0.85rem;
+}
+
+.diff-fields h3 {
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+}
+
+.diff-field {
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.diff-field-kind {
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 0.75rem;
+  margin-right: 6px;
+}
+
+.diff-field-added {
+  background: #c8f0c8;
+  color: #205920;
+}
+
+.diff-field-removed {
+  background: #ffd7d5;
+  color: #7a2422;
+}
+
+.diff-field-changed {
+  background: #fdeec4;
+  color: #7a5a12;
+}
+
+.diff-field-values {
+  margin-top: 6px;
+}
+
+/* Talk tab */
+
+.talk-thread {
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.talk-thread h3 {
+  font-size: 1.05rem;
+  margin-bottom: 8px;
+}
+
+.talk-post {
+  margin-bottom: 10px;
+}
+
+.talk-post-byline {
+  font-size: 0.8rem;
+  color: #555;
+  margin-bottom: 2px;
+}
+
+.talk-post-edited {
+  font-style: italic;
+  margin-left: 6px;
+}
+
+.talk-post-edit {
+  font: inherit;
+  font-size: 0.78rem;
+  border: none;
+  background: none;
+  color: #1f4f7a;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 0;
+}
+
+.talk-post-body {
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.talk-post-body p {
+  margin-bottom: 6px;
+}
+
+.talk-form textarea,
+.talk-form input {
+  width: 100%;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 7px 9px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin: 4px 0 8px;
+}
+
+.talk-form label {
+  display: block;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.talk-form-actions button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  margin-right: 6px;
+}
+
+.talk-form-actions button[type='submit'] {
+  background: #1f4f7a;
+  border-color: #1f4f7a;
+  color: #fff;
+}
+
+.talk-form-actions button:disabled {
+  opacity: 0.6;
+}
+
+.talk-reply-button,
+.talk-new-button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.talk-new-button {
+  background: #1f4f7a;
+  border-color: #1f4f7a;
+  color: #fff;
+}

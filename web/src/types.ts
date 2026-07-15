@@ -71,3 +71,30 @@ export interface User {
   id: number
   username: string
 }
+
+export interface RevisionSummary {
+  id: number
+  author: string
+  created: string
+  comment: string
+  is_current: boolean
+}
+
+export interface RevisionDetail extends RevisionSummary {
+  content: ArticleContent
+}
+
+export interface TalkPost {
+  id: number
+  author: string
+  body_md: string
+  created: string
+  edited: string | null
+}
+
+export interface TalkThread {
+  id: number
+  title: string
+  created: string
+  posts: TalkPost[]
+}

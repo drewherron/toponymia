@@ -5,6 +5,10 @@ import type {
   ClickContext,
   PlaceDetail,
   ResolveResponse,
+  RevisionDetail,
+  RevisionSummary,
+  TalkPost,
+  TalkThread,
   User,
 } from './types'
 
@@ -93,6 +97,111 @@ export async function saveArticle(
   }
   const body = await response.json()
   return body.article
+}
+
+export async function listRevisions(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<RevisionSummary[]> {
+  const response = await fetch(`/api/places/${slug}/revisions/`, { signal })
+  if (!response.ok) {
+    throw new Error(`revisions fetch failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.revisions
+}
+
+export async function getRevision(
+  slug: string,
+  revisionId: number,
+  signal?: AbortSignal,
+): Promise<RevisionDetail> {
+  const response = await fetch(
+    `/api/places/${slug}/revisions/${revisionId}/`,
+    { signal },
+  )
+  if (!response.ok) {
+    throw new Error(`revision fetch failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.revision
+}
+
+export async function revertArticle(
+  slug: string,
+  revisionId: number,
+): Promise<ArticleData> {
+  const response = await fetch(`/api/places/${slug}/revert/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ revision_id: revisionId }),
+  })
+  if (!response.ok) {
+    throw new Error(`revert failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.article
+}
+
+export async function getTalk(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<TalkThread[]> {
+  const response = await fetch(`/api/places/${slug}/talk/`, { signal })
+  if (!response.ok) {
+    throw new Error(`talk fetch failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.threads
+}
+
+export async function createTalkThread(
+  slug: string,
+  title: string,
+  bodyMd: string,
+): Promise<TalkThread> {
+  const response = await fetch(`/api/places/${slug}/talk/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ title, body_md: bodyMd }),
+  })
+  if (!response.ok) {
+    throw new Error(`thread create failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.thread
+}
+
+export async function replyTalkThread(
+  threadId: number,
+  bodyMd: string,
+): Promise<TalkPost> {
+  const response = await fetch(`/api/talk/${threadId}/posts/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ body_md: bodyMd }),
+  })
+  if (!response.ok) {
+    throw new Error(`reply failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.post
+}
+
+export async function editTalkPost(
+  postId: number,
+  bodyMd: string,
+): Promise<TalkPost> {
+  const response = await fetch(`/api/talk/posts/${postId}/`, {
+    method: 'PUT',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ body_md: bodyMd }),
+  })
+  if (!response.ok) {
+    throw new Error(`post edit failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.post
 }
 
 /** django-allauth headless browser API. Errors carry
