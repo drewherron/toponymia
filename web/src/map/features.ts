@@ -60,11 +60,17 @@ export function toCandidates(
     const key = `${name}|${kind}`
     if (seen.has(key)) continue
     seen.add(key)
+    let anchor: FeatureCandidate['anchor']
+    if (feature.geometry.type === 'Point') {
+      const [lng, lat] = feature.geometry.coordinates
+      anchor = { lng, lat }
+    }
     candidates.push({
       name,
       kind,
       sourceLayer: feature.sourceLayer ?? '',
       properties: { ...feature.properties },
+      anchor,
     })
   }
   return candidates

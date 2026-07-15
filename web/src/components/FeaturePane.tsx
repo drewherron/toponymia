@@ -116,7 +116,12 @@ function FeaturePane({
           setResolution({ status: 'done', place: placeDetail.place })
           return placeDetail
         })
-      : resolveFeature(feature.name, feature.kind, click, controller.signal)
+      : resolveFeature(
+          feature.name,
+          feature.kind,
+          feature.anchor ? { ...click, lngLat: feature.anchor } : click,
+          controller.signal,
+        )
           .then((response) => {
             setResolution({ status: 'done', place: response.place })
             return getPlace(response.place.slug, controller.signal)

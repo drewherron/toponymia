@@ -18,12 +18,15 @@ def resolve(name, feature_class, lng, lat, zoom=None):
     radius = overpass.radius_for_click(zoom, lat)
     click = Point(lng, lat, srid=4326)
 
+    # bbox matters for relations, which cache no geometry: without it a
+    # low-zoom click far from the centroid re-creates the place.
     cached = (
         Place.objects.filter(display_name=name, feature_class=feature_class)
         .filter(
             Q(centroid__dwithin=(click, D(m=radius)))
             | Q(label_point__dwithin=(click, D(m=radius)))
             | Q(geometry__dwithin=(click, D(m=radius)))
+            | Q(bbox__dwithin=(click, D(m=radius)))
         )
         .first()
     )

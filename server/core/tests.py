@@ -127,11 +127,24 @@ class ResolveApiTests(TestCase):
     def test_same_qid_from_distant_click_reuses_place(self, fetch):
         fetch.return_value = [_relation()]
         first = self._post().json()
-        # 1400 km downstream: outside any proximity cache, same QID.
-        second = self._post(lngLat=[-89.0, 44.5]).json()
+        # well outside the proximity cache (incl. bbox): same QID reused.
+        second = self._post(lngLat=[-88.0, 44.5]).json()
+        fetch.assert_called()
         self.assertFalse(second['created'])
         self.assertEqual(second['place']['id'], first['place']['id'])
         self.assertEqual(Place.objects.count(), 1)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_low_zoom_click_inside_bbox_hits_cache(self, fetch):
+        fetch.return_value = [_relation()]
+        first = self._post().json()
+        fetch.reset_mock()
+        # zoomed far out, ~1300 km from centroid and label point but
+        # inside the cached bbox: must not re-create the place
+        second = self._post(lngLat=[-90.0, 44.0], zoom=5).json()
+        fetch.assert_not_called()
+        self.assertFalse(second['created'])
+        self.assertEqual(second['place']['id'], first['place']['id'])
 
     @patch('core.resolve.overpass.fetch_elements')
     def test_nearby_click_hits_cache_without_overpass(self, fetch):

@@ -6,6 +6,10 @@ export interface FeatureCandidate {
   /** Set when the candidate is an article dot: selection can skip
    *  resolution and fetch the place directly. */
   slug?: string
+  /** The feature's own point (label anchors are exact), preferred over
+   *  the mouse position when resolving — a zoomed-out click can land
+   *  kilometres from the feature it visually hits. */
+  anchor?: { lng: number; lat: number }
 }
 
 /** Where on the map the candidates were clicked. */
