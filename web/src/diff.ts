@@ -46,7 +46,15 @@ function wordSpans(
   return { left, right }
 }
 
+/** A final line without a trailing newline diffs as a different token
+ * than the same line with one — normalize so only real edits show. */
+function withEofNewline(text: string): string {
+  return text === '' || text.endsWith('\n') ? text : `${text}\n`
+}
+
 export function diffBody(oldText: string, newText: string): DiffRow[] {
+  oldText = withEofNewline(oldText)
+  newText = withEofNewline(newText)
   const rows: DiffRow[] = []
   let removed: string[] = []
   let added: string[] = []
