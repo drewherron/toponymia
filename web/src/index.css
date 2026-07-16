@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'Eagle Lake';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/eagle-lake-latin.woff2') format('woff2');
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -32,8 +40,9 @@ body,
 }
 
 .app-logo {
-  font-size: 1.15rem;
-  font-weight: 700;
+  font-family: 'Eagle Lake', Georgia, serif;
+  font-size: 1.3rem;
+  font-weight: 400;
   letter-spacing: 0.01em;
   color: #1f4f7a;
   text-decoration: none;
