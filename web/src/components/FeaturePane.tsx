@@ -20,6 +20,9 @@ interface FeaturePaneProps {
   onRequestAuth: () => void
   onClose: () => void
   onArticleSaved: () => void
+  /** Fires once the click/slug settles into a Place — App syncs the
+   *  /place/<slug> URL and the document title off this. */
+  onResolved: (place: ResolvedPlace) => void
 }
 
 type Resolution =
@@ -95,6 +98,7 @@ function FeaturePane({
   onRequestAuth,
   onClose,
   onArticleSaved,
+  onResolved,
 }: FeaturePaneProps) {
   const [resolution, setResolution] = useState<Resolution>({
     status: 'loading',
@@ -114,6 +118,7 @@ function FeaturePane({
     const detailPromise = feature.slug
       ? getPlace(feature.slug, controller.signal).then((placeDetail) => {
           setResolution({ status: 'done', place: placeDetail.place })
+          onResolved(placeDetail.place)
           return placeDetail
         })
       : resolveFeature(
@@ -124,6 +129,7 @@ function FeaturePane({
         )
           .then((response) => {
             setResolution({ status: 'done', place: response.place })
+            onResolved(response.place)
             return getPlace(response.place.slug, controller.signal)
           })
     detailPromise
@@ -138,7 +144,7 @@ function FeaturePane({
         }
       })
     return () => controller.abort()
-  }, [feature, click])
+  }, [feature, click, onResolved])
 
   const handleSaved = (article: ArticleData) => {
     setDetail((prev) =>

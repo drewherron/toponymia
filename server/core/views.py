@@ -2,7 +2,7 @@ import json
 
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.geos import Polygon
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -24,6 +24,7 @@ from .serializers import (
 )
 
 MAX_HIGHLIGHTS = 500
+MAX_SEARCH_RESULTS = 8
 
 
 @api_view(['GET'])
@@ -53,6 +54,15 @@ def _place_json(place):
         'osm_type': place.osm_type,
         'osm_id': place.osm_id,
         'centroid': [place.centroid.x, place.centroid.y],
+        # A point guaranteed to lie on the feature — where search/deep
+        # links should fly the map. bbox extent lets the client fit big
+        # features (a river) instead of zooming to one point on them.
+        'label_point': (
+            [place.label_point.x, place.label_point.y]
+            if place.label_point
+            else None
+        ),
+        'bbox': list(place.bbox.extent) if place.bbox else None,
     }
 
 
@@ -158,6 +168,65 @@ def highlights(request):
             }
         )
     return Response({'type': 'FeatureCollection', 'features': features})
+
+
+@api_view(['GET'])
+def search(request):
+    """Find our own articles by any of their names (DESIGN.md §2.3).
+
+    Only places with a published article are returned — the "everything
+    else on Earth" half of the search box is the client-side geocoder.
+    Matches the display name and the materialized PlaceNames, so the
+    French exonym finds the place too; `matched_name` says which alias
+    hit when the display name itself didn't.
+    """
+    query = request.query_params.get('q', '').strip()
+    if len(query) < 2:
+        return Response({'results': []})
+    places = (
+        Place.objects.filter(article__current_revision__isnull=False)
+        .filter(
+            Q(display_name__icontains=query)
+            | Q(names__name__icontains=query)
+        )
+        .annotate(
+            prefix_rank=Case(
+                When(display_name__istartswith=query, then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by('prefix_rank', 'display_name', 'id')
+        .distinct()
+        .prefetch_related('names')[:MAX_SEARCH_RESULTS]
+    )
+    lowered = query.lower()
+    results = []
+    for place in places:
+        matched_name = None
+        if lowered not in place.display_name.lower():
+            matched_name = next(
+                (
+                    entry.name
+                    for entry in place.names.all()
+                    if lowered in entry.name.lower()
+                ),
+                None,
+            )
+        results.append({**_place_json(place), 'matched_name': matched_name})
+    return Response({'results': results})
+
+
+@api_view(['GET'])
+def random_article(request):
+    """A random place that has an article; null when the wiki is empty.
+    order_by('?') is fine at wiki scale."""
+    place = (
+        Place.objects.filter(article__current_revision__isnull=False)
+        .order_by('?')
+        .first()
+    )
+    return Response({'place': _place_json(place) if place else None})
 
 
 def _article_json(article):

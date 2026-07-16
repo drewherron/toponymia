@@ -643,3 +643,79 @@ class AuthApiTests(TestCase):
         self.assertIsNone(
             self.client.get(reverse('core:me')).json()['user']
         )
+
+
+class SearchApiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('drew', password='pw12345!')
+        self.paris = _make_place(name='Paris', slug='paris')
+        _publish(self.paris, self.user)
+        PlaceName.objects.create(
+            place=self.paris, name='Lutèce', language='fra'
+        )
+
+    def _get(self, q):
+        return self.client.get(reverse('core:search'), {'q': q}).json()
+
+    def test_matches_display_name(self):
+        results = self._get('par')['results']
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['slug'], 'paris')
+        self.assertIsNone(results[0]['matched_name'])
+
+    def test_matches_place_name_and_reports_alias(self):
+        results = self._get('lutè')['results']
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['slug'], 'paris')
+        self.assertEqual(results[0]['matched_name'], 'Lutèce')
+
+    def test_stub_places_excluded(self):
+        _make_place(name='Paraguay Stub', slug='paraguay-stub')
+        results = self._get('par')['results']
+        self.assertEqual([r['slug'] for r in results], ['paris'])
+
+    def test_short_or_missing_query_is_empty(self):
+        self.assertEqual(self._get('p')['results'], [])
+        response = self.client.get(reverse('core:search'))
+        self.assertEqual(response.json()['results'], [])
+
+    def test_no_match(self):
+        self.assertEqual(self._get('zanzibar')['results'], [])
+
+    def test_prefix_matches_rank_first(self):
+        west = _make_place(name='West Paris', slug='west-paris')
+        _publish(west, self.user)
+        results = self._get('paris')['results']
+        self.assertEqual(
+            [r['slug'] for r in results], ['paris', 'west-paris']
+        )
+
+    def test_alias_match_not_duplicated(self):
+        # display name AND an alias both match: one result row
+        PlaceName.objects.create(
+            place=self.paris, name='Parisius', language='lat'
+        )
+        results = self._get('paris')['results']
+        self.assertEqual(len(results), 1)
+
+
+class RandomApiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('drew', password='pw12345!')
+
+    def test_no_articles_yet(self):
+        _make_place()  # stub only
+        response = self.client.get(reverse('core:random'))
+        self.assertIsNone(response.json()['place'])
+
+    def test_returns_an_article_place(self):
+        place = _make_place()
+        place.label_point = Point(11.0, 51.0, srid=4326)
+        place.bbox = Polygon.from_bbox((9.0, 49.0, 12.0, 52.0))
+        place.save(update_fields=['label_point', 'bbox'])
+        _publish(place, self.user)
+        body = self.client.get(reverse('core:random')).json()['place']
+        self.assertEqual(body['slug'], 'testville')
+        # fly-to fields for search/deep links/random
+        self.assertEqual(body['label_point'], [11.0, 51.0])
+        self.assertEqual(body['bbox'], [9.0, 49.0, 12.0, 52.0])

@@ -28,6 +28,35 @@ export interface ResolvedPlace {
   osm_type: string | null
   osm_id: number | null
   centroid: [number, number]
+  /** A point on the feature itself — where fly-to should land. */
+  label_point: [number, number] | null
+  /** [minLng, minLat, maxLng, maxLat] when a footprint is cached. */
+  bbox: [number, number, number, number] | null
+}
+
+export interface SearchResult extends ResolvedPlace {
+  /** The alias that matched when the display name itself didn't. */
+  matched_name: string | null
+}
+
+/** One geocoder suggestion (Photon), for places we have no article on. */
+export interface GeocodeHit {
+  name: string
+  /** Mapped onto the same kinds map clicks produce, for resolve caching. */
+  kind: string
+  /** Disambiguation line: city, state, country. */
+  context: string
+  lngLat: { lng: number; lat: number }
+  extent: [number, number, number, number] | null
+  /** "node/123" — used to drop hits that duplicate an article result. */
+  osmRef: string | null
+}
+
+/** Imperative map controls exposed by MapView through a ref object. */
+export interface MapApi {
+  flyToPlace: (place: ResolvedPlace) => void
+  flyToHit: (hit: GeocodeHit) => void
+  getCenter: () => { lng: number; lat: number }
 }
 
 export interface ResolveResponse {

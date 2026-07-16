@@ -2,8 +2,15 @@ import type { FeatureCollection } from 'geojson'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
+import type { RefObject } from 'react'
 import { fetchHighlights } from '../api'
-import type { ClickContext, FeatureCandidate } from '../types'
+import type {
+  ClickContext,
+  FeatureCandidate,
+  GeocodeHit,
+  MapApi,
+  ResolvedPlace,
+} from '../types'
 import { toCandidates } from './features'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
@@ -33,6 +40,8 @@ interface MapViewProps {
   allArticles: boolean
   /** Bump to force a highlight refetch (e.g. after saving an article). */
   highlightsEpoch: number
+  /** Receives imperative controls (fly-to for search/deep links). */
+  mapApi: RefObject<MapApi | null>
 }
 
 function MapView({
@@ -40,6 +49,7 @@ function MapView({
   onMoveStart,
   allArticles,
   highlightsEpoch,
+  mapApi,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -147,6 +157,45 @@ function MapView({
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
+    // A camera animation started before the style loads gets dropped,
+    // so a fly requested at boot (deep link) waits for 'load'.
+    let pendingFly: (() => void) | null = null
+    const flyWhenReady = (fly: () => void) => {
+      if (map.loaded()) fly()
+      else pendingFly = fly
+    }
+    const fitBbox = ([w, s, e, n]: [number, number, number, number]) => {
+      map.fitBounds(
+        [
+          [w, s],
+          [e, n],
+        ],
+        { padding: 80, maxZoom: 14 },
+      )
+    }
+    mapApi.current = {
+      flyToPlace: (place: ResolvedPlace) => {
+        flyWhenReady(() => {
+          if (place.bbox) {
+            fitBbox(place.bbox)
+          } else {
+            const [lng, lat] = place.label_point ?? place.centroid
+            map.flyTo({ center: [lng, lat], zoom: 12 })
+          }
+        })
+      },
+      flyToHit: (hit: GeocodeHit) => {
+        flyWhenReady(() => {
+          if (hit.extent) fitBbox(hit.extent)
+          else map.flyTo({ center: hit.lngLat, zoom: 12 })
+        })
+      },
+      getCenter: () => {
+        const center = map.getCenter()
+        return { lng: center.lng, lat: center.lat }
+      },
+    }
+
     map.on('load', () => {
       // Every basemap layer that draws a feature's name (skips shields,
       // which label the `ref` property).
@@ -185,6 +234,8 @@ function MapView({
       })
       readyRef.current = true
       refreshHighlights(map)
+      pendingFly?.()
+      pendingFly = null
     })
     map.on('idle', () => {
       if (readyRef.current) updateDotFilter(map)
@@ -225,9 +276,11 @@ function MapView({
       abortRef.current?.abort()
       readyRef.current = false
       mapRef.current = null
+      mapApi.current = null
       map.remove()
     }
-  }, [])
+    // mapApi is a stable ref object from App
+  }, [mapApi])
 
   useEffect(() => {
     const map = mapRef.current

@@ -3,10 +3,13 @@ import type {
   ArticleContent,
   ArticleData,
   ClickContext,
+  GeocodeHit,
   PlaceDetail,
+  ResolvedPlace,
   ResolveResponse,
   RevisionDetail,
   RevisionSummary,
+  SearchResult,
   TalkPost,
   TalkThread,
   User,
@@ -59,6 +62,116 @@ export async function fetchHighlights(
     throw new Error(`highlights failed: ${response.status}`)
   }
   return response.json()
+}
+
+/** Our own articles matching the query, by any of their names. */
+export async function searchArticles(
+  query: string,
+  signal?: AbortSignal,
+): Promise<SearchResult[]> {
+  const response = await fetch(
+    `/api/search/?q=${encodeURIComponent(query)}`,
+    { signal },
+  )
+  if (!response.ok) {
+    throw new Error(`search failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.results
+}
+
+/** A random place with an article, or null while the wiki is empty. */
+export async function fetchRandomArticle(): Promise<ResolvedPlace | null> {
+  const response = await fetch('/api/random/')
+  if (!response.ok) {
+    throw new Error(`random failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.place
+}
+
+const PHOTON_TYPE: Record<string, string> = {
+  N: 'node',
+  W: 'way',
+  R: 'relation',
+}
+
+/** Map Photon's osm_key/osm_value onto the kinds map clicks produce
+ * (features.ts), so a geocoder pick hits the same resolve cache row a
+ * click on the feature would. */
+function kindFromPhoton(key: string, value: string): string {
+  if (key === 'place') return value || 'place'
+  if (key === 'waterway') return 'waterway'
+  if (key === 'highway') return 'road'
+  if (key === 'natural') return value === 'peak' ? 'peak' : value || 'water'
+  if (key === 'boundary') return 'boundary'
+  return value || key || 'place'
+}
+
+interface PhotonFeature {
+  geometry: { coordinates: [number, number] }
+  properties: {
+    name?: string
+    osm_key?: string
+    osm_value?: string
+    osm_type?: string
+    osm_id?: number
+    city?: string
+    state?: string
+    country?: string
+    /** Photon order: [minLng, maxLat, maxLng, minLat]. */
+    extent?: [number, number, number, number]
+  }
+}
+
+/** Geocoder half of search (Photon — public, keyless, CORS-open).
+ * Biased toward the current map view when a center is given. */
+export async function searchGeocoder(
+  query: string,
+  center: { lng: number; lat: number } | null,
+  signal?: AbortSignal,
+): Promise<GeocodeHit[]> {
+  const params = new URLSearchParams({ q: query, limit: '6' })
+  if (center) {
+    params.set('lat', center.lat.toFixed(4))
+    params.set('lon', center.lng.toFixed(4))
+  }
+  const response = await fetch(
+    `https://photon.komoot.io/api/?${params}`,
+    { signal },
+  )
+  if (!response.ok) {
+    throw new Error(`geocoder failed: ${response.status}`)
+  }
+  const body = await response.json()
+  const hits: GeocodeHit[] = []
+  const seen = new Set<string>()
+  for (const feature of (body.features ?? []) as PhotonFeature[]) {
+    const props = feature.properties
+    if (!props.name) continue
+    const context = [props.city, props.state, props.country]
+      .filter((part): part is string => !!part && part !== props.name)
+      .join(', ')
+    const key = `${props.name}|${context}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const [lng, lat] = feature.geometry.coordinates
+    const extent = props.extent
+    hits.push({
+      name: props.name,
+      kind: kindFromPhoton(props.osm_key ?? '', props.osm_value ?? ''),
+      context,
+      lngLat: { lng, lat },
+      extent: extent
+        ? [extent[0], extent[3], extent[2], extent[1]]
+        : null,
+      osmRef:
+        props.osm_type && props.osm_id
+          ? `${PHOTON_TYPE[props.osm_type] ?? props.osm_type}/${props.osm_id}`
+          : null,
+    })
+  }
+  return hits
 }
 
 /** Also plants the CSRF cookie — call once on app load, before any POST. */

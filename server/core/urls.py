@@ -9,6 +9,8 @@ urlpatterns = [
     path('me/', views.me, name='me'),
     path('resolve/', views.resolve, name='resolve'),
     path('highlights/', views.highlights, name='highlights'),
+    path('search/', views.search, name='search'),
+    path('random/', views.random_article, name='random'),
     path('places/<slug:slug>/', views.place_detail, name='place-detail'),
     path(
         'places/<slug:slug>/article/',
