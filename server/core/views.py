@@ -14,10 +14,12 @@ from rest_framework.response import Response
 
 from . import resolve as resolution
 from .articles import save_edit
-from .models import Place, Revision, TalkPost, TalkThread
+from .models import Place, Report, Revision, TalkPost, TalkThread
 from .overpass import OverpassError
 from .serializers import (
     ArticleEditSerializer,
+    ReportActionSerializer,
+    ReportSerializer,
     RevertSerializer,
     TalkPostSerializer,
     TalkThreadSerializer,
@@ -25,6 +27,14 @@ from .serializers import (
 
 MAX_HIGHLIGHTS = 500
 MAX_SEARCH_RESULTS = 8
+MAX_REPORTS = 100
+
+
+def is_moderator(user):
+    """A moderator can act on the mod queue and delete others' content.
+    Mapped to Django's staff flag (admins are superusers) — no custom
+    user model needed for v1 (DESIGN.md §4 roles user/mod/admin)."""
+    return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
 @api_view(['GET'])
@@ -40,7 +50,15 @@ def me(request):
     user = request.user
     if not user.is_authenticated:
         return Response({'user': None})
-    return Response({'user': {'id': user.id, 'username': user.username}})
+    return Response(
+        {
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'is_moderator': is_moderator(user),
+            }
+        }
+    )
 
 
 def _place_json(place):
@@ -359,12 +377,16 @@ def article_edit(request, slug):
 
 
 def _post_json(post):
+    # A soft-deleted post stays as a tombstone (thread coherence) but its
+    # body is withheld from everyone.
+    deleted = post.deleted is not None
     return {
         'id': post.id,
         'author': post.author.username,
-        'body_md': post.body_md,
+        'body_md': '' if deleted else post.body_md,
         'created': post.created.isoformat(),
         'edited': post.edited.isoformat() if post.edited else None,
+        'deleted': deleted,
     }
 
 
@@ -383,7 +405,11 @@ def talk(request, slug):
     with its opening post) needs an account."""
     place = get_object_or_404(Place, slug=slug)
     if request.method == 'GET':
-        threads = place.talk_threads.prefetch_related('posts__author')
+        # Deleted threads drop out of the list; deleted posts stay as
+        # tombstones so replies still make sense.
+        threads = place.talk_threads.filter(
+            deleted__isnull=True
+        ).prefetch_related('posts__author')
         return Response(
             {'threads': [_thread_json(thread) for thread in threads]}
         )
@@ -431,6 +457,11 @@ def talk_post_edit(request, post_id):
             {'error': 'you can only edit your own posts'},
             status=status.HTTP_403_FORBIDDEN,
         )
+    if post.deleted is not None:
+        return Response(
+            {'error': 'this post has been removed'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     serializer = TalkPostSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -438,3 +469,156 @@ def talk_post_edit(request, post_id):
     post.edited = timezone.now()
     post.save(update_fields=['body_md', 'edited'])
     return Response({'post': _post_json(post)})
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def talk_post_delete(request, post_id):
+    """Soft-delete a post: its own author or a moderator (DESIGN.md §6)."""
+    post = get_object_or_404(TalkPost, id=post_id)
+    if post.author_id != request.user.id and not is_moderator(request.user):
+        return Response(
+            {'error': 'you can only delete your own posts'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if post.deleted is None:
+        post.deleted = timezone.now()
+        post.deleted_by = request.user
+        post.save(update_fields=['deleted', 'deleted_by'])
+    return Response({'post': _post_json(post)})
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def talk_thread_delete(request, thread_id):
+    """Soft-delete a whole thread — moderators only (DESIGN.md §6)."""
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    thread = get_object_or_404(TalkThread, id=thread_id)
+    if thread.deleted is None:
+        thread.deleted = timezone.now()
+        thread.deleted_by = request.user
+        thread.save(update_fields=['deleted', 'deleted_by'])
+    return Response({'ok': True})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_report(request):
+    """Flag a revision or a talk post for moderator attention. Re-filing
+    an already-open report of the same target is idempotent."""
+    serializer = ReportSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    data = serializer.validated_data
+    target = data['target_type']
+    lookup = {'revision': Revision, 'talk_post': TalkPost}[target]
+    obj = get_object_or_404(lookup, id=data['target_id'])
+    report, _ = Report.objects.get_or_create(
+        reporter=request.user,
+        status=Report.Status.OPEN,
+        **{target: obj},
+        defaults={'reason': data['reason']},
+    )
+    return Response(
+        {'report': {'id': report.id, 'status': report.status}},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+def _report_json(report):
+    """A queue row with just enough target context to triage without a
+    round-trip: what was said, by whom, and where to find it."""
+    target = None
+    if report.revision_id is not None:
+        revision = report.revision
+        place = revision.article.place
+        target = {
+            'kind': 'revision',
+            'id': revision.id,
+            'author': revision.author.username,
+            'comment': revision.comment,
+            'excerpt': revision.content.get('body_md', '')[:280],
+            'slug': place.slug,
+            'place': place.display_name,
+            'is_current': revision.article.current_revision_id == revision.id,
+        }
+    elif report.talk_post_id is not None:
+        post = report.talk_post
+        place = post.thread.place
+        target = {
+            'kind': 'talk_post',
+            'id': post.id,
+            'thread_id': post.thread_id,
+            'thread_title': post.thread.title,
+            'author': post.author.username,
+            'excerpt': '' if post.deleted else post.body_md[:280],
+            'slug': place.slug,
+            'place': place.display_name,
+            'deleted': post.deleted is not None,
+        }
+    return {
+        'id': report.id,
+        'reason': report.reason,
+        'reporter': report.reporter.username,
+        'created': report.created.isoformat(),
+        'target': target,
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mod_reports(request):
+    """The moderator queue: open reports, newest first."""
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    reports = (
+        Report.objects.filter(status=Report.Status.OPEN)
+        .select_related(
+            'reporter',
+            'revision__author',
+            'revision__article__place',
+            'revision__article__current_revision',
+            'talk_post__author',
+            'talk_post__thread__place',
+        )[:MAX_REPORTS]
+    )
+    return Response(
+        {'reports': [_report_json(report) for report in reports]}
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mod_report_action(request, report_id):
+    """Resolve a report. `delete` soft-deletes the reported target (talk
+    posts only; revisions are undone by reverting), then resolves."""
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    serializer = ReportActionSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    report = get_object_or_404(Report, id=report_id)
+    action = serializer.validated_data['action']
+
+    if action == 'delete':
+        post = report.talk_post
+        if post is None:
+            return Response(
+                {'error': 'only talk posts can be deleted from the queue'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if post.deleted is None:
+            post.deleted = timezone.now()
+            post.deleted_by = request.user
+            post.save(update_fields=['deleted', 'deleted_by'])
+
+    report.status = (
+        Report.Status.DISMISSED
+        if action == 'dismiss'
+        else Report.Status.RESOLVED
+    )
+    report.handled_by = request.user
+    report.handled_at = timezone.now()
+    report.save(update_fields=['status', 'handled_by', 'handled_at'])
+    return Response({'report': {'id': report.id, 'status': report.status}})

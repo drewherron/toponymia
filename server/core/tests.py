@@ -5,7 +5,7 @@ from django.contrib.gis.geos import LineString, Point, Polygon
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Article, Place, PlaceName, Revision
+from .models import Article, Place, PlaceName, Report, Revision, TalkPost
 from .overpass import (
     OverpassError,
     center_of,
@@ -719,3 +719,233 @@ class RandomApiTests(TestCase):
         # fly-to fields for search/deep links/random
         self.assertEqual(body['label_point'], [11.0, 51.0])
         self.assertEqual(body['bbox'], [9.0, 49.0, 12.0, 52.0])
+
+
+class ModerationApiTests(TestCase):
+    def setUp(self):
+        self.place = _make_place()
+        self.author = User.objects.create_user('drew', password='pw12345!')
+        self.other = User.objects.create_user('sam', password='pw12345!')
+        self.mod = User.objects.create_user(
+            'mira', password='pw12345!', is_staff=True
+        )
+
+    # --- helpers -----------------------------------------------------
+    def _thread_with_post(self):
+        self.client.force_login(self.author)
+        thread = self.client.post(
+            reverse('core:talk', args=[self.place.slug]),
+            {'title': 'Etymology dispute', 'body_md': 'Sources?'},
+            content_type='application/json',
+        ).json()['thread']
+        self.client.logout()
+        return thread, thread['posts'][0]
+
+    def _revision(self):
+        article = Article.objects.create(place=self.place)
+        revision = Revision.objects.create(
+            article=article, author=self.author, comment='draft',
+            content=_content(),
+        )
+        article.current_revision = revision
+        article.save(update_fields=['current_revision'])
+        return revision
+
+    def _report(self, target_type, target_id, reason='spam'):
+        return self.client.post(
+            reverse('core:report-create'),
+            {'target_type': target_type, 'target_id': target_id,
+             'reason': reason},
+            content_type='application/json',
+        )
+
+    # --- roles -------------------------------------------------------
+    def test_me_reports_moderator_flag(self):
+        self.client.force_login(self.mod)
+        self.assertTrue(
+            self.client.get(reverse('core:me')).json()['user']['is_moderator']
+        )
+        self.client.force_login(self.other)
+        self.assertFalse(
+            self.client.get(reverse('core:me')).json()['user']['is_moderator']
+        )
+
+    # --- reporting ---------------------------------------------------
+    def test_anonymous_cannot_report(self):
+        post = self._thread_with_post()[1]
+        self.assertEqual(
+            self._report('talk_post', post['id']).status_code, 403
+        )
+
+    def test_report_talk_post_and_dedupe(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self._report('talk_post', post['id']).status_code, 201
+        )
+        # same user, same target, still open -> idempotent (one row)
+        self.assertEqual(
+            self._report('talk_post', post['id']).status_code, 201
+        )
+        self.assertEqual(Report.objects.count(), 1)
+
+    def test_report_revision(self):
+        revision = self._revision()
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self._report('revision', revision.id).status_code, 201
+        )
+        report = Report.objects.get()
+        self.assertEqual(report.revision_id, revision.id)
+        self.assertEqual(report.status, Report.Status.OPEN)
+
+    def test_report_unknown_target_404s(self):
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self._report('talk_post', 99999).status_code, 404
+        )
+
+    # --- mod queue ---------------------------------------------------
+    def test_queue_requires_moderator(self):
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self.client.get(reverse('core:mod-reports')).status_code, 403
+        )
+
+    def test_queue_lists_open_reports_with_context(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'], reason='off topic')
+        self.client.force_login(self.mod)
+        reports = self.client.get(
+            reverse('core:mod-reports')
+        ).json()['reports']
+        self.assertEqual(len(reports), 1)
+        target = reports[0]['target']
+        self.assertEqual(target['kind'], 'talk_post')
+        self.assertEqual(target['author'], 'drew')
+        self.assertEqual(target['excerpt'], 'Sources?')
+        self.assertEqual(target['slug'], self.place.slug)
+        self.assertEqual(reports[0]['reason'], 'off topic')
+
+    def test_action_delete_softdeletes_post_and_resolves(self):
+        thread, post = self._thread_with_post()
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'delete'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        report.refresh_from_db()
+        self.assertEqual(report.status, Report.Status.RESOLVED)
+        self.assertEqual(report.handled_by, self.mod)
+        # post is a tombstone now
+        threads = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()['threads']
+        tombstone = threads[0]['posts'][0]
+        self.assertTrue(tombstone['deleted'])
+        self.assertEqual(tombstone['body_md'], '')
+        # and it left the open queue
+        self.assertEqual(
+            self.client.get(reverse('core:mod-reports')).json()['reports'], []
+        )
+
+    def test_action_dismiss_keeps_post(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'dismiss'},
+            content_type='application/json',
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.status, Report.Status.DISMISSED)
+        self.assertIsNone(TalkPost.objects.get(id=post['id']).deleted)
+
+    def test_action_delete_on_revision_report_rejected(self):
+        revision = self._revision()
+        self.client.force_login(self.other)
+        self._report('revision', revision.id)
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'delete'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    # --- soft delete of talk content --------------------------------
+    def test_author_deletes_own_post(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.author)
+        response = self.client.delete(
+            reverse('core:talk-post-delete', args=[post['id']])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(TalkPost.objects.get(id=post['id']).deleted)
+
+    def test_stranger_cannot_delete_post(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self.client.delete(
+                reverse('core:talk-post-delete', args=[post['id']])
+            ).status_code,
+            403,
+        )
+
+    def test_moderator_deletes_others_post(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.mod)
+        self.assertEqual(
+            self.client.delete(
+                reverse('core:talk-post-delete', args=[post['id']])
+            ).status_code,
+            200,
+        )
+
+    def test_cannot_edit_deleted_post(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.author)
+        self.client.delete(
+            reverse('core:talk-post-delete', args=[post['id']])
+        )
+        response = self.client.put(
+            reverse('core:talk-post-edit', args=[post['id']]),
+            {'body_md': 'come back'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_moderator_deletes_thread_hides_it(self):
+        thread = self._thread_with_post()[0]
+        self.client.force_login(self.mod)
+        response = self.client.delete(
+            reverse('core:talk-thread-delete', args=[thread['id']])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.get(
+                reverse('core:talk', args=[self.place.slug])
+            ).json()['threads'],
+            [],
+        )
+
+    def test_non_moderator_cannot_delete_thread(self):
+        thread = self._thread_with_post()[0]
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self.client.delete(
+                reverse('core:talk-thread-delete', args=[thread['id']])
+            ).status_code,
+            403,
+        )

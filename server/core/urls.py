@@ -39,8 +39,25 @@ urlpatterns = [
         name='talk-reply',
     ),
     path(
+        'talk/<int:thread_id>/',
+        views.talk_thread_delete,
+        name='talk-thread-delete',
+    ),
+    path(
         'talk/posts/<int:post_id>/',
         views.talk_post_edit,
         name='talk-post-edit',
+    ),
+    path(
+        'talk/posts/<int:post_id>/delete/',
+        views.talk_post_delete,
+        name='talk-post-delete',
+    ),
+    path('reports/', views.create_report, name='report-create'),
+    path('mod/reports/', views.mod_reports, name='mod-reports'),
+    path(
+        'mod/reports/<int:report_id>/action/',
+        views.mod_report_action,
+        name='mod-report-action',
     ),
 ]

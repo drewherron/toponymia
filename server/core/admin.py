@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Article, Place, PlaceName, Revision
+from .models import Article, Place, PlaceName, Report, Revision
 
 
 @admin.register(Place)
@@ -24,3 +24,10 @@ class RevisionAdmin(admin.ModelAdmin):
 class PlaceNameAdmin(admin.ModelAdmin):
     list_display = ('name', 'language', 'is_endonym', 'place')
     search_fields = ('name',)
+
+
+@admin.register(Report)
+class ReportAdmin(admin.ModelAdmin):
+    list_display = ('id', 'status', 'reporter', 'created', 'handled_by')
+    list_filter = ('status',)
+    list_select_related = ('reporter', 'handled_by')

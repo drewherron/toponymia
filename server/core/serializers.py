@@ -65,3 +65,20 @@ class TalkPostSerializer(serializers.Serializer):
 
 class TalkThreadSerializer(TalkPostSerializer):
     title = serializers.CharField(max_length=255)
+
+
+class ReportSerializer(serializers.Serializer):
+    """A flag on a revision or a talk post (DESIGN.md §6)."""
+
+    target_type = serializers.ChoiceField(choices=['revision', 'talk_post'])
+    target_id = serializers.IntegerField()
+    reason = serializers.CharField(
+        max_length=500, allow_blank=True, default=''
+    )
+
+
+class ReportActionSerializer(serializers.Serializer):
+    """A moderator's decision on a report. `delete` soft-deletes the
+    target and marks the report resolved; the others only set status."""
+
+    action = serializers.ChoiceField(choices=['resolve', 'dismiss', 'delete'])

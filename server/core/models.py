@@ -105,6 +105,16 @@ class TalkThread(models.Model):
     )
     title = models.CharField(max_length=255)
     created = models.DateTimeField(auto_now_add=True)
+    # Soft delete (DESIGN.md §6): a removed thread drops out of the list
+    # rather than vanishing from the record.
+    deleted = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
 
     class Meta:
         ordering = ['created', 'id']
@@ -127,6 +137,16 @@ class TalkPost(models.Model):
     body_md = models.TextField()
     created = models.DateTimeField(auto_now_add=True)
     edited = models.DateTimeField(null=True, blank=True)
+    # Soft delete (DESIGN.md §6): the post stays as a tombstone so the
+    # thread reads coherently; body is withheld once deleted.
+    deleted = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
 
     class Meta:
         ordering = ['created', 'id']
@@ -160,3 +180,81 @@ class PlaceName(models.Model):
 
     def __str__(self):
         return f'{self.name} [{self.language or "?"}]'
+
+
+class Report(models.Model):
+    """A flag on a Revision or a TalkPost for moderator attention
+    (DESIGN.md §4/§6). Exactly one target is set; the reason is the
+    reporter's note. Status drives the mod queue."""
+
+    class Status(models.TextChoices):
+        OPEN = 'open'
+        RESOLVED = 'resolved'
+        DISMISSED = 'dismissed'
+
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='reports',
+    )
+    revision = models.ForeignKey(
+        Revision,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='reports',
+    )
+    talk_post = models.ForeignKey(
+        TalkPost,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='reports',
+    )
+    reason = models.CharField(max_length=500, blank=True)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    handled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created', '-id']
+        constraints = [
+            # Exactly one target: XOR of the two nullable FKs.
+            models.CheckConstraint(
+                name='report_exactly_one_target',
+                condition=(
+                    models.Q(revision__isnull=False, talk_post__isnull=True)
+                    | models.Q(revision__isnull=True, talk_post__isnull=False)
+                ),
+            ),
+            # One open report per user per target — re-reporting is a no-op.
+            models.UniqueConstraint(
+                fields=['reporter', 'revision'],
+                condition=models.Q(
+                    revision__isnull=False, status='open'
+                ),
+                name='one_open_report_per_revision',
+            ),
+            models.UniqueConstraint(
+                fields=['reporter', 'talk_post'],
+                condition=models.Q(
+                    talk_post__isnull=False, status='open'
+                ),
+                name='one_open_report_per_post',
+            ),
+        ]
+
+    def __str__(self):
+        target = self.revision_id and f'r{self.revision_id}' or (
+            f'post {self.talk_post_id}'
+        )
+        return f'report on {target} ({self.status})'
