@@ -35,3 +35,14 @@ the old prototype has been removed and the new stack is going in piece by piece.
 - **Frontend:** React + TypeScript + Vite, MapLibre GL JS
 - **Map data:** OpenStreetMap vector tiles via OpenFreeMap; Overpass and
   Wikidata for resolving clicked features to stable entities
+
+## License
+
+Like Wikipedia, Toponymia licenses its software and its content separately:
+
+- **Software** (`server/`, `web/`) — [GNU Affero GPL v3](LICENSE).
+- **Wiki content** (articles, etymology, talk) — [CC BY-SA 4.0](LICENSE-CONTENT.md);
+  contribution terms are in [TERMS.md](TERMS.md).
+
+Map data © OpenStreetMap contributors (ODbL); basemap tiles by OpenFreeMap;
+identifiers and labels from Wikidata (CC0). See [LICENSE-CONTENT.md](LICENSE-CONTENT.md).
