@@ -38,7 +38,7 @@ the old prototype has been removed and the new stack is going in piece by piece.
 
 ## License
 
-Like Wikipedia, Toponymia licenses its software and its content separately:
+Toponymia licenses its software and its content separately:
 
 - **Software** (`server/`, `web/`) — [GNU Affero GPL v3](LICENSE).
 - **Wiki content** (articles, etymology, talk) — [CC BY-SA 4.0](LICENSE-CONTENT.md);

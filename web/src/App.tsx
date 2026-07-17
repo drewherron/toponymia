@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchMe, fetchRandomArticle, getPlace } from './api'
+import AboutDialog from './components/AboutDialog'
 import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
@@ -53,6 +54,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
   const [modOpen, setModOpen] = useState(false)
+  const [aboutOpen, setAboutOpen] = useState(false)
   const [allArticles, setAllArticles] = useState(false)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
   const mapApiRef = useRef<MapApi | null>(null)
@@ -234,6 +236,13 @@ function App() {
             Reports
           </button>
         )}
+        <button
+          type="button"
+          className="about-button"
+          onClick={() => setAboutOpen(true)}
+        >
+          About
+        </button>
         <AuthControl
           user={user}
           onUserChange={setUser}
@@ -242,6 +251,7 @@ function App() {
         />
       </header>
       {modOpen && <ModQueue onClose={() => setModOpen(false)} />}
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
       <div className="map-area">
         <MapView
           onClickFeatures={handleClickFeatures}

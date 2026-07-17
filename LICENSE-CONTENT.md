@@ -11,15 +11,16 @@ Toponymia separates two things, licensed differently:
 
   <https://creativecommons.org/licenses/by-sa/4.0/>
 
-This is the same split Wikipedia uses (GPL/AGPL software, CC BY-SA content),
-so text can be reused in both directions, subject to the license terms.
+Keeping the two separate lets the content be reused on its own terms — text
+can flow in and out under CC BY-SA, subject to the license terms — independent
+of how the software is licensed.
 
 ## Attribution
 
 Reuse of Toponymia content under CC BY-SA 4.0 requires attribution to the
-authors. As with Wikipedia, attribution is satisfied by crediting
+authors. Attribution is satisfied by crediting
 "Toponymia contributors" with a link back to the specific article and its
-revision history, which is the authoritative list of contributors.
+revision history — the authoritative list of contributors.
 
 ## Contributing
 
