@@ -5,6 +5,8 @@ import type {
   ClickContext,
   GeocodeHit,
   PlaceDetail,
+  ReportAction,
+  ReportRow,
   ResolvedPlace,
   ResolveResponse,
   RevisionDetail,
@@ -315,6 +317,77 @@ export async function editTalkPost(
   }
   const body = await response.json()
   return body.post
+}
+
+/** Soft-delete a post (own post, or any post as a moderator). */
+export async function deleteTalkPost(postId: number): Promise<TalkPost> {
+  const response = await fetch(`/api/talk/posts/${postId}/delete/`, {
+    method: 'DELETE',
+    headers: jsonHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`post delete failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.post
+}
+
+/** Soft-delete a whole thread (moderators only). */
+export async function deleteTalkThread(threadId: number): Promise<void> {
+  const response = await fetch(`/api/talk/${threadId}/`, {
+    method: 'DELETE',
+    headers: jsonHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`thread delete failed: ${response.status}`)
+  }
+}
+
+/** Flag a revision or a talk post for moderator attention. */
+export async function createReport(
+  targetType: 'revision' | 'talk_post',
+  targetId: number,
+  reason: string,
+): Promise<void> {
+  const response = await fetch('/api/reports/', {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({
+      target_type: targetType,
+      target_id: targetId,
+      reason,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(`report failed: ${response.status}`)
+  }
+}
+
+/** The moderator queue: open reports with target context. */
+export async function fetchReports(
+  signal?: AbortSignal,
+): Promise<ReportRow[]> {
+  const response = await fetch('/api/mod/reports/', { signal })
+  if (!response.ok) {
+    throw new Error(`reports fetch failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.reports
+}
+
+/** Resolve, dismiss, or delete-target a report from the queue. */
+export async function actOnReport(
+  reportId: number,
+  action: ReportAction,
+): Promise<void> {
+  const response = await fetch(`/api/mod/reports/${reportId}/action/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ action }),
+  })
+  if (!response.ok) {
+    throw new Error(`report action failed: ${response.status}`)
+  }
 }
 
 /** django-allauth headless browser API. Errors carry

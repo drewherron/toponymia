@@ -103,6 +103,7 @@ export interface PlaceDetail {
 export interface User {
   id: number
   username: string
+  is_moderator: boolean
 }
 
 export interface RevisionSummary {
@@ -123,6 +124,8 @@ export interface TalkPost {
   body_md: string
   created: string
   edited: string | null
+  /** A removed post stays as a tombstone; body_md comes back empty. */
+  deleted: boolean
 }
 
 export interface TalkThread {
@@ -131,3 +134,37 @@ export interface TalkThread {
   created: string
   posts: TalkPost[]
 }
+
+/** One row in the moderator queue: a report with its target's context. */
+export interface ReportRow {
+  id: number
+  reason: string
+  reporter: string
+  created: string
+  target: ReportTarget | null
+}
+
+interface ReportTargetBase {
+  id: number
+  author: string
+  excerpt: string
+  slug: string
+  place: string
+}
+
+export interface RevisionReportTarget extends ReportTargetBase {
+  kind: 'revision'
+  comment: string
+  is_current: boolean
+}
+
+export interface TalkPostReportTarget extends ReportTargetBase {
+  kind: 'talk_post'
+  thread_id: number
+  thread_title: string
+  deleted: boolean
+}
+
+export type ReportTarget = RevisionReportTarget | TalkPostReportTarget
+
+export type ReportAction = 'resolve' | 'dismiss' | 'delete'

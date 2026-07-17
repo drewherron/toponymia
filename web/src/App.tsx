@@ -3,6 +3,7 @@ import { fetchMe, fetchRandomArticle, getPlace } from './api'
 import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
+import ModQueue from './components/ModQueue'
 import SearchBox from './components/SearchBox'
 import MapView from './map/MapView'
 import type {
@@ -51,6 +52,7 @@ function App() {
   const [selected, setSelected] = useState<Selection | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
+  const [modOpen, setModOpen] = useState(false)
   const [allArticles, setAllArticles] = useState(false)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
   const mapApiRef = useRef<MapApi | null>(null)
@@ -223,6 +225,15 @@ function App() {
         >
           Random article
         </button>
+        {user?.is_moderator && (
+          <button
+            type="button"
+            className="mod-queue-button"
+            onClick={() => setModOpen(true)}
+          >
+            Reports
+          </button>
+        )}
         <AuthControl
           user={user}
           onUserChange={setUser}
@@ -230,6 +241,7 @@ function App() {
           onOpenChange={setAuthOpen}
         />
       </header>
+      {modOpen && <ModQueue onClose={() => setModOpen(false)} />}
       <div className="map-area">
         <MapView
           onClickFeatures={handleClickFeatures}

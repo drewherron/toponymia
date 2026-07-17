@@ -4,6 +4,7 @@ import { diffBody, diffStructured } from '../diff'
 import type { DiffSpan } from '../diff'
 import type { ArticleData, RevisionDetail, RevisionSummary, User } from '../types'
 import ArticleView from './ArticleView'
+import ReportButton from './ReportButton'
 
 interface HistoryTabProps {
   slug: string
@@ -229,6 +230,9 @@ function HistoryTab({ slug, user, onReverted, onWideChange }: HistoryTabProps) {
                 Revert to this revision
               </button>
             )}
+            {user && (
+              <ReportButton targetType="revision" targetId={revision.id} />
+            )}
           </div>
         </div>
         <ArticleView article={asArticle(revision)} />
@@ -309,6 +313,9 @@ function HistoryTab({ slug, user, onReverted, onWideChange }: HistoryTabProps) {
                 >
                   revert
                 </button>
+              )}
+              {user && (
+                <ReportButton targetType="revision" targetId={revision.id} />
               )}
             </div>
           </li>

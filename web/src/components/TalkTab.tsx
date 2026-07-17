@@ -2,8 +2,16 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { createTalkThread, editTalkPost, getTalk, replyTalkThread } from '../api'
+import {
+  createTalkThread,
+  deleteTalkPost,
+  deleteTalkThread,
+  editTalkPost,
+  getTalk,
+  replyTalkThread,
+} from '../api'
 import type { TalkPost, TalkThread, User } from '../types'
+import ReportButton from './ReportButton'
 
 interface TalkTabProps {
   slug: string
@@ -22,16 +30,19 @@ function formatWhen(iso: string): string {
 
 function PostView({
   post,
-  own,
-  onEdited,
+  user,
+  onChanged,
 }: {
   post: TalkPost
-  own: boolean
-  onEdited: (post: TalkPost) => void
+  user: User | null
+  onChanged: (post: TalkPost) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const own = user?.username === post.author
+  const canModerate = user?.is_moderator ?? false
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -39,11 +50,31 @@ function PostView({
     setBusy(true)
     editTalkPost(post.id, draft)
       .then((updated) => {
-        onEdited(updated)
+        onChanged(updated)
         setEditing(false)
       })
       .catch(console.error)
       .finally(() => setBusy(false))
+  }
+
+  const remove = () => {
+    if (!window.confirm('Remove this post?')) return
+    setBusy(true)
+    deleteTalkPost(post.id)
+      .then(onChanged)
+      .catch(console.error)
+      .finally(() => setBusy(false))
+  }
+
+  if (post.deleted) {
+    return (
+      <div className="talk-post talk-post-deleted">
+        <p className="talk-post-byline">
+          <strong>{post.author}</strong> · {formatWhen(post.created)}
+        </p>
+        <p className="talk-post-tombstone">[post removed]</p>
+      </div>
+    )
   }
 
   return (
@@ -62,6 +93,19 @@ function PostView({
           >
             edit
           </button>
+        )}
+        {(own || canModerate) && !editing && (
+          <button
+            type="button"
+            className="talk-post-delete"
+            disabled={busy}
+            onClick={remove}
+          >
+            delete
+          </button>
+        )}
+        {user && !own && !editing && (
+          <ReportButton targetType="talk_post" targetId={post.id} />
         )}
       </p>
       {editing ? (
@@ -98,11 +142,13 @@ function ThreadView({
   user,
   onRequestAuth,
   onChanged,
+  onDeleted,
 }: {
   thread: TalkThread
   user: User | null
   onRequestAuth: () => void
   onChanged: (thread: TalkThread) => void
+  onDeleted: (threadId: number) => void
 }) {
   const [replying, setReplying] = useState(false)
   const [draft, setDraft] = useState('')
@@ -122,7 +168,7 @@ function ThreadView({
       .finally(() => setBusy(false))
   }
 
-  const handleEdited = (updated: TalkPost) => {
+  const handlePostChanged = (updated: TalkPost) => {
     onChanged({
       ...thread,
       posts: thread.posts.map((post) =>
@@ -131,15 +177,36 @@ function ThreadView({
     })
   }
 
+  const removeThread = () => {
+    if (!window.confirm('Remove this whole thread?')) return
+    setBusy(true)
+    deleteTalkThread(thread.id)
+      .then(() => onDeleted(thread.id))
+      .catch(console.error)
+      .finally(() => setBusy(false))
+  }
+
   return (
     <section className="talk-thread">
-      <h3>{thread.title}</h3>
+      <h3>
+        {thread.title}
+        {user?.is_moderator && (
+          <button
+            type="button"
+            className="talk-thread-delete"
+            disabled={busy}
+            onClick={removeThread}
+          >
+            delete thread
+          </button>
+        )}
+      </h3>
       {thread.posts.map((post) => (
         <PostView
           key={post.id}
           post={post}
-          own={user?.username === post.author}
-          onEdited={handleEdited}
+          user={user}
+          onChanged={handlePostChanged}
         />
       ))}
       {replying ? (
@@ -223,6 +290,12 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
     )
   }
 
+  const handleThreadDeleted = (threadId: number) => {
+    setThreads((prev) =>
+      prev ? prev.filter((thread) => thread.id !== threadId) : prev,
+    )
+  }
+
   if (error) {
     return <p className="feature-pane-note">Could not load discussions.</p>
   }
@@ -244,6 +317,7 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
           user={user}
           onRequestAuth={onRequestAuth}
           onChanged={handleThreadChanged}
+          onDeleted={handleThreadDeleted}
         />
       ))}
       {composing ? (

@@ -972,3 +972,198 @@ body,
   border-color: #1f4f7a;
   color: #fff;
 }
+
+/* --- Moderation: report affordances, tombstones, mod queue --------- */
+
+.mod-queue-button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border: 1px solid #c98a1a;
+  border-radius: 16px;
+  background: #fff7ec;
+  color: #92500a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mod-queue-button:hover {
+  background: #fdeccf;
+}
+
+.report-button {
+  font: inherit;
+  font-size: 0.78rem;
+  border: none;
+  background: none;
+  color: #92500a;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 0;
+}
+
+.report-done {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: #92500a;
+  margin-left: 6px;
+}
+
+.report-form {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.report-form input {
+  flex: 1;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 5px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.report-form button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.talk-post-delete,
+.talk-thread-delete {
+  font: inherit;
+  font-size: 0.78rem;
+  border: none;
+  background: none;
+  color: #a11;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 0;
+}
+
+.talk-post-deleted .talk-post-tombstone {
+  font-style: italic;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+/* Moderator queue overlay */
+.mod-queue-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 16px;
+  z-index: 50;
+}
+
+.mod-queue {
+  background: #fff;
+  border-radius: 8px;
+  width: min(680px, 100%);
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  padding: 18px 22px 24px;
+}
+
+.mod-queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 12px;
+}
+
+.mod-queue-header h2 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.mod-queue-close {
+  font-size: 1.4rem;
+  line-height: 1;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #666;
+}
+
+.mod-report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mod-report {
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.mod-target-head {
+  font-size: 0.9rem;
+  margin: 0 0 6px;
+}
+
+.mod-current {
+  color: #2c7a2c;
+  font-weight: 600;
+}
+
+.mod-excerpt {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid #ddd;
+  color: #444;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.mod-target-gone {
+  font-style: italic;
+  color: #888;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.mod-report-meta {
+  font-size: 0.82rem;
+  color: #666;
+  margin: 8px 0;
+}
+
+.mod-report-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mod-report-actions button {
+  font: inherit;
+  font-size: 0.83rem;
+  padding: 5px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.mod-report-actions button:disabled {
+  opacity: 0.6;
+}
+
+.mod-action-delete {
+  color: #a11;
+  border-color: #d99 !important;
+}
