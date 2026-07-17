@@ -9,6 +9,8 @@ import ReportButton from './ReportButton'
 interface HistoryTabProps {
   slug: string
   user: User | null
+  /** Whether this user may revert (mirrors article protection). */
+  canEdit: boolean
   onReverted: (article: ArticleData) => void
   /** The diff needs more room than the pane's default width. */
   onWideChange: (wide: boolean) => void
@@ -119,7 +121,13 @@ function DiffView({
   )
 }
 
-function HistoryTab({ slug, user, onReverted, onWideChange }: HistoryTabProps) {
+function HistoryTab({
+  slug,
+  user,
+  canEdit,
+  onReverted,
+  onWideChange,
+}: HistoryTabProps) {
   const [revisions, setRevisions] = useState<RevisionSummary[] | null>(null)
   const [error, setError] = useState(false)
   const [mode, setMode] = useState<Mode>({ type: 'list' })
@@ -220,7 +228,7 @@ function HistoryTab({ slug, user, onReverted, onWideChange }: HistoryTabProps) {
             <button type="button" onClick={() => setMode({ type: 'list' })}>
               ← Back to history
             </button>
-            {user && !revision.is_current && (
+            {canEdit && !revision.is_current && (
               <button
                 type="button"
                 className="revision-revert"
@@ -304,7 +312,7 @@ function HistoryTab({ slug, user, onReverted, onWideChange }: HistoryTabProps) {
               {revision.comment && (
                 <span className="revision-comment">“{revision.comment}”</span>
               )}
-              {user && !revision.is_current && (
+              {canEdit && !revision.is_current && (
                 <button
                   type="button"
                   className="revision-revert"

@@ -5,6 +5,7 @@ import type {
   ClickContext,
   GeocodeHit,
   PlaceDetail,
+  ProtectionLevel,
   ReportAction,
   ReportRow,
   ResolvedPlace,
@@ -240,6 +241,23 @@ export async function getRevision(
   }
   const body = await response.json()
   return body.revision
+}
+
+/** Set an article's protection level (moderators only). */
+export async function setProtection(
+  slug: string,
+  level: ProtectionLevel,
+): Promise<ProtectionLevel> {
+  const response = await fetch(`/api/places/${slug}/protection/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ protection_level: level }),
+  })
+  if (!response.ok) {
+    throw new Error(`protection failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.protection_level
 }
 
 export async function revertArticle(

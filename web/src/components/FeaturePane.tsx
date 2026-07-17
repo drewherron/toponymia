@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { getPlace, resolveFeature } from '../api'
+import { getPlace, resolveFeature, setProtection } from '../api'
 import type {
   ArticleData,
   ClickContext,
   FeatureCandidate,
   PlaceDetail,
+  ProtectionLevel,
   ResolvedPlace,
   User,
 } from '../types'
@@ -12,6 +13,12 @@ import ArticleEditor from './ArticleEditor'
 import ArticleView from './ArticleView'
 import HistoryTab from './HistoryTab'
 import TalkTab from './TalkTab'
+
+const PROTECTION_NOTE: Record<ProtectionLevel, string> = {
+  none: '',
+  registered: 'Semi-protected — registered users only.',
+  admin: 'Protected — only moderators can edit this article.',
+}
 
 interface FeaturePaneProps {
   feature: FeatureCandidate
@@ -91,6 +98,39 @@ function AnchorInfo({ resolution }: { resolution: Resolution }) {
   )
 }
 
+function ProtectionControl({
+  slug,
+  level,
+  onChange,
+}: {
+  slug: string
+  level: ProtectionLevel
+  onChange: (level: ProtectionLevel) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <label className="protection-control">
+      Protection
+      <select
+        value={level}
+        disabled={busy}
+        onChange={(event) => {
+          const next = event.target.value as ProtectionLevel
+          setBusy(true)
+          setProtection(slug, next)
+            .then(onChange)
+            .catch(console.error)
+            .finally(() => setBusy(false))
+        }}
+      >
+        <option value="none">None</option>
+        <option value="registered">Registered users</option>
+        <option value="admin">Moderators only</option>
+      </select>
+    </label>
+  )
+}
+
 function FeaturePane({
   feature,
   click,
@@ -156,8 +196,24 @@ function FeaturePane({
     onArticleSaved()
   }
 
+  const handleProtectionChange = (level: ProtectionLevel) => {
+    setDetail((prev) =>
+      prev.status === 'done'
+        ? {
+            status: 'done',
+            detail: { ...prev.detail, protection_level: level },
+          }
+        : prev,
+    )
+  }
+
   const place = resolution.status === 'done' ? resolution.place : null
   const article = detail.status === 'done' ? detail.detail.article : null
+  const protection: ProtectionLevel =
+    detail.status === 'done' ? detail.detail.protection_level : 'none'
+  // `admin` protection restricts edits/reverts to moderators; anonymous
+  // editing is disallowed everywhere, so other levels gate the same set.
+  const canEdit = !!user && (protection !== 'admin' || user.is_moderator)
 
   return (
     <aside className={`feature-pane${wide ? ' wide' : ''}`}>
@@ -200,6 +256,7 @@ function FeaturePane({
         <HistoryTab
           slug={place.slug}
           user={user}
+          canEdit={canEdit}
           onReverted={handleSaved}
           onWideChange={setWide}
         />
@@ -219,9 +276,21 @@ function FeaturePane({
         <p className="feature-pane-note">Loading article…</p>
       )}
 
+      {place && !editing && tab === 'article' && protection !== 'none' && (
+        <p className="protection-note">🔒 {PROTECTION_NOTE[protection]}</p>
+      )}
+
+      {place && !editing && tab === 'article' && user?.is_moderator && (
+        <ProtectionControl
+          slug={place.slug}
+          level={protection}
+          onChange={handleProtectionChange}
+        />
+      )}
+
       {place && !editing && tab === 'article' && article && (
         <>
-          {user && (
+          {canEdit && (
             <button
               type="button"
               className="article-edit-button"
@@ -239,7 +308,7 @@ function FeaturePane({
           <p className="feature-pane-note">
             No article about this place name yet.
           </p>
-          {user ? (
+          {canEdit ? (
             <button
               type="button"
               className="article-write-button"
@@ -247,6 +316,10 @@ function FeaturePane({
             >
               Write this article
             </button>
+          ) : user ? (
+            <p className="feature-pane-note">
+              This place is protected — only moderators can start it.
+            </p>
           ) : (
             <button
               type="button"

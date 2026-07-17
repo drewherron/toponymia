@@ -95,9 +95,13 @@ export interface ArticleData {
   protection_level: string
 }
 
+export type ProtectionLevel = 'none' | 'registered' | 'admin'
+
 export interface PlaceDetail {
   place: ResolvedPlace
   article: ArticleData | null
+  /** Present even for a locked stub with no article yet. */
+  protection_level: ProtectionLevel
 }
 
 export interface User {
