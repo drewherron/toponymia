@@ -343,7 +343,6 @@ body,
 
 .auth-control {
   position: relative;
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1206,9 +1205,11 @@ body,
   border: none;
   background: none;
   color: #444;
-  text-decoration: underline;
   cursor: pointer;
   white-space: nowrap;
+  /* Starts the right-aligned cluster: About sits just left of the
+     login/account control. */
+  margin-left: auto;
 }
 
 .about-button:hover {
