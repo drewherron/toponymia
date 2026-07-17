@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.contrib.gis.geos import LineString, Point, Polygon
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
@@ -13,6 +14,16 @@ from .overpass import (
     qid_of,
     radius_for_click,
 )
+
+
+class ApiTestCase(TestCase):
+    """Base for API tests: clears the throttle cache before each test so
+    DRF's per-endpoint rate limits (shared LocMemCache) don't bleed across
+    the suite while still being exercised within a test."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
 
 
 def _relation(osm_id=1236, name='Mississippi River', qid='Q1497', **extra):
@@ -83,7 +94,7 @@ class OverpassLogicTests(TestCase):
         self.assertEqual(radius_for_click(None, 45), 500)
 
 
-class ResolveApiTests(TestCase):
+class ResolveApiTests(ApiTestCase):
     def _post(self, **overrides):
         payload = {
             'name': 'Mississippi River',
@@ -226,8 +237,9 @@ def _content(**overrides):
     return content
 
 
-class ArticleApiTests(TestCase):
+class ArticleApiTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.place = _make_place()
         self.user = User.objects.create_user('drew', password='pw12345!')
 
@@ -315,8 +327,9 @@ class ArticleApiTests(TestCase):
         self.assertIn('Founded', body['article']['content']['body_md'])
 
 
-class RevisionApiTests(TestCase):
+class RevisionApiTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.place = _make_place()
         self.user = User.objects.create_user('drew', password='pw12345!')
         self.client.force_login(self.user)
@@ -428,8 +441,9 @@ class RevisionApiTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
 
-class TalkApiTests(TestCase):
+class TalkApiTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.place = _make_place()
         self.user = User.objects.create_user('drew', password='pw12345!')
         self.other = User.objects.create_user('sam', password='pw12345!')
@@ -513,8 +527,9 @@ def _publish(place, user):
     article.save(update_fields=['current_revision'])
 
 
-class HighlightApiTests(TestCase):
+class HighlightApiTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user('drew', password='pw12345!')
 
     def _get(self, bbox='9,49,11,51'):
@@ -602,7 +617,7 @@ class HighlightApiTests(TestCase):
         self.assertEqual(len(features), 1)
 
 
-class AuthApiTests(TestCase):
+class AuthApiTests(ApiTestCase):
     def test_me_anonymous(self):
         response = self.client.get(reverse('core:me'))
         self.assertEqual(response.status_code, 200)
@@ -645,8 +660,9 @@ class AuthApiTests(TestCase):
         )
 
 
-class SearchApiTests(TestCase):
+class SearchApiTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user('drew', password='pw12345!')
         self.paris = _make_place(name='Paris', slug='paris')
         _publish(self.paris, self.user)
@@ -699,8 +715,9 @@ class SearchApiTests(TestCase):
         self.assertEqual(len(results), 1)
 
 
-class RandomApiTests(TestCase):
+class RandomApiTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user('drew', password='pw12345!')
 
     def test_no_articles_yet(self):
@@ -721,8 +738,9 @@ class RandomApiTests(TestCase):
         self.assertEqual(body['bbox'], [9.0, 49.0, 12.0, 52.0])
 
 
-class ModerationApiTests(TestCase):
+class ModerationApiTests(ApiTestCase):
     def setUp(self):
+        super().setUp()
         self.place = _make_place()
         self.author = User.objects.create_user('drew', password='pw12345!')
         self.other = User.objects.create_user('sam', password='pw12345!')
@@ -949,3 +967,100 @@ class ModerationApiTests(TestCase):
             ).status_code,
             403,
         )
+
+
+class ProtectionApiTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.author = User.objects.create_user('drew', password='pw12345!')
+        self.mod = User.objects.create_user(
+            'mira', password='pw12345!', is_staff=True
+        )
+
+    def _edit(self, comment='edit'):
+        return self.client.put(
+            reverse('core:article-edit', args=[self.place.slug]),
+            {'content': _content(), 'comment': comment},
+            content_type='application/json',
+        )
+
+    def _set_protection(self, level):
+        return self.client.post(
+            reverse('core:article-protection', args=[self.place.slug]),
+            {'protection_level': level},
+            content_type='application/json',
+        )
+
+    def test_non_moderator_cannot_set_protection(self):
+        self.client.force_login(self.author)
+        self.assertEqual(self._set_protection('admin').status_code, 403)
+
+    def test_moderator_sets_protection_on_stub(self):
+        self.client.force_login(self.mod)
+        response = self._set_protection('admin')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['protection_level'], 'admin')
+        # place detail now surfaces the level even without a revision
+        detail = self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        ).json()
+        self.assertEqual(detail['protection_level'], 'admin')
+        self.assertIsNone(detail['article'])
+
+    def test_admin_protection_blocks_non_moderator_edit(self):
+        self.client.force_login(self.author)
+        self.assertEqual(self._edit().status_code, 200)  # editable at none
+        self.client.force_login(self.mod)
+        self._set_protection('admin')
+        self.client.force_login(self.author)
+        self.assertEqual(self._edit(comment='again').status_code, 403)
+        # a moderator can still edit
+        self.client.force_login(self.mod)
+        self.assertEqual(self._edit(comment='mod edit').status_code, 200)
+
+    def test_registered_protection_still_lets_users_edit(self):
+        self.client.force_login(self.mod)
+        self._set_protection('registered')
+        self.client.force_login(self.author)
+        self.assertEqual(self._edit().status_code, 200)
+
+    def test_admin_protection_blocks_non_moderator_revert(self):
+        self.client.force_login(self.author)
+        self._edit(comment='first')
+        first = Revision.objects.order_by('id').first()
+        self._edit(comment='second')
+        self.client.force_login(self.mod)
+        self._set_protection('admin')
+        self.client.force_login(self.author)
+        response = self.client.post(
+            reverse('core:article-revert', args=[self.place.slug]),
+            {'revision_id': first.id},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+
+class ThrottleApiTests(ApiTestCase):
+    def test_report_endpoint_throttles_after_limit(self):
+        # 'report' scope is 15/min; the 16th call in a test gets 429.
+        place = _make_place()
+        author = User.objects.create_user('drew', password='pw12345!')
+        reporter = User.objects.create_user('sam', password='pw12345!')
+        article = Article.objects.create(place=place)
+        revision = Revision.objects.create(
+            article=article, author=author, comment='', content=_content()
+        )
+        self.client.force_login(reporter)
+        seen_429 = False
+        for i in range(20):
+            response = self.client.post(
+                reverse('core:report-create'),
+                {'target_type': 'revision', 'target_id': revision.id,
+                 'reason': f'n{i}'},
+                content_type='application/json',
+            )
+            if response.status_code == 429:
+                seen_429 = True
+                break
+        self.assertTrue(seen_429, 'report endpoint never throttled')

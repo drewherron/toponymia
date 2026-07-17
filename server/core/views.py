@@ -8,21 +8,32 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import (
+    api_view,
+    permission_classes,
+    throttle_classes,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from . import resolve as resolution
 from .articles import save_edit
-from .models import Place, Report, Revision, TalkPost, TalkThread
+from .models import Article, Place, Report, Revision, TalkPost, TalkThread
 from .overpass import OverpassError
 from .serializers import (
     ArticleEditSerializer,
+    ProtectionSerializer,
     ReportActionSerializer,
     ReportSerializer,
     RevertSerializer,
     TalkPostSerializer,
     TalkThreadSerializer,
+)
+from .throttles import (
+    ReportThrottle,
+    ResolveThrottle,
+    TalkThrottle,
+    WriteThrottle,
 )
 
 MAX_HIGHLIGHTS = 500
@@ -35,6 +46,20 @@ def is_moderator(user):
     Mapped to Django's staff flag (admins are superusers) — no custom
     user model needed for v1 (DESIGN.md §4 roles user/mod/admin)."""
     return user.is_authenticated and (user.is_staff or user.is_superuser)
+
+
+def can_edit_article(user, article):
+    """Article protection (DESIGN.md §6). Anonymous editing is already
+    disallowed everywhere, so `none`/`registered` gate the same set (any
+    logged-in user); `admin` restricts edits and reverts to moderators.
+    A stub with no Article row yet is unprotected."""
+    if not user.is_authenticated:
+        return False
+    if article is None:
+        return True
+    if article.protection_level == Article.Protection.ADMIN:
+        return is_moderator(user)
+    return True
 
 
 @api_view(['GET'])
@@ -85,6 +110,7 @@ def _place_json(place):
 
 
 @api_view(['POST'])
+@throttle_classes([ResolveThrottle])
 def resolve(request):
     data = request.data
     name = data.get('name')
@@ -274,6 +300,13 @@ def place_detail(request, slug):
         {
             'place': _place_json(place),
             'article': _article_json(article) if article else None,
+            # Top-level so a locked *stub* (Article row, no revision yet)
+            # still reports its protection to gate the write button.
+            'protection_level': (
+                article.protection_level
+                if article
+                else Article.Protection.NONE
+            ),
         }
     )
 
@@ -333,6 +366,7 @@ def revision_detail(request, slug, revision_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([WriteThrottle])
 def article_revert(request, slug):
     """Revert = a new revision copying an old snapshot (DESIGN.md §6)."""
     serializer = RevertSerializer(data=request.data)
@@ -342,6 +376,11 @@ def article_revert(request, slug):
         Place.objects.select_related('article'), slug=slug
     )
     article = getattr(place, 'article', None)
+    if not can_edit_article(request.user, article):
+        return Response(
+            {'error': 'this article is protected'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     old = get_object_or_404(
         Revision,
         id=serializer.validated_data['revision_id'],
@@ -362,8 +401,16 @@ def article_revert(request, slug):
 
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([WriteThrottle])
 def article_edit(request, slug):
-    place = get_object_or_404(Place, slug=slug)
+    place = get_object_or_404(
+        Place.objects.select_related('article'), slug=slug
+    )
+    if not can_edit_article(request.user, getattr(place, 'article', None)):
+        return Response(
+            {'error': 'this article is protected'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     serializer = ArticleEditSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -374,6 +421,24 @@ def article_edit(request, slug):
         serializer.validated_data['comment'],
     )
     return Response({'article': _article_json(revision.article)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def article_protection(request, slug):
+    """Set an article's protection level — moderators only (DESIGN.md §6).
+    Creates the Article row if the place is still a stub, so a place can
+    be locked down pre-emptively."""
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    serializer = ProtectionSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    place = get_object_or_404(Place, slug=slug)
+    article, _ = Article.objects.get_or_create(place=place)
+    article.protection_level = serializer.validated_data['protection_level']
+    article.save(update_fields=['protection_level'])
+    return Response({'protection_level': article.protection_level})
 
 
 def _post_json(post):
@@ -434,6 +499,7 @@ def talk(request, slug):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([TalkThrottle])
 def talk_reply(request, thread_id):
     thread = get_object_or_404(TalkThread, id=thread_id)
     serializer = TalkPostSerializer(data=request.data)
@@ -449,8 +515,9 @@ def talk_reply(request, thread_id):
 
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([TalkThrottle])
 def talk_post_edit(request, post_id):
-    """Edit-own only (DESIGN.md §6); mods get more in M7."""
+    """Edit-own only; moderators delete via the queue instead."""
     post = get_object_or_404(TalkPost, id=post_id)
     if post.author_id != request.user.id:
         return Response(
@@ -504,6 +571,7 @@ def talk_thread_delete(request, thread_id):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([ReportThrottle])
 def create_report(request):
     """Flag a revision or a talk post for moderator attention. Re-filing
     an already-open report of the same target is idempotent."""

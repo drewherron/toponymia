@@ -32,6 +32,11 @@ urlpatterns = [
         views.article_revert,
         name='article-revert',
     ),
+    path(
+        'places/<slug:slug>/protection/',
+        views.article_protection,
+        name='article-protection',
+    ),
     path('places/<slug:slug>/talk/', views.talk, name='talk'),
     path(
         'talk/<int:thread_id>/posts/',

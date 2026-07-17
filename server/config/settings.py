@@ -160,6 +160,27 @@ HEADLESS_ONLY = True
 HEADLESS_CLIENTS = ('browser',)
 
 
+# DRF — simple rate limits on anonymous-facing / expensive endpoints
+# (DESIGN.md §6). UserRateThrottle keys by user id when logged in, client
+# IP otherwise, so the per-endpoint scopes below cover both. The default
+# cache (LocMemCache) is per-process — fine for a single-VPS v1; a shared
+# cache (Redis) is the upgrade if we ever run multiple workers.
+REST_FRAMEWORK = {
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '120/min',
+        'user': '600/min',
+        'resolve': '30/min',
+        'write': '40/min',
+        'report': '15/min',
+        'talk': '40/min',
+    },
+}
+
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 

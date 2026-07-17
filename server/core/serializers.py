@@ -82,3 +82,11 @@ class ReportActionSerializer(serializers.Serializer):
     target and marks the report resolved; the others only set status."""
 
     action = serializers.ChoiceField(choices=['resolve', 'dismiss', 'delete'])
+
+
+class ProtectionSerializer(serializers.Serializer):
+    """A moderator setting an article's protection level (DESIGN.md §6)."""
+
+    protection_level = serializers.ChoiceField(
+        choices=['none', 'registered', 'admin']
+    )
