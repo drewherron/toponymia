@@ -13,15 +13,23 @@ from . import overpass
 from .models import Place
 
 
-def resolve(name, feature_class, lng, lat, zoom=None):
-    """Return (place, created). Raises overpass.OverpassError on outage."""
+def resolve(name, feature_class, lng, lat, zoom=None, name_en=None):
+    """Return (place, created). Raises overpass.OverpassError on outage.
+
+    `name` is the feature's native OSM name (what Overpass matches on);
+    `name_en` is the English-first label the client displayed, preferred
+    for display_name so the article is titled what the user clicked.
+    """
     radius = overpass.radius_for_click(zoom, lat)
     click = Point(lng, lat, srid=4326)
 
+    display_names = {name, name_en} - {None}
     # bbox matters for relations, which cache no geometry: without it a
     # low-zoom click far from the centroid re-creates the place.
     cached = (
-        Place.objects.filter(display_name=name, feature_class=feature_class)
+        Place.objects.filter(
+            display_name__in=display_names, feature_class=feature_class
+        )
         .filter(
             Q(centroid__dwithin=(click, D(m=radius)))
             | Q(label_point__dwithin=(click, D(m=radius)))
@@ -37,7 +45,7 @@ def resolve(name, feature_class, lng, lat, zoom=None):
         overpass.fetch_elements(name, lat, lng, radius)
     )
     if element is None:
-        return _create_name_anchor(name, feature_class, click), True
+        return _create_name_anchor(name_en or name, feature_class, click), True
 
     qid = overpass.qid_of(element)
     if qid:
@@ -51,11 +59,17 @@ def resolve(name, feature_class, lng, lat, zoom=None):
         if existing:
             return existing, False
 
-    return _create_from_element(element, qid, name, feature_class, click), True
+    return (
+        _create_from_element(element, qid, name, feature_class, click, name_en),
+        True,
+    )
 
 
-def _create_from_element(element, qid, name, feature_class, click):
-    display_name = element.get('tags', {}).get('name') or name
+def _create_from_element(element, qid, name, feature_class, click, name_en=None):
+    tags = element.get('tags', {})
+    display_name = (
+        tags.get('name:en') or name_en or tags.get('name') or name
+    )
     center = overpass.center_of(element)
     centroid = Point(*center, srid=4326) if center else click
 

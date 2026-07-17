@@ -1,5 +1,9 @@
 import type { FeatureCollection } from 'geojson'
+// Relative path: the package's `exports` map hides its dist build, but
+// MapLibre's plugin loader needs the dist UMD file, served as an asset.
+import rtlTextUrl from '../../node_modules/@mapbox/mapbox-gl-rtl-text/dist/mapbox-gl-rtl-text.js?url'
 import maplibregl from 'maplibre-gl'
+import type { ExpressionSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
@@ -15,6 +19,38 @@ import { toCandidates } from './features'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 const CLICK_TOLERANCE_PX = 6
+
+// Shapes Arabic/Hebrew label text (self-hosted; lazy = fetched only when
+// RTL text first appears in view). Without it RTL names render backward.
+maplibregl.setRTLTextPlugin(rtlTextUrl, true).catch(console.error)
+
+// English-first labels: real English name, else the tile's transliterated
+// latin name, else whatever the feature carries. Every label layer's
+// text-field is rewritten to this on style load; a future label-language
+// picker only needs to swap the leading keys.
+const NAME_FIELD: ExpressionSpecification = [
+  'coalesce',
+  ['get', 'name:en'],
+  ['get', 'name_en'],
+  ['get', 'name:latin'],
+  ['get', 'name'],
+]
+// Same ladder for match expressions, where a null needle would error.
+const NAME_MATCH: ExpressionSpecification = [
+  'coalesce',
+  ['get', 'name:en'],
+  ['get', 'name_en'],
+  ['get', 'name:latin'],
+  ['get', 'name'],
+  '',
+]
+const RAW_NAME_MATCH: ExpressionSpecification = [
+  'coalesce',
+  ['get', 'name'],
+  '',
+]
+/** Property keys a label's text may come from, displayed-first. */
+const NAME_KEYS = ['name:en', 'name_en', 'name:latin', 'name']
 // Darker amber for label text (readability at small sizes), brighter for dots.
 const LABEL_COLOR = '#b45309'
 const DOT_COLOR = '#d97706'
@@ -65,13 +101,19 @@ function MapView({
     propsRef.current = { onClickFeatures, onMoveStart, allArticles }
   }, [onClickFeatures, onMoveStart, allArticles])
 
-  /** Wrap every label layer's text color: article names go amber. */
+  /** Wrap every label layer's text color: article names go amber.
+   *  Matches the displayed (English-first) name and the raw `name`, so
+   *  places stored under either light up. */
   const applyLabelColors = (map: maplibregl.Map) => {
     const names = articleNamesRef.current
     for (const { id, originalColor } of labelLayersRef.current) {
       map.setPaintProperty(id, 'text-color', [
         'case',
-        ['in', ['get', 'name'], ['literal', names]],
+        [
+          'any',
+          ['in', NAME_MATCH, ['literal', names]],
+          ['in', RAW_NAME_MATCH, ['literal', names]],
+        ],
         LABEL_COLOR,
         originalColor,
       ])
@@ -87,8 +129,11 @@ function MapView({
     const layerIds = labelLayersRef.current.map((layer) => layer.id)
     const renderedNames = new Set<string>()
     for (const feature of map.queryRenderedFeatures({ layers: layerIds })) {
-      const name = feature.properties?.name
-      if (typeof name === 'string') renderedNames.add(name)
+      const props = feature.properties ?? {}
+      for (const key of NAME_KEYS) {
+        const value = props[key]
+        if (typeof value === 'string' && value) renderedNames.add(value)
+      }
     }
     const hidden: string[] = []
     for (const feature of collectionRef.current.features) {
@@ -210,6 +255,8 @@ function MapView({
           id: layer.id,
           originalColor: layer.paint?.['text-color'] ?? '#333',
         })
+        // English-first labels (replaces the style's latin\nnonlatin stack)
+        map.setLayoutProperty(layer.id, 'text-field', NAME_FIELD)
       }
       labelLayersRef.current = labelLayers
 

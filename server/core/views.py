@@ -114,12 +114,15 @@ def _place_json(place):
 def resolve(request):
     data = request.data
     name = data.get('name')
+    # the English-first label the client displayed (optional)
+    name_en = data.get('name_en')
     feature_class = data.get('class')
     lng_lat = data.get('lngLat')
     zoom = data.get('zoom')
 
     if (
         not isinstance(name, str) or not name.strip()
+        or not (isinstance(name_en, str) or name_en is None)
         or not isinstance(feature_class, str) or not feature_class
         or not isinstance(lng_lat, (list, tuple)) or len(lng_lat) != 2
         or not all(isinstance(c, (int, float)) for c in lng_lat)
@@ -129,6 +132,7 @@ def resolve(request):
             {'error': 'expected {name, class, lngLat: [lng, lat], zoom?}'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    name_en = name_en.strip() or None if name_en else None
     lng, lat = lng_lat
     if not (-180 <= lng <= 180 and -90 <= lat <= 90):
         return Response(
@@ -138,7 +142,7 @@ def resolve(request):
 
     try:
         place, created = resolution.resolve(
-            name.strip(), feature_class, lng, lat, zoom
+            name.strip(), feature_class, lng, lat, zoom, name_en
         )
     except OverpassError:
         return Response(

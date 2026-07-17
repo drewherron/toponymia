@@ -34,6 +34,7 @@ export async function resolveFeature(
   name: string,
   kind: string,
   click: ClickContext,
+  nameEn: string | null,
   signal?: AbortSignal,
 ): Promise<ResolveResponse> {
   const response = await fetch('/api/resolve/', {
@@ -45,6 +46,7 @@ export async function resolveFeature(
       class: kind,
       lngLat: [click.lngLat.lng, click.lngLat.lat],
       zoom: click.zoom,
+      ...(nameEn ? { name_en: nameEn } : {}),
     }),
   })
   if (!response.ok) {

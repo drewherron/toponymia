@@ -210,6 +210,50 @@ class ResolveApiTests(ApiTestCase):
         ).json()['place']
         self.assertEqual(second['slug'], 'springfield-2')
 
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_element_name_en_tag_wins_display_name(self, fetch):
+        element = _relation(name='Kalaallit Nunaat', qid='Q223')
+        element['tags']['name:en'] = 'Greenland'
+        fetch.return_value = [element]
+        place = self._post(
+            name='Kalaallit Nunaat', name_en='Grønland', **{'class': 'country'}
+        ).json()['place']
+        self.assertEqual(place['display_name'], 'Greenland')
+        self.assertEqual(place['slug'], 'greenland')
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_client_name_en_used_when_tags_lack_english(self, fetch):
+        fetch.return_value = [_relation(name='Kalaallit Nunaat', qid='Q223')]
+        place = self._post(
+            name='Kalaallit Nunaat', name_en='Greenland', **{'class': 'country'}
+        ).json()['place']
+        self.assertEqual(place['display_name'], 'Greenland')
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_cache_matches_english_display_name_from_raw_click(self, fetch):
+        element = _relation(name='Kalaallit Nunaat', qid='Q223')
+        element['tags']['name:en'] = 'Greenland'
+        fetch.return_value = [element]
+        first = self._post(
+            name='Kalaallit Nunaat', name_en='Greenland', **{'class': 'country'}
+        ).json()
+        fetch.reset_mock()
+        second = self._post(
+            name='Kalaallit Nunaat', name_en='Greenland', **{'class': 'country'}
+        ).json()
+        fetch.assert_not_called()
+        self.assertFalse(second['created'])
+        self.assertEqual(second['place']['id'], first['place']['id'])
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_name_anchor_titled_by_displayed_name(self, fetch):
+        fetch.return_value = []
+        place = self._post(
+            name='Íslandsfjall', name_en='Iceland Mountain', **{'class': 'peak'}
+        ).json()['place']
+        self.assertEqual(place['display_name'], 'Iceland Mountain')
+        self.assertEqual(place['anchor_level'], 'name')
+
 
 def _make_place(name='Testville', slug='testville'):
     return Place.objects.create(

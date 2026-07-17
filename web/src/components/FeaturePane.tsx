@@ -162,9 +162,14 @@ function FeaturePane({
           return placeDetail
         })
       : resolveFeature(
-          feature.name,
+          // Overpass matches OSM `name`; the displayed English-first
+          // name rides along so the place shows it as display_name.
+          feature.rawName ?? feature.name,
           feature.kind,
           feature.anchor ? { ...click, lngLat: feature.anchor } : click,
+          feature.rawName && feature.rawName !== feature.name
+            ? feature.name
+            : null,
           controller.signal,
         )
           .then((response) => {

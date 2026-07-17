@@ -11,6 +11,18 @@ const KIND_BY_SOURCE_LAYER: Record<string, string> = {
   poi: 'poi',
 }
 
+// Mirrors MapView's NAME_FIELD label expression, so the picker/pane show
+// the same English-first name the map renders.
+const NAME_KEYS = ['name:en', 'name_en', 'name:latin', 'name']
+
+function displayNameOf(props: Record<string, unknown>): string | null {
+  for (const key of NAME_KEYS) {
+    const value = props[key]
+    if (typeof value === 'string' && value) return value
+  }
+  return null
+}
+
 function kindOf(feature: MapGeoJSONFeature): string {
   const sourceLayer = feature.sourceLayer ?? ''
   if (sourceLayer === 'place' || sourceLayer === 'park') {
@@ -54,8 +66,9 @@ export function toCandidates(
     })
   }
   for (const feature of features) {
-    const name = feature.properties?.name
-    if (typeof name !== 'string' || !name) continue
+    const rawName = feature.properties?.name
+    if (typeof rawName !== 'string' || !rawName) continue
+    const name = displayNameOf(feature.properties) ?? rawName
     const kind = kindOf(feature)
     const key = `${name}|${kind}`
     if (seen.has(key)) continue
@@ -67,6 +80,7 @@ export function toCandidates(
     }
     candidates.push({
       name,
+      rawName,
       kind,
       sourceLayer: feature.sourceLayer ?? '',
       properties: { ...feature.properties },
