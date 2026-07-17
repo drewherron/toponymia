@@ -318,25 +318,31 @@ body,
 
 /* Articles-only filter toggle (bottom-left corner) */
 
+/* Header pill matching .random-button; active = amber (highlights on). */
 .articles-toggle {
-  position: absolute;
-  bottom: 24px;
-  left: 10px;
-  z-index: 30;
   font: inherit;
-  font-size: 0.9rem;
-  padding: 7px 14px;
-  border: none;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
   border-radius: 16px;
   background: #fff;
   color: #444;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.articles-toggle:hover {
+  background: #f4f7fa;
 }
 
 .articles-toggle.active {
   background: #d97706;
+  border-color: #d97706;
   color: #fff;
+}
+
+.articles-toggle.active:hover {
+  background: #c76a05;
 }
 
 /* Auth control (in the header, right edge) */

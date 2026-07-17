@@ -227,6 +227,14 @@ function App() {
         >
           Random article
         </button>
+        <button
+          type="button"
+          className={`articles-toggle${allArticles ? ' active' : ''}`}
+          onClick={() => setAllArticles((value) => !value)}
+          aria-pressed={allArticles}
+        >
+          All articles
+        </button>
         {user?.is_moderator && (
           <button
             type="button"
@@ -260,14 +268,6 @@ function App() {
           highlightsEpoch={highlightsEpoch}
           mapApi={mapApiRef}
         />
-        <button
-          type="button"
-          className={`articles-toggle${allArticles ? ' active' : ''}`}
-          onClick={() => setAllArticles((value) => !value)}
-          aria-pressed={allArticles}
-        >
-          All articles
-        </button>
         {picker && (
           <FeaturePicker
             x={picker.x}
