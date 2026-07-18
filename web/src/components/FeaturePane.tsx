@@ -56,7 +56,13 @@ const ANCHOR_LABEL: Record<ResolvedPlace['anchor_level'], string> = {
   name: 'Anchored by name and location',
 }
 
-function AnchorInfo({ resolution }: { resolution: Resolution }) {
+function AnchorInfo({
+  resolution,
+  moderator,
+}: {
+  resolution: Resolution
+  moderator: boolean
+}) {
   if (resolution.status === 'loading') {
     return <p className="anchor-info anchor-pending">Resolving place…</p>
   }
@@ -67,6 +73,8 @@ function AnchorInfo({ resolution }: { resolution: Resolution }) {
       </p>
     )
   }
+  // Anchor plumbing (QID, OSM ref, slug) is moderator-only.
+  if (!moderator) return null
   const { place } = resolution
   return (
     <div className="anchor-info">
@@ -234,7 +242,7 @@ function FeaturePane({
           ×
         </button>
       </div>
-      <AnchorInfo resolution={resolution} />
+      <AnchorInfo resolution={resolution} moderator={!!user?.is_moderator} />
 
       {place && !editing && (
         <nav className="pane-tabs">
