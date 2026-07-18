@@ -1,5 +1,6 @@
 import type { MapGeoJSONFeature } from 'maplibre-gl'
 import type { FeatureCandidate } from '../types'
+import { displayNameOf } from './labels'
 
 const KIND_BY_SOURCE_LAYER: Record<string, string> = {
   transportation_name: 'road',
@@ -9,18 +10,6 @@ const KIND_BY_SOURCE_LAYER: Record<string, string> = {
   mountain_peak: 'peak',
   aerodrome_label: 'aerodrome',
   poi: 'poi',
-}
-
-// Mirrors MapView's NAME_FIELD label expression, so the picker/pane show
-// the same English-first name the map renders.
-const NAME_KEYS = ['name:en', 'name_en', 'name:latin', 'name']
-
-function displayNameOf(props: Record<string, unknown>): string | null {
-  for (const key of NAME_KEYS) {
-    const value = props[key]
-    if (typeof value === 'string' && value) return value
-  }
-  return null
 }
 
 function kindOf(feature: MapGeoJSONFeature): string {
@@ -42,6 +31,7 @@ function kindOf(feature: MapGeoJSONFeature): string {
 export function toCandidates(
   features: MapGeoJSONFeature[],
   dots: MapGeoJSONFeature[] = [],
+  lang = 'en',
 ): FeatureCandidate[] {
   const seen = new Set<string>()
   const candidates: FeatureCandidate[] = []
@@ -68,7 +58,10 @@ export function toCandidates(
   for (const feature of features) {
     const rawName = feature.properties?.name
     if (typeof rawName !== 'string' || !rawName) continue
-    const name = displayNameOf(feature.properties) ?? rawName
+    const name = displayNameOf(feature.properties, lang) ?? rawName
+    // Always the *English* name, whatever language is displayed —
+    // resolve titles new places with it (an English-language wiki).
+    const nameEn = displayNameOf(feature.properties, 'en')
     const kind = kindOf(feature)
     const key = `${name}|${kind}`
     if (seen.has(key)) continue
@@ -81,6 +74,7 @@ export function toCandidates(
     candidates.push({
       name,
       rawName,
+      nameEn: nameEn && nameEn !== rawName ? nameEn : undefined,
       kind,
       sourceLayer: feature.sourceLayer ?? '',
       properties: { ...feature.properties },

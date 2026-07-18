@@ -16,6 +16,7 @@ import type {
   ResolvedPlace,
 } from '../types'
 import { toCandidates } from './features'
+import { nameField, nameKeys, nameMatch } from './labels'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 const CLICK_TOLERANCE_PX = 6
@@ -24,33 +25,11 @@ const CLICK_TOLERANCE_PX = 6
 // RTL text first appears in view). Without it RTL names render backward.
 maplibregl.setRTLTextPlugin(rtlTextUrl, true).catch(console.error)
 
-// English-first labels: real English name, else the tile's transliterated
-// latin name, else whatever the feature carries. Every label layer's
-// text-field is rewritten to this on style load; a future label-language
-// picker only needs to swap the leading keys.
-const NAME_FIELD: ExpressionSpecification = [
-  'coalesce',
-  ['get', 'name:en'],
-  ['get', 'name_en'],
-  ['get', 'name:latin'],
-  ['get', 'name'],
-]
-// Same ladder for match expressions, where a null needle would error.
-const NAME_MATCH: ExpressionSpecification = [
-  'coalesce',
-  ['get', 'name:en'],
-  ['get', 'name_en'],
-  ['get', 'name:latin'],
-  ['get', 'name'],
-  '',
-]
 const RAW_NAME_MATCH: ExpressionSpecification = [
   'coalesce',
   ['get', 'name'],
   '',
 ]
-/** Property keys a label's text may come from, displayed-first. */
-const NAME_KEYS = ['name:en', 'name_en', 'name:latin', 'name']
 // Darker amber for label text (readability at small sizes), brighter for dots.
 const LABEL_COLOR = '#b45309'
 const DOT_COLOR = '#d97706'
@@ -74,6 +53,8 @@ interface MapViewProps {
   onMoveStart: () => void
   /** Show dots for articles whose basemap label isn't rendered here. */
   allArticles: boolean
+  /** Language the basemap labels render in (labels.ts codes). */
+  labelLanguage: string
   /** Bump to force a highlight refetch (e.g. after saving an article). */
   highlightsEpoch: number
   /** Receives imperative controls (fly-to for search/deep links). */
@@ -84,6 +65,7 @@ function MapView({
   onClickFeatures,
   onMoveStart,
   allArticles,
+  labelLanguage,
   highlightsEpoch,
   mapApi,
 }: MapViewProps) {
@@ -91,27 +73,38 @@ function MapView({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const readyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
-  const propsRef = useRef({ onClickFeatures, onMoveStart, allArticles })
+  const propsRef = useRef({
+    onClickFeatures,
+    onMoveStart,
+    allArticles,
+    labelLanguage,
+  })
   const labelLayersRef = useRef<LabelLayer[]>([])
   const articleNamesRef = useRef<string[]>([])
   const collectionRef = useRef<FeatureCollection>(EMPTY_COLLECTION)
   const hiddenDotsRef = useRef('')
 
   useEffect(() => {
-    propsRef.current = { onClickFeatures, onMoveStart, allArticles }
-  }, [onClickFeatures, onMoveStart, allArticles])
+    propsRef.current = {
+      onClickFeatures,
+      onMoveStart,
+      allArticles,
+      labelLanguage,
+    }
+  }, [onClickFeatures, onMoveStart, allArticles, labelLanguage])
 
   /** Wrap every label layer's text color: article names go amber.
-   *  Matches the displayed (English-first) name and the raw `name`, so
-   *  places stored under either light up. */
+   *  Matches the displayed name and the raw `name`, so places stored
+   *  under either light up whatever the label language. */
   const applyLabelColors = (map: maplibregl.Map) => {
     const names = articleNamesRef.current
+    const displayedMatch = nameMatch(propsRef.current.labelLanguage)
     for (const { id, originalColor } of labelLayersRef.current) {
       map.setPaintProperty(id, 'text-color', [
         'case',
         [
           'any',
-          ['in', NAME_MATCH, ['literal', names]],
+          ['in', displayedMatch, ['literal', names]],
           ['in', RAW_NAME_MATCH, ['literal', names]],
         ],
         LABEL_COLOR,
@@ -128,9 +121,10 @@ function MapView({
   const updateDotFilter = (map: maplibregl.Map) => {
     const layerIds = labelLayersRef.current.map((layer) => layer.id)
     const renderedNames = new Set<string>()
+    const keys = nameKeys(propsRef.current.labelLanguage)
     for (const feature of map.queryRenderedFeatures({ layers: layerIds })) {
       const props = feature.properties ?? {}
-      for (const key of NAME_KEYS) {
+      for (const key of keys) {
         const value = props[key]
         if (typeof value === 'string' && value) renderedNames.add(value)
       }
@@ -255,8 +249,12 @@ function MapView({
           id: layer.id,
           originalColor: layer.paint?.['text-color'] ?? '#333',
         })
-        // English-first labels (replaces the style's latin\nnonlatin stack)
-        map.setLayoutProperty(layer.id, 'text-field', NAME_FIELD)
+        // Chosen-language labels (replace the style's latin\nnonlatin stack)
+        map.setLayoutProperty(
+          layer.id,
+          'text-field',
+          nameField(propsRef.current.labelLanguage),
+        )
       }
       labelLayersRef.current = labelLayers
 
@@ -307,7 +305,11 @@ function MapView({
         ? map.queryRenderedFeatures(box, { layers: ['article-dots'] })
         : []
       propsRef.current.onClickFeatures(
-        toCandidates(map.queryRenderedFeatures(box), dots),
+        toCandidates(
+          map.queryRenderedFeatures(box),
+          dots,
+          propsRef.current.labelLanguage,
+        ),
         { x: e.point.x, y: e.point.y },
         {
           lngLat: { lng: e.lngLat.lng, lat: e.lngLat.lat },
@@ -344,6 +346,16 @@ function MapView({
     if (!map || !readyRef.current) return
     refreshHighlights(map)
   }, [highlightsEpoch])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !readyRef.current) return
+    for (const { id } of labelLayersRef.current) {
+      map.setLayoutProperty(id, 'text-field', nameField(labelLanguage))
+    }
+    applyLabelColors(map)
+    // relayout re-renders; 'idle' then refreshes the dot filter
+  }, [labelLanguage])
 
   return <div ref={containerRef} className="map-container" />
 }

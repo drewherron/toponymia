@@ -6,6 +6,11 @@ import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
 import ModQueue from './components/ModQueue'
 import SearchBox from './components/SearchBox'
+import {
+  LABEL_LANGUAGES,
+  storedLabelLanguage,
+  storeLabelLanguage,
+} from './map/labels'
 import MapView from './map/MapView'
 import type {
   ClickContext,
@@ -56,6 +61,7 @@ function App() {
   const [modOpen, setModOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [allArticles, setAllArticles] = useState(false)
+  const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
   const mapApiRef = useRef<MapApi | null>(null)
   // Captured at first render: MapLibre (hash: true) writes its own
@@ -235,6 +241,22 @@ function App() {
         >
           All articles
         </button>
+        <select
+          className="lang-select"
+          aria-label="Map label language"
+          title="Map label language"
+          value={labelLanguage}
+          onChange={(event) => {
+            storeLabelLanguage(event.target.value)
+            setLabelLanguage(event.target.value)
+          }}
+        >
+          {LABEL_LANGUAGES.map(({ code, label }) => (
+            <option key={code} value={code}>
+              {label}
+            </option>
+          ))}
+        </select>
         {user?.is_moderator && (
           <button
             type="button"
@@ -265,6 +287,7 @@ function App() {
           onClickFeatures={handleClickFeatures}
           onMoveStart={handleMoveStart}
           allArticles={allArticles}
+          labelLanguage={labelLanguage}
           highlightsEpoch={highlightsEpoch}
           mapApi={mapApiRef}
         />

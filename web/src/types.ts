@@ -4,6 +4,9 @@ export interface FeatureCandidate {
   /** The tile's own `name` (native), what OSM/Overpass match on.
    *  Absent for candidates that never resolve (dots, slugs). */
   rawName?: string
+  /** The English name when it differs from rawName — sent to resolve as
+   *  name_en regardless of the displayed label language. */
+  nameEn?: string
   kind: string
   sourceLayer: string
   properties: Record<string, unknown>

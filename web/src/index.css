@@ -64,6 +64,23 @@ body,
   background: #f4f7fa;
 }
 
+/* Header pill matching .random-button. */
+.lang-select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 16px;
+  background: #fff;
+  color: #444;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lang-select:hover {
+  background: #f4f7fa;
+}
+
 .search-box {
   position: relative;
   flex: 0 1 340px;
