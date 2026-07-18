@@ -42,7 +42,7 @@ type Detail =
   | { status: 'error' }
   | { status: 'done'; detail: PlaceDetail }
 
-type Tab = 'article' | 'talk' | 'history'
+type Tab = 'article' | 'talk' | 'history' | 'edit'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'article', label: 'Article' },
@@ -152,7 +152,6 @@ function FeaturePane({
     status: 'loading',
   })
   const [detail, setDetail] = useState<Detail>({ status: 'loading' })
-  const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<Tab>('article')
   const [wide, setWide] = useState(false)
 
@@ -160,7 +159,6 @@ function FeaturePane({
     const controller = new AbortController()
     setResolution({ status: 'loading' })
     setDetail({ status: 'loading' })
-    setEditing(false)
     setTab('article')
     // An article dot already knows its place: skip resolution entirely.
     const detailPromise = feature.slug
@@ -203,7 +201,6 @@ function FeaturePane({
         ? { status: 'done', detail: { ...prev.detail, article } }
         : prev,
     )
-    setEditing(false)
     onArticleSaved()
   }
 
@@ -244,7 +241,7 @@ function FeaturePane({
       </div>
       <AnchorInfo resolution={resolution} moderator={!!user?.is_moderator} />
 
-      {place && !editing && (
+      {place && (
         <nav className="pane-tabs">
           {TABS.map(({ id, label }) => (
             <button
@@ -256,14 +253,23 @@ function FeaturePane({
               {label}
             </button>
           ))}
+          {canEdit && (
+            <button
+              type="button"
+              className={`pane-tab pane-tab-edit${tab === 'edit' ? ' active' : ''}`}
+              onClick={() => setTab('edit')}
+            >
+              Edit
+            </button>
+          )}
         </nav>
       )}
 
-      {place && !editing && tab === 'talk' && (
+      {place && tab === 'talk' && (
         <TalkTab slug={place.slug} user={user} onRequestAuth={onRequestAuth} />
       )}
 
-      {place && !editing && tab === 'history' && (
+      {place && tab === 'history' && (
         <HistoryTab
           slug={place.slug}
           user={user}
@@ -273,25 +279,28 @@ function FeaturePane({
         />
       )}
 
-      {place && editing && (
+      {place && tab === 'edit' && (
         <ArticleEditor
           slug={place.slug}
           displayName={place.display_name}
           initial={article?.content ?? null}
-          onSaved={handleSaved}
-          onCancel={() => setEditing(false)}
+          onSaved={(saved) => {
+            handleSaved(saved)
+            setTab('article')
+          }}
+          onCancel={() => setTab('article')}
         />
       )}
 
-      {place && !editing && tab === 'article' && detail.status === 'loading' && (
+      {place && tab === 'article' && detail.status === 'loading' && (
         <p className="feature-pane-note">Loading article…</p>
       )}
 
-      {place && !editing && tab === 'article' && protection !== 'none' && (
+      {place && tab === 'article' && protection !== 'none' && (
         <p className="protection-note">🔒 {PROTECTION_NOTE[protection]}</p>
       )}
 
-      {place && !editing && tab === 'article' && user?.is_moderator && (
+      {place && tab === 'article' && user?.is_moderator && (
         <ProtectionControl
           slug={place.slug}
           level={protection}
@@ -299,22 +308,9 @@ function FeaturePane({
         />
       )}
 
-      {place && !editing && tab === 'article' && article && (
-        <>
-          {canEdit && (
-            <button
-              type="button"
-              className="article-edit-button"
-              onClick={() => setEditing(true)}
-            >
-              Edit article
-            </button>
-          )}
-          <ArticleView article={article} />
-        </>
-      )}
+      {place && tab === 'article' && article && <ArticleView article={article} />}
 
-      {place && !editing && tab === 'article' && detail.status === 'done' && !article && (
+      {place && tab === 'article' && detail.status === 'done' && !article && (
         <div className="article-stub">
           <p className="feature-pane-note">
             No article about this place name yet.
@@ -323,7 +319,7 @@ function FeaturePane({
             <button
               type="button"
               className="article-write-button"
-              onClick={() => setEditing(true)}
+              onClick={() => setTab('edit')}
             >
               Write this article
             </button>

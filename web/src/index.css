@@ -456,7 +456,6 @@ body,
 
 /* Article view */
 
-.article-edit-button,
 .article-write-button {
   font: inherit;
   font-size: 0.9rem;
@@ -662,6 +661,10 @@ body,
   color: #1f4f7a;
   border-bottom-color: #1f4f7a;
   font-weight: 600;
+}
+
+.pane-tab-edit {
+  margin-left: auto;
 }
 
 .feature-pane.wide {
