@@ -67,7 +67,6 @@ function ArticleEditor({
   onSaved,
   onCancel,
 }: ArticleEditorProps) {
-  const [body, setBody] = useState(initial?.body_md ?? '')
   const [names, setNames] = useState<NameDraft[]>(
     initial && initial.names.length > 0
       ? initial.names.map(toDraft)
@@ -86,14 +85,16 @@ function ArticleEditor({
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     const content: ArticleContent = {
-      body_md: body,
+      // free-form body removed from the UI: saving empties any legacy
+      // body (a normal revision — history keeps it, revert restores it)
+      body_md: '',
       names: names.map(fromDraft).filter((entry) => entry.name),
       // not editable here yet — carried through from the last revision
       derivations: initial?.derivations ?? [],
       see_also: initial?.see_also ?? [],
     }
-    if (!content.body_md.trim() && content.names.length === 0) {
-      setError('Write a body or add at least one name.')
+    if (content.names.length === 0) {
+      setError('Add at least one name.')
       return
     }
     setBusy(true)
@@ -108,16 +109,6 @@ function ArticleEditor({
 
   return (
     <form className="article-editor" onSubmit={handleSubmit}>
-      <label>
-        Article body (Markdown)
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={10}
-          placeholder="What does this place name mean? Where does it come from?"
-        />
-      </label>
-
       <h2>Names</h2>
       {names.map((draft, index) => (
         <fieldset className="name-editor" key={index}>
@@ -167,7 +158,12 @@ function ArticleEditor({
               onChange={(e) =>
                 updateName(index, { etymology: e.target.value })
               }
-              rows={4}
+              rows={6}
+              placeholder={
+                index === 0
+                  ? 'What does this name mean? Where does it come from?'
+                  : undefined
+              }
             />
           </label>
           <label>

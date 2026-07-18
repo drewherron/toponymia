@@ -360,6 +360,23 @@ class ArticleApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Revision.objects.count(), 0)
 
+    def test_names_only_content_accepted(self):
+        # body_md is vestigial (removed from the UI) — optional on write
+        self.client.force_login(self.user)
+        content = _content()
+        del content['body_md']
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 200)
+        stored = response.json()['article']['content']
+        self.assertEqual(stored['body_md'], '')
+
+    def test_body_only_content_rejected(self):
+        # everything belongs to a name now: a body alone isn't an article
+        self.client.force_login(self.user)
+        response = self._put(content={'body_md': 'A place.', 'names': []})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
+
     def test_detail_returns_current_article(self):
         self.client.force_login(self.user)
         self._put()

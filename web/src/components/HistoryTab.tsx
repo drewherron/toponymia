@@ -61,6 +61,10 @@ function DiffView({
   const rows = diffBody(older.content.body_md, newer.content.body_md)
   const fieldChanges = diffStructured(older.content, newer.content)
   const bodyChanged = rows.some((row) => row.changed)
+  // Bodies are legacy now — skip the panel when neither side has one.
+  const hasBody =
+    older.content.body_md.trim() !== '' ||
+    newer.content.body_md.trim() !== ''
   return (
     <div className="diff">
       <div className="diff-side-headers">
@@ -77,22 +81,26 @@ function DiffView({
         ))}
       </div>
 
-      {bodyChanged ? (
-        <div className="diff-rows">
-          {rows.map((row, i) => (
-            <div key={i} className={`diff-row${row.changed ? ' changed' : ''}`}>
-              <div className={`diff-cell${row.left ? '' : ' absent'}`}>
-                {row.left && <Spans spans={row.left} />}
+      {hasBody &&
+        (bodyChanged ? (
+          <div className="diff-rows">
+            {rows.map((row, i) => (
+              <div
+                key={i}
+                className={`diff-row${row.changed ? ' changed' : ''}`}
+              >
+                <div className={`diff-cell${row.left ? '' : ' absent'}`}>
+                  {row.left && <Spans spans={row.left} />}
+                </div>
+                <div className={`diff-cell${row.right ? '' : ' absent'}`}>
+                  {row.right && <Spans spans={row.right} />}
+                </div>
               </div>
-              <div className={`diff-cell${row.right ? '' : ' absent'}`}>
-                {row.right && <Spans spans={row.right} />}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="feature-pane-note">Body text unchanged.</p>
-      )}
+            ))}
+          </div>
+        ) : (
+          <p className="feature-pane-note">Body text unchanged.</p>
+        ))}
 
       {fieldChanges.length > 0 && (
         <div className="diff-fields">

@@ -29,7 +29,12 @@ class DerivationSerializer(serializers.Serializer):
 
 
 class ContentSerializer(serializers.Serializer):
-    body_md = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    # Vestigial: no longer editable in the UI (everything belongs to a
+    # name's etymology), but kept in the snapshot schema so pre-removal
+    # revisions render and revert unchanged.
+    body_md = serializers.CharField(
+        allow_blank=True, trim_whitespace=False, default=''
+    )
     names = NameSerializer(many=True, default=list)
     derivations = DerivationSerializer(many=True, default=list)
     see_also = serializers.ListField(
@@ -37,9 +42,9 @@ class ContentSerializer(serializers.Serializer):
     )
 
     def validate(self, data):
-        if not data['body_md'].strip() and not data['names']:
+        if not data['names']:
             raise serializers.ValidationError(
-                'article needs a body or at least one name'
+                'article needs at least one name'
             )
         return data
 

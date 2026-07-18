@@ -598,6 +598,17 @@ def create_report(request):
     )
 
 
+def _revision_excerpt(content):
+    """Body text when a (legacy) revision has it, else the first name
+    etymology — name-only snapshots still need queue context."""
+    if content.get('body_md', '').strip():
+        return content['body_md'][:280]
+    for entry in content.get('names', []):
+        if entry.get('etymology_md', '').strip():
+            return entry['etymology_md'][:280]
+    return ''
+
+
 def _report_json(report):
     """A queue row with just enough target context to triage without a
     round-trip: what was said, by whom, and where to find it."""
@@ -610,7 +621,7 @@ def _report_json(report):
             'id': revision.id,
             'author': revision.author.username,
             'comment': revision.comment,
-            'excerpt': revision.content.get('body_md', '')[:280],
+            'excerpt': _revision_excerpt(revision.content),
             'slug': place.slug,
             'place': place.display_name,
             'is_current': revision.article.current_revision_id == revision.id,

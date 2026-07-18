@@ -12,9 +12,13 @@ function ArticleView({ article }: ArticleViewProps) {
   const { content } = article
   return (
     <div className="article">
-      <div className="article-body">
-        <Markdown remarkPlugins={plugins}>{content.body_md}</Markdown>
-      </div>
+      {/* Free-form bodies aren't written anymore; render only legacy
+          revisions that still carry one (history must stay honest). */}
+      {content.body_md.trim() !== '' && (
+        <div className="article-body">
+          <Markdown remarkPlugins={plugins}>{content.body_md}</Markdown>
+        </div>
+      )}
 
       {content.names.length > 0 && (
         <section className="article-names">
