@@ -377,6 +377,37 @@ class ArticleApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Revision.objects.count(), 0)
 
+    def test_unknown_language_code_rejected(self):
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['from_languages'] = ['lat', 'Latin']
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Latin', str(response.json()))
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_language_codes_normalized_to_iso639_3(self):
+        # ISO 639-1 two-letter input is accepted and stored as 639-3
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['language'] = 'FR'
+        content['names'][0]['from_languages'] = ['la', 'ang']
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 200)
+        stored = response.json()['article']['content']['names'][0]
+        self.assertEqual(stored['language'], 'fra')
+        self.assertEqual(stored['from_languages'], ['lat', 'ang'])
+        row = PlaceName.objects.get(place=self.place)
+        self.assertEqual(row.language, 'fra')
+        self.assertEqual(row.from_languages, ['lat', 'ang'])
+
+    def test_blank_language_still_allowed(self):
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['language'] = ''
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 200)
+
     def test_detail_returns_current_article(self):
         self.client.force_login(self.user)
         self._put()

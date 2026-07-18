@@ -1310,3 +1310,69 @@ body,
 .about-dialog a {
   color: #1f4f7a;
 }
+
+/* Language-code help: the ? icon in the editor and its dialog extras
+   (the dialog itself reuses the about-dialog chrome). */
+
+.label-with-help {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lang-help-button {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #999;
+  border-radius: 50%;
+  background: none;
+  color: #666;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lang-help-button:hover {
+  border-color: #1f4f7a;
+  color: #1f4f7a;
+}
+
+.lang-help-dialog code {
+  background: #f4f4f4;
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 0.85em;
+}
+
+.lang-help-search {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.lang-help-status {
+  color: #777;
+  font-size: 0.85rem;
+}
+
+.lang-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.lang-help-table td {
+  padding: 3px 10px 3px 0;
+  border-top: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+
+.lang-help-table td:first-child {
+  width: 52px;
+}

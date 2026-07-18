@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { saveArticle } from '../api'
+import { loadLanguages, normalizeCode } from '../languages'
 import type { ArticleContent, ArticleData, NameEntry } from '../types'
+import LanguageHelpDialog from './LanguageHelpDialog'
 
 interface ArticleEditorProps {
   slug: string
@@ -75,6 +77,7 @@ function ArticleEditor({
   const [comment, setComment] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const updateName = (index: number, patch: Partial<NameDraft>) => {
     setNames((prev) =>
@@ -84,26 +87,56 @@ function ArticleEditor({
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
-    const content: ArticleContent = {
-      // free-form body removed from the UI: saving empties any legacy
-      // body (a normal revision — history keeps it, revert restores it)
-      body_md: '',
-      names: names.map(fromDraft).filter((entry) => entry.name),
-      // not editable here yet — carried through from the last revision
-      derivations: initial?.derivations ?? [],
-      see_also: initial?.see_also ?? [],
-    }
-    if (content.names.length === 0) {
+    const entries = names.map(fromDraft).filter((entry) => entry.name)
+    if (entries.length === 0) {
       setError('Add at least one name.')
       return
     }
     setBusy(true)
     setError(null)
-    saveArticle(slug, content, comment.trim())
-      .then(onSaved)
-      .catch(() => {
-        setError('Could not save the article. Are you still logged in?')
-        setBusy(false)
+    // If the code table chunk fails to load, save unvalidated — the
+    // server checks the same table.
+    loadLanguages()
+      .catch(() => null)
+      .then((table) => {
+        let checked = entries
+        if (table) {
+          const bad = new Set<string>()
+          checked = entries.map((entry) => {
+            const language = normalizeCode(entry.language, table)
+            if (language === null) bad.add(entry.language.trim())
+            const from_languages = entry.from_languages.map((code) => {
+              const normal = normalizeCode(code, table)
+              if (normal === null) bad.add(code)
+              return normal ?? code
+            })
+            return { ...entry, language: language ?? entry.language, from_languages }
+          })
+          if (bad.size > 0) {
+            setError(
+              `Unknown language code${bad.size > 1 ? 's' : ''}: ` +
+                `${[...bad].join(', ')}. Codes are ISO 639-3 — ` +
+                'click the ? by "Derived from languages" for the list.',
+            )
+            setBusy(false)
+            return
+          }
+        }
+        const content: ArticleContent = {
+          // free-form body removed from the UI: saving empties any legacy
+          // body (a normal revision — history keeps it, revert restores it)
+          body_md: '',
+          names: checked,
+          // not editable here yet — carried through from the last revision
+          derivations: initial?.derivations ?? [],
+          see_also: initial?.see_also ?? [],
+        }
+        saveArticle(slug, content, comment.trim())
+          .then(onSaved)
+          .catch(() => {
+            setError('Could not save the article. Are you still logged in?')
+            setBusy(false)
+          })
       })
   }
 
@@ -142,7 +175,21 @@ function ArticleEditor({
             Endonym (local name)
           </label>
           <label>
-            Derived from languages (comma-separated codes)
+            <span className="label-with-help">
+              Derived from languages
+              <button
+                type="button"
+                className="lang-help-button"
+                aria-label="How to choose language codes"
+                onClick={(e) => {
+                  // keep the label from focusing the input
+                  e.preventDefault()
+                  setHelpOpen(true)
+                }}
+              >
+                ?
+              </button>
+            </span>
             <input
               value={draft.fromLanguages}
               onChange={(e) =>
@@ -207,6 +254,7 @@ function ArticleEditor({
         />
       </label>
 
+      {helpOpen && <LanguageHelpDialog onClose={() => setHelpOpen(false)} />}
       {error && <p className="article-editor-error">{error}</p>}
       <div className="article-editor-actions">
         <button type="submit" disabled={busy}>

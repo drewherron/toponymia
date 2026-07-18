@@ -4,14 +4,32 @@ model row."""
 
 from rest_framework import serializers
 
+from .languages import normalize_code
+
+
+class LanguageCodeField(serializers.CharField):
+    """An ISO 639-3 code; 639-1 two-letter input is normalized (fr -> fra)."""
+
+    def __init__(self, **kwargs):
+        super().__init__(max_length=16, **kwargs)
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data).strip()
+        if not value:
+            return ''
+        code = normalize_code(value)
+        if code is None:
+            raise serializers.ValidationError(
+                f'unknown language code "{value}" — use ISO 639-3'
+            )
+        return code
+
 
 class NameSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
-    language = serializers.CharField(
-        max_length=16, allow_blank=True, default=''
-    )
+    language = LanguageCodeField(allow_blank=True, default='')
     from_languages = serializers.ListField(
-        child=serializers.CharField(max_length=16), default=list
+        child=LanguageCodeField(), default=list
     )
     is_endonym = serializers.BooleanField(default=False)
     etymology_md = serializers.CharField(
