@@ -1,11 +1,15 @@
+import shutil
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.contrib.gis.geos import LineString, Point, Polygon
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from .articles import save_edit
 from .models import Article, Place, PlaceName, Report, Revision, TalkPost
 from .overpass import (
     OverpassError,
@@ -1156,3 +1160,112 @@ class ThrottleApiTests(ApiTestCase):
                 seen_429 = True
                 break
         self.assertTrue(seen_429, 'report endpoint never throttled')
+
+
+SPA_INDEX_FIXTURE = (
+    '<!doctype html><html><head><meta charset="UTF-8" />'
+    '<title>Toponymia</title>\n<!--seo-->\n'
+    '<script src="/assets/index-TEST.js"></script></head>'
+    '<body><div id="root"></div></body></html>'
+)
+
+
+class SpaTests(TestCase):
+    """core/spa.py: the served shell, per-place SEO meta, sitemap, robots.
+    A fixture dist dir stands in for the Vite build so the suite doesn't
+    depend on `npm run build` having run."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.dist = Path(tempfile.mkdtemp(prefix='toponymia-dist-'))
+        (cls.dist / 'index.html').write_text(SPA_INDEX_FIXTURE)
+        cls._settings = override_settings(WEB_DIST=cls.dist)
+        cls._settings.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._settings.disable()
+        shutil.rmtree(cls.dist)
+        super().tearDownClass()
+
+    def _article_place(self, name='Testville', slug='testville', content=None):
+        place = _make_place(name=name, slug=slug)
+        author = User.objects.create_user(f'author-{slug}', password='pw12345!')
+        save_edit(place, author, content or _content(), 'seed')
+        return place
+
+    def test_root_serves_shell_with_default_meta(self):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertIn('<title>Toponymia</title>', html)
+        self.assertIn('<div id="root">', html)
+        self.assertIn('property="og:site_name" content="Toponymia"', html)
+        self.assertIn(
+            '<link rel="canonical" href="http://testserver/" />', html
+        )
+        self.assertNotIn('<!--seo-->', html)
+
+    def test_place_with_article_meta(self):
+        self._article_place()
+        response = self.client.get('/place/testville')
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertIn('<title>Testville – Toponymia</title>', html)
+        # Markdown stripped from the etymology excerpt.
+        self.assertIn('content="Testville: test + -ville"', html)
+        self.assertIn('property="og:type" content="article"', html)
+        self.assertIn(
+            'href="http://testserver/place/testville"', html
+        )
+
+    def test_stub_place_meta(self):
+        _make_place(name='Stubton', slug='stubton')
+        response = self.client.get('/place/stubton')
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertIn('<title>Stubton – Toponymia</title>', html)
+        self.assertIn('property="og:type" content="website"', html)
+        self.assertIn('What does the name', html)
+
+    def test_meta_values_escaped(self):
+        self._article_place(name='A & B', slug='a-b')
+        html = self.client.get('/place/a-b').content.decode()
+        self.assertIn('<title>A &amp; B – Toponymia</title>', html)
+        self.assertNotIn('<title>A & B', html)
+
+    def test_unknown_slug_is_404_shell(self):
+        response = self.client.get('/place/nowhere')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('<div id="root">', response.content.decode())
+
+    def test_unknown_path_is_404_shell(self):
+        response = self.client.get('/no/such/page')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('<div id="root">', response.content.decode())
+
+    def test_missing_build_returns_503(self):
+        with override_settings(WEB_DIST=self.dist / 'nope'):
+            response = self.client.get('/')
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('npm run build', response.content.decode())
+
+    def test_sitemap_lists_article_places_only(self):
+        self._article_place()
+        _make_place(name='Stubton', slug='stubton')
+        response = self.client.get('/sitemap.xml')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/xml')
+        xml = response.content.decode()
+        self.assertIn('<loc>http://testserver/</loc>', xml)
+        self.assertIn('<loc>http://testserver/place/testville</loc>', xml)
+        self.assertIn('<lastmod>', xml)
+        self.assertNotIn('stubton', xml)
+
+    def test_robots(self):
+        response = self.client.get('/robots.txt')
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('Disallow: /api/', body)
+        self.assertIn('Sitemap: http://testserver/sitemap.xml', body)

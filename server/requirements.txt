@@ -3,3 +3,5 @@ djangorestframework>=3.17,<4
 django-allauth>=65.18,<66
 psycopg[binary]>=3.3,<4
 requests>=2.32,<3
+whitenoise>=6.8,<7
+gunicorn>=23,<24

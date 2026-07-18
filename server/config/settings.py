@@ -13,8 +13,14 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# The Vite build Django serves in production: core/spa.py renders
+# index.html (injecting per-place SEO meta), WhiteNoise serves the rest.
+WEB_DIST = Path(os.environ.get('DJANGO_WEB_DIST', BASE_DIR.parent / 'web' / 'dist'))
 
 
 # Quick-start development settings - unsuitable for production
@@ -66,6 +72,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -185,3 +192,28 @@ REST_FRAMEWORK = {
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'  # collectstatic target (admin assets)
+
+# WhiteNoise serves the Vite build at the site root. Everything under
+# /assets/ is content-hashed by Vite, so browsers may cache it forever.
+WHITENOISE_ROOT = WEB_DIST
+
+
+def immutable_file_test(path, url):
+    return url.startswith('/assets/')
+
+
+WHITENOISE_IMMUTABLE_FILE_TEST = immutable_file_test
+
+
+# Production hardening — active whenever DEBUG is off. TLS terminates at
+# the reverse proxy (Caddy/nginx), which must send X-Forwarded-Proto;
+# HSTS is left to the proxy config.
+if not DEBUG:
+    if SECRET_KEY.startswith('django-insecure-'):
+        raise ImproperlyConfigured(
+            'DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=0'
+        )
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
