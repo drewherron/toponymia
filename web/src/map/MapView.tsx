@@ -94,19 +94,23 @@ function MapView({
   }, [onClickFeatures, onMoveStart, allArticles, labelLanguage])
 
   /** Wrap every label layer's text color: article names go amber.
-   *  Matches the displayed name and the raw `name`, so places stored
-   *  under either light up whatever the label language. */
+   *  Matches the displayed name, the raw `name`, and the English name
+   *  (article names are English by construction), so places light up
+   *  whatever the label language. */
   const applyLabelColors = (map: maplibregl.Map) => {
     const names = articleNamesRef.current
-    const displayedMatch = nameMatch(propsRef.current.labelLanguage)
+    const lang = propsRef.current.labelLanguage
+    const matches: ExpressionSpecification[] = [
+      ['in', nameMatch(lang), ['literal', names]],
+      ['in', RAW_NAME_MATCH, ['literal', names]],
+    ]
+    if (lang !== 'en') {
+      matches.push(['in', nameMatch('en'), ['literal', names]])
+    }
     for (const { id, originalColor } of labelLayersRef.current) {
       map.setPaintProperty(id, 'text-color', [
         'case',
-        [
-          'any',
-          ['in', displayedMatch, ['literal', names]],
-          ['in', RAW_NAME_MATCH, ['literal', names]],
-        ],
+        ['any', ...matches],
         LABEL_COLOR,
         originalColor,
       ])
@@ -121,7 +125,9 @@ function MapView({
   const updateDotFilter = (map: maplibregl.Map) => {
     const layerIds = labelLayersRef.current.map((layer) => layer.id)
     const renderedNames = new Set<string>()
-    const keys = nameKeys(propsRef.current.labelLanguage)
+    const keys = [
+      ...new Set([...nameKeys(propsRef.current.labelLanguage), ...nameKeys('en')]),
+    ]
     for (const feature of map.queryRenderedFeatures({ layers: layerIds })) {
       const props = feature.properties ?? {}
       for (const key of keys) {
