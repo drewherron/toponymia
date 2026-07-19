@@ -522,6 +522,11 @@ body,
   margin-bottom: 8px;
 }
 
+.name-references a {
+  color: #1f4f7a;
+  word-break: break-word;
+}
+
 .article-derivations ul,
 .article-see-also ul {
   font-size: 0.9rem;

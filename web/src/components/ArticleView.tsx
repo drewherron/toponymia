@@ -8,6 +8,27 @@ interface ArticleViewProps {
 
 const plugins = [remarkGfm]
 
+// References are free text; turn any http(s) URL inside one into a link
+// while leaving the surrounding citation text alone. Trailing punctuation
+// (a closing paren or sentence period) is kept out of the link.
+const URL_RE = /(https?:\/\/[^\s]+)/g
+
+function linkify(text: string) {
+  return text.split(URL_RE).map((part, i) => {
+    if (i % 2 === 0) return part // non-URL segment
+    const trailing = part.match(/[.,;:!?)\]]+$/)?.[0] ?? ''
+    const url = trailing ? part.slice(0, -trailing.length) : part
+    return (
+      <span key={i}>
+        <a href={url} target="_blank" rel="noreferrer">
+          {url}
+        </a>
+        {trailing}
+      </span>
+    )
+  })
+}
+
 function ArticleView({ article }: ArticleViewProps) {
   const { content } = article
   return (
@@ -47,7 +68,7 @@ function ArticleView({ article }: ArticleViewProps) {
               {entry.references.length > 0 && (
                 <ul className="name-references">
                   {entry.references.map((ref) => (
-                    <li key={ref}>{ref}</li>
+                    <li key={ref}>{linkify(ref)}</li>
                   ))}
                 </ul>
               )}
