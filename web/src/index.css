@@ -642,6 +642,19 @@ body,
   opacity: 0.6;
 }
 
+.article-editor-note {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #888;
+}
+
+.article-editor-note a {
+  color: #1f4f7a;
+}
+
 /* Pane tabs (Article · Talk · History) */
 
 .pane-tabs {

@@ -264,6 +264,20 @@ function ArticleEditor({
           Cancel
         </button>
       </div>
+      <p className="article-editor-note">
+        By saving, you license your contribution under{' '}
+        <a
+          href="https://creativecommons.org/licenses/by-sa/4.0/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          CC BY-SA 4.0
+        </a>{' '}
+        and confirm it is your own words or material you are free to use.
+        Don’t paste in copyrighted text — summarize content in your own words
+        and cite your sources. Citing a source is not permission to copy its
+        wording.
+      </p>
     </form>
   )
 }
