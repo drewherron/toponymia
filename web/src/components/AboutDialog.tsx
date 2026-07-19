@@ -33,6 +33,39 @@ function AboutDialog({ onClose }: AboutDialogProps) {
           inviting you to write it.
         </p>
 
+        <h3>Data &amp; attribution</h3>
+        <ul>
+          <li>
+            Map data ©{' '}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+            >
+              OpenStreetMap
+            </a>{' '}
+            contributors, under the Open Database License (ODbL).
+          </li>
+          <li>
+            Basemap tiles by{' '}
+            <a href="https://openfreemap.org/" target="_blank" rel="noreferrer">
+              OpenFreeMap
+            </a>
+            .
+          </li>
+          <li>
+            Identifiers and multilingual labels from{' '}
+            <a
+              href="https://www.wikidata.org/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Wikidata
+            </a>{' '}
+            (CC0, public domain).
+          </li>
+        </ul>
+
         <h3>Licensing</h3>
         <p>
           Toponymia licenses its content and its software separately.
@@ -73,38 +106,23 @@ function AboutDialog({ onClose }: AboutDialogProps) {
           revision history, which is the authoritative list of authors.
         </p>
 
-        <h3>Data &amp; attribution</h3>
-        <ul>
-          <li>
-            Map data ©{' '}
-            <a
-              href="https://www.openstreetmap.org/copyright"
-              target="_blank"
-              rel="noreferrer"
-            >
-              OpenStreetMap
-            </a>{' '}
-            contributors, under the Open Database License (ODbL).
-          </li>
-          <li>
-            Basemap tiles by{' '}
-            <a href="https://openfreemap.org/" target="_blank" rel="noreferrer">
-              OpenFreeMap
-            </a>
-            .
-          </li>
-          <li>
-            Identifiers and multilingual labels from{' '}
-            <a
-              href="https://www.wikidata.org/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Wikidata
-            </a>{' '}
-            (CC0, public domain).
-          </li>
-        </ul>
+        <h3>Donating</h3>
+        <p>
+          Toponymia is free, ad-free, and run by one person,{' '}
+          <a href="https://www.drewherron.com" target="_blank" rel="noreferrer">
+            Drew Herron
+          </a>
+          . If you’d like to help cover server costs and support continued
+          development, you can buy me a coffee.
+        </p>
+        <a
+          className="about-donate"
+          href="https://buymeacoffee.com/drewherron"
+          target="_blank"
+          rel="noreferrer"
+        >
+          ☕ Buy me a coffee
+        </a>
       </div>
     </div>
   )
