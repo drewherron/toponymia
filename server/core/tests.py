@@ -122,12 +122,14 @@ class OverpassCallTests(TestCase):
     @patch('core.overpass.time.sleep')
     @patch('core.overpass.requests.post')
     def test_retries_transient_failure_then_succeeds(self, post, sleep):
-        # Every mirror fails on the first pass, then one succeeds.
+        # Every mirror fails on the first pass, then one succeeds on retry.
+        from core.overpass import OVERPASS_URLS
         good = _FakeResponse(elements=[_relation()])
-        post.side_effect = [self._transient(), self._transient(), good]
+        first_pass = [self._transient()] * len(OVERPASS_URLS)
+        post.side_effect = [*first_pass, good]
         elements = fetch_elements('Mississippi River', 32.0, -91.0, 500)
         self.assertEqual(len(elements), 1)
-        self.assertTrue(post.call_count >= 3)
+        self.assertEqual(post.call_count, len(OVERPASS_URLS) + 1)
         sleep.assert_called()  # backed off before the retry pass
 
     @patch('core.overpass.time.sleep')

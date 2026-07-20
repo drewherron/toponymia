@@ -10,11 +10,16 @@ import time
 
 import requests
 
-# Tried in order: overpass-api.de rate-limits to 2 concurrent slots per
-# IP, so fall back to the Kumi Systems mirror when it rejects us.
+# Tried in order. overpass-api.de rate-limits to 2 concurrent slots per
+# IP, so we fall through to other public general-purpose mirrors (from the
+# OSM wiki's Overpass API instance list) when it rejects us. More mirrors
+# = the "every slot busy" moment that used to fail a resolution is far
+# likelier to find a free instance on the same pass.
 OVERPASS_URLS = [
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://overpass.osm.jp/api/interpreter',
 ]
 TIMEOUT_S = 15
 # A cache-missing click hits Overpass live while the user waits, and a
