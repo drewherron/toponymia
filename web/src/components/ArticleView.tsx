@@ -1,12 +1,33 @@
+import { useMemo } from 'react'
 import Markdown from 'react-markdown'
+import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ArticleData } from '../types'
 
 interface ArticleViewProps {
   article: ArticleData
+  /** Follow an in-article link to another place (by slug) in-pane. When
+   *  omitted (e.g. a historical revision), internal links are plain anchors
+   *  that navigate normally. */
+  onSelectSlug?: (slug: string) => void
 }
 
 const plugins = [remarkGfm]
+
+const SLUG_PATH = /^\/place\/([\w-]+)\/?$/
+
+/** A same-origin `/place/<slug>` href → its slug, else null (external link,
+ *  or a link to some other path). Relative and absolute-same-host both work;
+ *  cross-origin links (Wikipedia, etc.) fall through to a normal anchor. */
+function internalSlug(href: string): string | null {
+  try {
+    const url = new URL(href, window.location.origin)
+    if (url.origin !== window.location.origin) return null
+    return SLUG_PATH.exec(url.pathname)?.[1] ?? null
+  } catch {
+    return null
+  }
+}
 
 // References are free text; turn any http(s) URL inside one into a link
 // while leaving the surrounding citation text alone. Trailing punctuation
@@ -29,15 +50,67 @@ function linkify(text: string) {
   })
 }
 
-function ArticleView({ article }: ArticleViewProps) {
+function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
   const { content } = article
+  // Intercept in-article `/place/<slug>` links so they swap the pane instead
+  // of triggering a full reload; external links keep the reference style.
+  const components = useMemo<Components>(
+    () => ({
+      a({ href, children, ...rest }) {
+        const slug = href ? internalSlug(href) : null
+        if (slug && onSelectSlug) {
+          const handler = onSelectSlug
+          return (
+            <a
+              href={href}
+              className="place-link"
+              onClick={(event) => {
+                // Let modified clicks (new tab/window) behave normally.
+                if (
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey ||
+                  event.button !== 0
+                ) {
+                  return
+                }
+                event.preventDefault()
+                handler(slug)
+              }}
+              {...rest}
+            >
+              {children}
+            </a>
+          )
+        }
+        // A place link with no in-pane handler navigates normally (same tab);
+        // any other link is external and opens in a new tab.
+        if (slug) {
+          return (
+            <a href={href} className="place-link" {...rest}>
+              {children}
+            </a>
+          )
+        }
+        return (
+          <a href={href} target="_blank" rel="noreferrer" {...rest}>
+            {children}
+          </a>
+        )
+      },
+    }),
+    [onSelectSlug],
+  )
   return (
     <div className="article">
       {/* Free-form bodies aren't written anymore; render only legacy
           revisions that still carry one (history must stay honest). */}
       {content.body_md.trim() !== '' && (
         <div className="article-body">
-          <Markdown remarkPlugins={plugins}>{content.body_md}</Markdown>
+          <Markdown remarkPlugins={plugins} components={components}>
+            {content.body_md}
+          </Markdown>
         </div>
       )}
 
@@ -61,7 +134,7 @@ function ArticleView({ article }: ArticleViewProps) {
                 </p>
               )}
               {entry.etymology_md && (
-                <Markdown remarkPlugins={plugins}>
+                <Markdown remarkPlugins={plugins} components={components}>
                   {entry.etymology_md}
                 </Markdown>
               )}

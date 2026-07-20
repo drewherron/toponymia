@@ -14,6 +14,56 @@ import ArticleView from './ArticleView'
 import HistoryTab from './HistoryTab'
 import TalkTab from './TalkTab'
 
+// Feather icons (MIT), inlined as SVG paths; `currentColor` lets CSS grey them.
+const ICON = {
+  width: 17,
+  height: 17,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const
+
+function CrosshairIcon() {
+  return (
+    <svg {...ICON} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="1.5" x2="12" y2="6" />
+      <line x1="12" y1="18" x2="12" y2="22.5" />
+      <line x1="1.5" y1="12" x2="6" y2="12" />
+      <line x1="18" y1="12" x2="22.5" y2="12" />
+    </svg>
+  )
+}
+
+function LinkIcon() {
+  return (
+    <svg {...ICON} aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg {...ICON} aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg {...ICON} aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
 const PROTECTION_NOTE: Record<ProtectionLevel, string> = {
   none: '',
   registered: 'Semi-protected — registered users only.',
@@ -24,8 +74,14 @@ interface FeaturePaneProps {
   feature: FeatureCandidate
   click: ClickContext
   user: User | null
+  /** The selected place has scrolled out of the map viewport. */
+  offView: boolean
   onRequestAuth: () => void
   onClose: () => void
+  /** Fly the map back to this place (offered when offView). */
+  onRecenter: () => void
+  /** Follow an in-article link to another place, by slug. */
+  onSelectSlug: (slug: string) => void
   onArticleSaved: () => void
   /** Fires once the click/slug settles into a Place — App syncs the
    *  /place/<slug> URL and the document title off this. */
@@ -143,8 +199,11 @@ function FeaturePane({
   feature,
   click,
   user,
+  offView,
   onRequestAuth,
   onClose,
+  onRecenter,
+  onSelectSlug,
   onArticleSaved,
   onResolved,
 }: FeaturePaneProps) {
@@ -154,6 +213,7 @@ function FeaturePane({
   const [detail, setDetail] = useState<Detail>({ status: 'loading' })
   const [tab, setTab] = useState<Tab>('article')
   const [wide, setWide] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -195,6 +255,20 @@ function FeaturePane({
     return () => controller.abort()
   }, [feature, click, onResolved])
 
+  const handleCopyLink = () => {
+    if (!place) return
+    // Clean permalink — no #zoom/lat/lng hash, so it restores the place's
+    // own default view (and is what you paste into an article's markdown).
+    const url = `${window.location.origin}/place/${place.slug}`
+    navigator.clipboard
+      ?.writeText(url)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(console.error)
+  }
+
   const handleSaved = (article: ArticleData) => {
     setDetail((prev) =>
       prev.status === 'done'
@@ -230,14 +304,38 @@ function FeaturePane({
           <span className="feature-kind">{feature.kind}</span>
           <h1>{place ? place.display_name : feature.name}</h1>
         </div>
-        <button
-          type="button"
-          className="feature-pane-close"
-          onClick={onClose}
-          aria-label="Close"
-        >
-          ×
-        </button>
+        <div className="feature-pane-actions">
+          {place && offView && (
+            <button
+              type="button"
+              className="pane-icon-button"
+              onClick={onRecenter}
+              title="Zoom to place"
+              aria-label="Zoom to place"
+            >
+              <CrosshairIcon />
+            </button>
+          )}
+          {place && (
+            <button
+              type="button"
+              className="pane-icon-button"
+              onClick={handleCopyLink}
+              title="Copy link to place"
+              aria-label="Copy link to place"
+            >
+              {copied ? <CheckIcon /> : <LinkIcon />}
+            </button>
+          )}
+          <button
+            type="button"
+            className="pane-icon-button"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <CloseIcon />
+          </button>
+        </div>
       </div>
       <AnchorInfo resolution={resolution} moderator={!!user?.is_moderator} />
 
@@ -308,7 +406,9 @@ function FeaturePane({
         />
       )}
 
-      {place && tab === 'article' && article && <ArticleView article={article} />}
+      {place && tab === 'article' && article && (
+        <ArticleView article={article} onSelectSlug={onSelectSlug} />
+      )}
 
       {place && tab === 'article' && detail.status === 'done' && !article && (
         <div className="article-stub">

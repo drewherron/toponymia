@@ -63,6 +63,14 @@ function App() {
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
+  // Whether the selected place has scrolled out of the map viewport — drives
+  // the pane's recenter button. The ref mirrors it so viewport callbacks (not
+  // in React's render flow) can read the current place without re-subscribing.
+  const [offView, setOffView] = useState(false)
+  const selectedPlaceRef = useRef<ResolvedPlace | null>(null)
+  // True while a fly-to the selected place's home view is in flight, so the
+  // recenter button stays hidden until the camera lands (cleared on moveend).
+  const pendingHomeRef = useRef(false)
   const mapApiRef = useRef<MapApi | null>(null)
   // Captured at first render: MapLibre (hash: true) writes its own
   // #zoom/lat/lng into the URL as soon as the map mounts, so by effect
@@ -83,6 +91,9 @@ function App() {
   const openPlace = useCallback((place: ResolvedPlace, fly: boolean) => {
     const [lng, lat] = place.label_point ?? place.centroid
     setPicker(null)
+    // A fly heads for the home view, so suppress the button until it lands;
+    // opening without a fly (a hashed deep link) leaves it to comparison.
+    pendingHomeRef.current = fly
     setSelected(
       slugSelection(place.slug, place.display_name, place.feature_class, {
         lng,
@@ -117,6 +128,7 @@ function App() {
       const slug = pathSlug()
       if (slug) {
         setPicker(null)
+        pendingHomeRef.current = false
         setSelected(
           slugSelection(slug, '…', '', { lng: 0, lat: 0 }),
         )
@@ -129,21 +141,63 @@ function App() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  const handleResolved = useCallback((place: ResolvedPlace) => {
-    document.title = `${place.display_name} – Toponymia`
-    const path = `/place/${place.slug}`
-    if (window.location.pathname !== path) {
-      window.history.pushState(null, '', path + window.location.hash)
+  // The button shows once the camera has left the place's home view. While a
+  // fly there is pending it stays hidden (we're on our way); no selection is
+  // never "off view".
+  const evalOffView = useCallback((place: ResolvedPlace | null) => {
+    if (!place || pendingHomeRef.current) {
+      setOffView(false)
+      return
     }
+    setOffView(mapApiRef.current?.isAtHomeView(place) === false)
   }, [])
+
+  const handleResolved = useCallback(
+    (place: ResolvedPlace) => {
+      document.title = `${place.display_name} – Toponymia`
+      const path = `/place/${place.slug}`
+      if (window.location.pathname !== path) {
+        window.history.pushState(null, '', path + window.location.hash)
+      }
+      selectedPlaceRef.current = place
+      evalOffView(place)
+    },
+    [evalOffView],
+  )
 
   const clearSelection = useCallback(() => {
     setSelected(null)
+    selectedPlaceRef.current = null
+    setOffView(false)
     document.title = 'Toponymia'
     if (window.location.pathname !== '/') {
       window.history.pushState(null, '', '/' + window.location.hash)
     }
   }, [])
+
+  // In-article link to another place: swap the pane without moving the map
+  // (the recenter button then offers the trip). No resolve — the pane fetches
+  // the place by slug, exactly as a deep link or back/forward does.
+  const handleSelectSlug = useCallback((slug: string) => {
+    setPicker(null)
+    pendingHomeRef.current = false // no fly — the button should offer the trip
+    setSelected(slugSelection(slug, '…', '', { lng: 0, lat: 0 }))
+  }, [])
+
+  const handleRecenter = useCallback(() => {
+    if (selectedPlaceRef.current) {
+      pendingHomeRef.current = true
+      setOffView(false)
+      mapApiRef.current?.flyToPlace(selectedPlaceRef.current)
+    }
+  }, [])
+
+  // Fires on every map settle: the fly (if any) has landed, so clear the
+  // pending guard and re-test the live camera against the home view.
+  const handleViewportChange = useCallback(() => {
+    pendingHomeRef.current = false
+    evalOffView(selectedPlaceRef.current)
+  }, [evalOffView])
 
   const handleClickFeatures = useCallback(
     (
@@ -156,6 +210,7 @@ function App() {
         clearSelection()
       } else if (candidates.length === 1) {
         setPicker(null)
+        pendingHomeRef.current = false
         setSelected({ feature: candidates[0], click })
       } else {
         setPicker({ x: point.x, y: point.y, candidates, click })
@@ -174,6 +229,7 @@ function App() {
   const handlePick = useCallback(
     (candidate: FeatureCandidate) => {
       if (!picker) return
+      pendingHomeRef.current = false
       setSelected({ feature: candidate, click: picker.click })
       setPicker(null)
     },
@@ -189,6 +245,7 @@ function App() {
     // No article here (yet): fly over and resolve it like a map click,
     // anchored at the geocoder's own coordinates.
     setPicker(null)
+    pendingHomeRef.current = true // we're flying to the hit
     setSelected({
       feature: {
         name: hit.name,
@@ -286,6 +343,7 @@ function App() {
         <MapView
           onClickFeatures={handleClickFeatures}
           onMoveStart={handleMoveStart}
+          onViewportChange={handleViewportChange}
           allArticles={allArticles}
           labelLanguage={labelLanguage}
           highlightsEpoch={highlightsEpoch}
@@ -304,8 +362,11 @@ function App() {
             feature={selected.feature}
             click={selected.click}
             user={user}
+            offView={offView}
             onRequestAuth={() => setAuthOpen(true)}
             onClose={clearSelection}
+            onRecenter={handleRecenter}
+            onSelectSlug={handleSelectSlug}
             onArticleSaved={handleArticleSaved}
             onResolved={handleResolved}
           />

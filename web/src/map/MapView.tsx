@@ -20,6 +20,41 @@ import { nameField, nameKeys, nameMatch } from './labels'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 const CLICK_TOLERANCE_PX = 6
+// Framing a place gets flown to — shared by flyToPlace and the "home view"
+// the recenter button compares against, so the two never disagree.
+const FIT_PADDING = 80
+const FIT_MAXZOOM = 14
+const FLY_ZOOM = 12
+// How far the live camera may drift from the home view and still count as
+// "there" — a few screen px of pan and a hair of zoom, so the fly landing's
+// rounding isn't read as movement while any real pan/zoom is.
+const HOME_PAN_PX = 6
+const HOME_ZOOM_EPS = 0.05
+
+/** The camera flyToPlace lands on: fit the bbox when we have one, else
+ *  center on the label point at a default zoom. cameraForBounds computes the
+ *  fit without moving the map, so it matches fitBounds exactly. */
+function homeCamera(
+  map: maplibregl.Map,
+  place: ResolvedPlace,
+): { center: { lng: number; lat: number }; zoom: number } {
+  if (place.bbox) {
+    const [w, s, e, n] = place.bbox
+    const cam = map.cameraForBounds(
+      [
+        [w, s],
+        [e, n],
+      ],
+      { padding: FIT_PADDING, maxZoom: FIT_MAXZOOM },
+    )
+    if (cam?.center && cam.zoom != null) {
+      const center = maplibregl.LngLat.convert(cam.center)
+      return { center: { lng: center.lng, lat: center.lat }, zoom: cam.zoom }
+    }
+  }
+  const [lng, lat] = place.label_point ?? place.centroid
+  return { center: { lng, lat }, zoom: FLY_ZOOM }
+}
 
 // Shapes Arabic/Hebrew label text (self-hosted; lazy = fetched only when
 // RTL text first appears in view). Without it RTL names render backward.
@@ -51,6 +86,9 @@ interface MapViewProps {
     click: ClickContext,
   ) => void
   onMoveStart: () => void
+  /** Fires after the map settles (moveend) and once on load, so callers
+   *  can re-test whether the selected place is still in view. */
+  onViewportChange: () => void
   /** Show dots for articles whose basemap label isn't rendered here. */
   allArticles: boolean
   /** Language the basemap labels render in (labels.ts codes). */
@@ -64,6 +102,7 @@ interface MapViewProps {
 function MapView({
   onClickFeatures,
   onMoveStart,
+  onViewportChange,
   allArticles,
   labelLanguage,
   highlightsEpoch,
@@ -76,6 +115,7 @@ function MapView({
   const propsRef = useRef({
     onClickFeatures,
     onMoveStart,
+    onViewportChange,
     allArticles,
     labelLanguage,
   })
@@ -88,10 +128,11 @@ function MapView({
     propsRef.current = {
       onClickFeatures,
       onMoveStart,
+      onViewportChange,
       allArticles,
       labelLanguage,
     }
-  }, [onClickFeatures, onMoveStart, allArticles, labelLanguage])
+  }, [onClickFeatures, onMoveStart, onViewportChange, allArticles, labelLanguage])
 
   /** Wrap every label layer's text color: article names go amber.
    *  Matches the displayed name, the raw `name`, and the English name
@@ -215,7 +256,7 @@ function MapView({
           [w, s],
           [e, n],
         ],
-        { padding: 80, maxZoom: 14 },
+        { padding: FIT_PADDING, maxZoom: FIT_MAXZOOM },
       )
     }
     mapApi.current = {
@@ -225,7 +266,7 @@ function MapView({
             fitBbox(place.bbox)
           } else {
             const [lng, lat] = place.label_point ?? place.centroid
-            map.flyTo({ center: [lng, lat], zoom: 12 })
+            map.flyTo({ center: [lng, lat], zoom: FLY_ZOOM })
           }
         })
       },
@@ -238,6 +279,18 @@ function MapView({
       getCenter: () => {
         const center = map.getCenter()
         return { lng: center.lng, lat: center.lat }
+      },
+      isAtHomeView: (place: ResolvedPlace) => {
+        const home = homeCamera(map, place)
+        const c = map.getCenter()
+        // Pixel tolerance → degrees at the home zoom, so the same few-px slack
+        // holds whether we're framing a country or a city block.
+        const tol = (360 / (512 * Math.pow(2, home.zoom))) * HOME_PAN_PX
+        return (
+          Math.abs(map.getZoom() - home.zoom) < HOME_ZOOM_EPS &&
+          Math.abs(c.lng - home.center.lng) < tol &&
+          Math.abs(c.lat - home.center.lat) < tol
+        )
       },
     }
 
@@ -285,6 +338,7 @@ function MapView({
       })
       readyRef.current = true
       refreshHighlights(map)
+      propsRef.current.onViewportChange()
       pendingFly?.()
       pendingFly = null
     })
@@ -292,7 +346,10 @@ function MapView({
       if (readyRef.current) updateDotFilter(map)
     })
     map.on('moveend', () => {
-      if (readyRef.current) refreshHighlights(map)
+      if (readyRef.current) {
+        refreshHighlights(map)
+        propsRef.current.onViewportChange()
+      }
     })
     map.on('mouseenter', 'article-dots', () => {
       map.getCanvas().style.cursor = 'pointer'

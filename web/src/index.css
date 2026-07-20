@@ -249,13 +249,39 @@ body,
   margin-top: 2px;
 }
 
-.feature-pane-close {
+.feature-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pane-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
-  font-size: 1.6rem;
-  line-height: 1;
-  color: #666;
+  color: #999;
+  padding: 4px;
+  border-radius: 6px;
   cursor: pointer;
+}
+
+.pane-icon-button:hover {
+  color: #555;
+  background: #f0f0f0;
+}
+
+/* In-article link to another Toponymia place (amber, matching highlights). */
+.place-link {
+  color: #b45309;
+  text-decoration: underline;
+  text-decoration-color: rgba(180, 83, 9, 0.4);
+}
+
+.place-link:hover {
+  text-decoration-color: #b45309;
 }
 
 .anchor-info {

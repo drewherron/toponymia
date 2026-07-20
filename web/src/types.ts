@@ -64,6 +64,11 @@ export interface MapApi {
   flyToPlace: (place: ResolvedPlace) => void
   flyToHit: (hit: GeocodeHit) => void
   getCenter: () => { lng: number; lat: number }
+  /** Is the live camera still at the place's canonical framing (the view
+   *  flyToPlace lands on)? Drives the pane's "recenter" affordance — it
+   *  appears the moment you leave that view, even if the place is still
+   *  visible. */
+  isAtHomeView: (place: ResolvedPlace) => boolean
 }
 
 export interface ResolveResponse {
