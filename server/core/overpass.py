@@ -6,6 +6,7 @@ returned by the Overpass JSON API.
 
 import math
 import re
+import time
 
 import requests
 
@@ -16,6 +17,11 @@ OVERPASS_URLS = [
     'https://overpass.kumi.systems/api/interpreter',
 ]
 TIMEOUT_S = 15
+# A cache-missing click hits Overpass live while the user waits, and a
+# rejection is almost always a transient "no free slot" (429/504) that
+# clears in seconds — so retry the whole mirror list a couple more times,
+# backing off between passes, before giving up on the user.
+RETRY_BACKOFFS_S = (1, 3)
 # overpass-api.de 406es generic client user agents; identify ourselves.
 USER_AGENT = 'toponymia/0.1 (dherron@mailbox.org)'
 
@@ -71,18 +77,21 @@ def fetch_way_geometry(way_id):
 
 def _call(query):
     error = None
-    for url in OVERPASS_URLS:
-        try:
-            response = requests.post(
-                url,
-                data={'data': query},
-                headers={'User-Agent': USER_AGENT},
-                timeout=TIMEOUT_S,
-            )
-            response.raise_for_status()
-            return response.json().get('elements', [])
-        except (requests.RequestException, ValueError) as exc:
-            error = exc
+    for pause in (0, *RETRY_BACKOFFS_S):
+        if pause:
+            time.sleep(pause)
+        for url in OVERPASS_URLS:
+            try:
+                response = requests.post(
+                    url,
+                    data={'data': query},
+                    headers={'User-Agent': USER_AGENT},
+                    timeout=TIMEOUT_S,
+                )
+                response.raise_for_status()
+                return response.json().get('elements', [])
+            except (requests.RequestException, ValueError) as exc:
+                error = exc
     raise OverpassError(str(error)) from error
 
 

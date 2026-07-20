@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import requests
 from django.contrib.auth.models import User
 from django.contrib.gis.geos import LineString, Point, Polygon
 from django.core.cache import cache
@@ -15,6 +16,7 @@ from .overpass import (
     OverpassError,
     center_of,
     choose_element,
+    fetch_elements,
     qid_of,
     radius_for_click,
 )
@@ -96,6 +98,48 @@ class OverpassLogicTests(TestCase):
         self.assertEqual(radius_for_click(1, 0), 10_000)
         self.assertEqual(radius_for_click(19, 60), 50)
         self.assertEqual(radius_for_click(None, 45), 500)
+
+
+class _FakeResponse:
+    def __init__(self, elements=None, http_error=None):
+        self._elements = elements or []
+        self._http_error = http_error
+
+    def raise_for_status(self):
+        if self._http_error:
+            raise self._http_error
+
+    def json(self):
+        return {'elements': self._elements}
+
+
+class OverpassCallTests(TestCase):
+    """The HTTP layer: mirror fallback + transient-failure retry."""
+
+    def _transient(self):
+        return requests.exceptions.ConnectionError('no free slot')
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_retries_transient_failure_then_succeeds(self, post, sleep):
+        # Every mirror fails on the first pass, then one succeeds.
+        good = _FakeResponse(elements=[_relation()])
+        post.side_effect = [self._transient(), self._transient(), good]
+        elements = fetch_elements('Mississippi River', 32.0, -91.0, 500)
+        self.assertEqual(len(elements), 1)
+        self.assertTrue(post.call_count >= 3)
+        sleep.assert_called()  # backed off before the retry pass
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_raises_after_exhausting_retries(self, post, sleep):
+        post.side_effect = self._transient()
+        with self.assertRaises(OverpassError):
+            fetch_elements('Nowhere', 0.0, 0.0, 500)
+        # first pass + every backoff pass, across every mirror
+        from core.overpass import OVERPASS_URLS, RETRY_BACKOFFS_S
+        passes = 1 + len(RETRY_BACKOFFS_S)
+        self.assertEqual(post.call_count, passes * len(OVERPASS_URLS))
 
 
 class ResolveApiTests(ApiTestCase):
