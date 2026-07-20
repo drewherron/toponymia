@@ -965,6 +965,22 @@ class ModerationApiTests(ApiTestCase):
             self._report('talk_post', 99999).status_code, 404
         )
 
+    def test_cannot_report_own_talk_post(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.author)  # the post's author
+        self.assertEqual(
+            self._report('talk_post', post['id']).status_code, 400
+        )
+        self.assertEqual(Report.objects.count(), 0)
+
+    def test_cannot_report_own_revision(self):
+        revision = self._revision()  # authored by self.author
+        self.client.force_login(self.author)
+        self.assertEqual(
+            self._report('revision', revision.id).status_code, 400
+        )
+        self.assertEqual(Report.objects.count(), 0)
+
     # --- mod queue ---------------------------------------------------
     def test_queue_requires_moderator(self):
         self.client.force_login(self.other)

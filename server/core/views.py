@@ -586,6 +586,11 @@ def create_report(request):
     target = data['target_type']
     lookup = {'revision': Revision, 'talk_post': TalkPost}[target]
     obj = get_object_or_404(lookup, id=data['target_id'])
+    if obj.author_id == request.user.id:
+        return Response(
+            {'error': 'you cannot report your own content'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     report, _ = Report.objects.get_or_create(
         reporter=request.user,
         status=Report.Status.OPEN,
