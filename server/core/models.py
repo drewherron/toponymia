@@ -87,6 +87,18 @@ class Revision(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     comment = models.CharField(max_length=255, blank=True)
     content = models.JSONField()
+    # Soft-hide for abuse (DESIGN.md M12): a suppressed revision drops out
+    # of *public* history but stays visible to moderators and preserved in
+    # the record. Distinct from revert, which is the content-correctness
+    # tool; the current revision can't be suppressed (revert it first).
+    suppressed = models.DateTimeField(null=True, blank=True)
+    suppressed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
 
     class Meta:
         ordering = ['-created', '-id']

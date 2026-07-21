@@ -29,7 +29,8 @@ function TargetSummary({ report }: { report: ReportRow }) {
           <span className="mod-current"> current</span>
         )}
       </p>
-      {target.kind === 'talk_post' && target.deleted ? (
+      {(target.kind === 'talk_post' && target.deleted) ||
+      (target.kind === 'revision' && target.suppressed) ? (
         <p className="mod-target-gone">[already removed]</p>
       ) : (
         <blockquote className="mod-excerpt">{target.excerpt}</blockquote>
@@ -48,6 +49,16 @@ function ReportCard({
   const [busy, setBusy] = useState(false)
   const canDelete =
     report.target?.kind === 'talk_post' && !report.target.deleted
+  const canSuppress =
+    report.target?.kind === 'revision' &&
+    !report.target.suppressed &&
+    !report.target.is_current
+  // A reported *current* revision has no take-down here — reverting it
+  // (from the article's History tab) is the remedy (DESIGN.md M12).
+  const revertHint =
+    report.target?.kind === 'revision' &&
+    report.target.is_current &&
+    !report.target.suppressed
 
   const act = (action: ReportAction) => {
     setBusy(true)
@@ -65,6 +76,12 @@ function ReportCard({
         {formatWhen(report.created)}
         {report.reason && <> — “{report.reason}”</>}
       </p>
+      {revertHint && (
+        <p className="mod-revert-hint">
+          This is the article’s current revision — revert it from the History
+          tab to remove the content. Resolving here only closes the report.
+        </p>
+      )}
       <div className="mod-report-actions">
         {canDelete && (
           <button
@@ -74,6 +91,16 @@ function ReportCard({
             onClick={() => act('delete')}
           >
             Remove content
+          </button>
+        )}
+        {canSuppress && (
+          <button
+            type="button"
+            className="mod-action-delete"
+            disabled={busy}
+            onClick={() => act('suppress')}
+          >
+            Suppress revision
           </button>
         )}
         <button type="button" disabled={busy} onClick={() => act('resolve')}>

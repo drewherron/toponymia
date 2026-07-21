@@ -322,6 +322,9 @@ def _revision_json(revision, current_id, with_content=False):
         'created': revision.created.isoformat(),
         'comment': revision.comment,
         'is_current': revision.id == current_id,
+        # Only ever true in responses to moderators — public lists filter
+        # suppressed revisions out entirely (DESIGN.md M12).
+        'suppressed': revision.suppressed is not None,
     }
     if with_content:
         data['content'] = revision.content
@@ -340,6 +343,10 @@ def revision_list(request, slug):
     if article is None:
         return Response({'revisions': []})
     revisions = article.revisions.select_related('author')
+    # Suppressed revisions are hidden from public history but stay visible
+    # to moderators (DESIGN.md M12).
+    if not is_moderator(request.user):
+        revisions = revisions.filter(suppressed__isnull=True)
     return Response(
         {
             'revisions': [
@@ -357,6 +364,8 @@ def revision_detail(request, slug, revision_id):
         id=revision_id,
         article__place__slug=slug,
     )
+    if revision.suppressed is not None and not is_moderator(request.user):
+        return Response(status=status.HTTP_404_NOT_FOUND)
     return Response(
         {
             'revision': _revision_json(
@@ -621,15 +630,17 @@ def _report_json(report):
     if report.revision_id is not None:
         revision = report.revision
         place = revision.article.place
+        suppressed = revision.suppressed is not None
         target = {
             'kind': 'revision',
             'id': revision.id,
             'author': revision.author.username,
-            'comment': revision.comment,
-            'excerpt': _revision_excerpt(revision.content),
+            'comment': '' if suppressed else revision.comment,
+            'excerpt': '' if suppressed else _revision_excerpt(revision.content),
             'slug': place.slug,
             'place': place.display_name,
             'is_current': revision.article.current_revision_id == revision.id,
+            'suppressed': suppressed,
         }
     elif report.talk_post_id is not None:
         post = report.talk_post
@@ -700,6 +711,22 @@ def mod_report_action(request, report_id):
             post.deleted = timezone.now()
             post.deleted_by = request.user
             post.save(update_fields=['deleted', 'deleted_by'])
+    elif action == 'suppress':
+        revision = report.revision
+        if revision is None:
+            return Response(
+                {'error': 'only revisions can be suppressed from the queue'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if revision.id == revision.article.current_revision_id:
+            return Response(
+                {'error': 'revert the current revision before suppressing it'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if revision.suppressed is None:
+            revision.suppressed = timezone.now()
+            revision.suppressed_by = request.user
+            revision.save(update_fields=['suppressed', 'suppressed_by'])
 
     report.status = (
         Report.Status.DISMISSED
@@ -710,3 +737,33 @@ def mod_report_action(request, report_id):
     report.handled_at = timezone.now()
     report.save(update_fields=['status', 'handled_by', 'handled_at'])
     return Response({'report': {'id': report.id, 'status': report.status}})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mod_revision_restore(request, revision_id):
+    """Un-suppress a revision — the inverse of a queue `suppress` (moderators
+    only, DESIGN.md M12)."""
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    revision = get_object_or_404(Revision, id=revision_id)
+    if revision.suppressed is not None:
+        revision.suppressed = None
+        revision.suppressed_by = None
+        revision.save(update_fields=['suppressed', 'suppressed_by'])
+    return Response({'ok': True})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mod_talk_post_restore(request, post_id):
+    """Restore a soft-deleted talk post — the inverse of a queue `delete`
+    (moderators only, DESIGN.md M12)."""
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    post = get_object_or_404(TalkPost, id=post_id)
+    if post.deleted is not None:
+        post.deleted = None
+        post.deleted_by = None
+        post.save(update_fields=['deleted', 'deleted_by'])
+    return Response({'ok': True})

@@ -65,4 +65,14 @@ urlpatterns = [
         views.mod_report_action,
         name='mod-report-action',
     ),
+    path(
+        'mod/revisions/<int:revision_id>/restore/',
+        views.mod_revision_restore,
+        name='mod-revision-restore',
+    ),
+    path(
+        'mod/talk/posts/<int:post_id>/restore/',
+        views.mod_talk_post_restore,
+        name='mod-talk-post-restore',
+    ),
 ]

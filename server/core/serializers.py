@@ -101,10 +101,13 @@ class ReportSerializer(serializers.Serializer):
 
 
 class ReportActionSerializer(serializers.Serializer):
-    """A moderator's decision on a report. `delete` soft-deletes the
-    target and marks the report resolved; the others only set status."""
+    """A moderator's decision on a report. `delete` soft-deletes a reported
+    talk post; `suppress` soft-hides a reported revision; both then resolve.
+    `resolve`/`dismiss` only set status."""
 
-    action = serializers.ChoiceField(choices=['resolve', 'dismiss', 'delete'])
+    action = serializers.ChoiceField(
+        choices=['resolve', 'dismiss', 'delete', 'suppress']
+    )
 
 
 class ProtectionSerializer(serializers.Serializer):

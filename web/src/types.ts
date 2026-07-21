@@ -172,6 +172,7 @@ export interface RevisionReportTarget extends ReportTargetBase {
   kind: 'revision'
   comment: string
   is_current: boolean
+  suppressed: boolean
 }
 
 export interface TalkPostReportTarget extends ReportTargetBase {
@@ -183,4 +184,4 @@ export interface TalkPostReportTarget extends ReportTargetBase {
 
 export type ReportTarget = RevisionReportTarget | TalkPostReportTarget
 
-export type ReportAction = 'resolve' | 'dismiss' | 'delete'
+export type ReportAction = 'resolve' | 'dismiss' | 'delete' | 'suppress'

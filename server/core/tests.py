@@ -9,6 +9,7 @@ from django.contrib.gis.geos import LineString, Point, Polygon
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from .articles import save_edit
 from .models import Article, Place, PlaceName, Report, Revision, TalkPost
@@ -1058,6 +1059,117 @@ class ModerationApiTests(ApiTestCase):
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
+
+    # --- revision suppression ---------------------------------------
+    def _older_revision(self):
+        """An older, non-current revision (the current one can't be
+        suppressed) plus the article it belongs to."""
+        old = self._revision()  # this became current
+        article = old.article
+        new = Revision.objects.create(
+            article=article, author=self.author, comment='newer',
+            content=_content(),
+        )
+        article.current_revision = new
+        article.save(update_fields=['current_revision'])
+        return old
+
+    def test_action_suppress_hides_revision_and_resolves(self):
+        old = self._older_revision()
+        self.client.force_login(self.other)
+        self._report('revision', old.id)
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'suppress'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        old.refresh_from_db()
+        self.assertIsNotNone(old.suppressed)
+        self.assertEqual(old.suppressed_by, self.mod)
+        report.refresh_from_db()
+        self.assertEqual(report.status, Report.Status.RESOLVED)
+
+    def test_suppressed_revision_hidden_from_public_history(self):
+        old = self._older_revision()
+        old.suppressed = timezone.now()
+        old.suppressed_by = self.mod
+        old.save(update_fields=['suppressed', 'suppressed_by'])
+        url = reverse('core:revision-list', args=[self.place.slug])
+        # anonymous: suppressed row is gone
+        ids = [r['id'] for r in self.client.get(url).json()['revisions']]
+        self.assertNotIn(old.id, ids)
+        # moderator: still there, flagged
+        self.client.force_login(self.mod)
+        rows = self.client.get(url).json()['revisions']
+        row = next(r for r in rows if r['id'] == old.id)
+        self.assertTrue(row['suppressed'])
+
+    def test_suppressed_revision_detail_404_for_public(self):
+        old = self._older_revision()
+        old.suppressed = timezone.now()
+        old.save(update_fields=['suppressed'])
+        url = reverse(
+            'core:revision-detail', args=[self.place.slug, old.id]
+        )
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.mod)
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_cannot_suppress_current_revision(self):
+        revision = self._revision()  # is current
+        self.client.force_login(self.other)
+        self._report('revision', revision.id)
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'suppress'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        revision.refresh_from_db()
+        self.assertIsNone(revision.suppressed)
+
+    def test_mod_restores_suppressed_revision(self):
+        old = self._older_revision()
+        old.suppressed = timezone.now()
+        old.suppressed_by = self.mod
+        old.save(update_fields=['suppressed', 'suppressed_by'])
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-revision-restore', args=[old.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        old.refresh_from_db()
+        self.assertIsNone(old.suppressed)
+        self.assertIsNone(old.suppressed_by)
+
+    def test_revision_restore_requires_moderator(self):
+        old = self._older_revision()
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self.client.post(
+                reverse('core:mod-revision-restore', args=[old.id])
+            ).status_code,
+            403,
+        )
+
+    def test_mod_restores_deleted_talk_post(self):
+        post = self._thread_with_post()[1]
+        tp = TalkPost.objects.get(id=post['id'])
+        tp.deleted = timezone.now()
+        tp.deleted_by = self.mod
+        tp.save(update_fields=['deleted', 'deleted_by'])
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-talk-post-restore', args=[post['id']])
+        )
+        self.assertEqual(response.status_code, 200)
+        tp.refresh_from_db()
+        self.assertIsNone(tp.deleted)
 
     # --- soft delete of talk content --------------------------------
     def test_author_deletes_own_post(self):

@@ -1212,6 +1212,15 @@ body,
   margin: 8px 0;
 }
 
+.mod-revert-hint {
+  font-size: 0.82rem;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 6px;
+  padding: 6px 9px;
+  margin: 8px 0;
+}
+
 .mod-report-actions {
   display: flex;
   gap: 8px;
