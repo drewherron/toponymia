@@ -204,10 +204,20 @@ class Report(models.Model):
         RESOLVED = 'resolved'
         DISMISSED = 'dismissed'
 
+    class Category(models.TextChoices):
+        SPAM = 'spam'
+        VANDALISM = 'vandalism'
+        HARASSMENT = 'harassment'
+        PERSONAL_INFO = 'personal_info'
+        OTHER = 'other'
+
     reporter = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name='reports',
+    )
+    category = models.CharField(
+        max_length=16, choices=Category.choices, default=Category.OTHER
     )
     revision = models.ForeignKey(
         Revision,
@@ -270,3 +280,107 @@ class Report(models.Model):
             f'post {self.talk_post_id}'
         )
         return f'report on {target} ({self.status})'
+
+
+class Ban(models.Model):
+    """An account sanction (DESIGN.md M12). A banned user is blocked from
+    every write endpoint until the ban is lifted or expires; reading is
+    always allowed. Rows are never deleted — an unban sets `lifted` — so the
+    account's sanction history is preserved. `expires` null = permanent.
+    No IP fields in v1 (IP-ban deferred; see M12)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='bans',
+    )
+    reason = models.CharField(max_length=500, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    # Null = permanent. A time-limited ban lapses on its own.
+    expires = models.DateTimeField(null=True, blank=True)
+    # An explicit unban; keeps the row for the audit trail.
+    lifted = models.DateTimeField(null=True, blank=True)
+    lifted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created', '-id']
+
+    def is_active(self, now=None):
+        from django.utils import timezone
+
+        now = now or timezone.now()
+        if self.lifted is not None:
+            return False
+        return self.expires is None or self.expires > now
+
+    def __str__(self):
+        return f'ban on {self.user_id} ({"active" if self.is_active() else "inactive"})'
+
+
+class ModAction(models.Model):
+    """An append-only audit log of moderator actions (DESIGN.md M12) — the
+    backbone of the Moderation dashboard's decision view. One row per
+    take-down, restore, ban, unban, or report resolution, linking the acting
+    moderator, the affected user, and the specific content where relevant."""
+
+    class Action(models.TextChoices):
+        DELETE_POST = 'delete_post'
+        RESTORE_POST = 'restore_post'
+        SUPPRESS_REVISION = 'suppress_revision'
+        RESTORE_REVISION = 'restore_revision'
+        DELETE_THREAD = 'delete_thread'
+        BAN_USER = 'ban_user'
+        UNBAN_USER = 'unban_user'
+        RESOLVE_REPORT = 'resolve_report'
+        DISMISS_REPORT = 'dismiss_report'
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='+',
+    )
+    action = models.CharField(max_length=24, choices=Action.choices)
+    # The user whose account or content was acted on — powers the
+    # actor-centric "problem users" view. Null for actions with no subject.
+    target_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='received_mod_actions',
+    )
+    reason = models.CharField(max_length=500, blank=True)
+    # Optional pointers to the exact content acted on, for dashboard links.
+    revision = models.ForeignKey(
+        Revision, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+',
+    )
+    talk_post = models.ForeignKey(
+        TalkPost, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+',
+    )
+    report = models.ForeignKey(
+        Report, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+',
+    )
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created', '-id']
+
+    def __str__(self):
+        return f'{self.action} by {self.actor_id} on {self.target_user_id}'

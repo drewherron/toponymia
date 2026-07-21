@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,15 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .articles import save_edit
-from .models import Article, Place, PlaceName, Report, Revision, TalkPost
+from .models import (
+    Article,
+    Ban,
+    Place,
+    PlaceName,
+    Report,
+    Revision,
+    TalkPost,
+)
 from .overpass import (
     OverpassError,
     center_of,
@@ -1237,6 +1246,97 @@ class ModerationApiTests(ApiTestCase):
             ).status_code,
             403,
         )
+
+
+class BanEnforcementTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+        self.mod = User.objects.create_user(
+            'mira', password='pw12345!', is_staff=True
+        )
+
+    def _ban(self, expires=None, reason='spamming'):
+        return Ban.objects.create(
+            user=self.user, created_by=self.mod, reason=reason,
+            expires=expires,
+        )
+
+    def _edit(self):
+        return self.client.put(
+            reverse('core:article-edit', args=[self.place.slug]),
+            {'content': _content(), 'comment': 'x'},
+            content_type='application/json',
+        )
+
+    def _new_thread(self):
+        return self.client.post(
+            reverse('core:talk', args=[self.place.slug]),
+            {'title': 'Hi', 'body_md': 'there'},
+            content_type='application/json',
+        )
+
+    def test_active_ban_blocks_editing_with_message(self):
+        self._ban(reason='spamming')
+        self.client.force_login(self.user)
+        response = self._edit()
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('suspended', response.json()['error'])
+        self.assertIn('spamming', response.json()['error'])
+
+    def test_active_ban_blocks_new_thread(self):
+        self._ban()
+        self.client.force_login(self.user)
+        self.assertEqual(self._new_thread().status_code, 403)
+
+    def test_active_ban_blocks_reporting(self):
+        # something to report
+        self.client.force_login(self.mod)
+        thread = self._new_thread().json()['thread']
+        self.client.logout()
+        self._ban()
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse('core:report-create'),
+            {'target_type': 'talk_post', 'target_id': thread['posts'][0]['id']},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_ban_does_not_block_reading(self):
+        self._ban()
+        self.client.force_login(self.user)
+        self.assertEqual(
+            self.client.get(
+                reverse('core:talk', args=[self.place.slug])
+            ).status_code,
+            200,
+        )
+
+    def test_expired_ban_does_not_block(self):
+        self._ban(expires=timezone.now() - timedelta(days=1))
+        self.client.force_login(self.user)
+        self.assertEqual(self._edit().status_code, 200)
+
+    def test_lifted_ban_does_not_block(self):
+        ban = self._ban()
+        ban.lifted = timezone.now()
+        ban.save(update_fields=['lifted'])
+        self.client.force_login(self.user)
+        self.assertEqual(self._edit().status_code, 200)
+
+    def test_me_reports_suspension(self):
+        self._ban(reason='abuse')
+        self.client.force_login(self.user)
+        data = self.client.get(reverse('core:me')).json()['user']
+        self.assertIsNotNone(data['suspended'])
+        self.assertIn('abuse', data['suspended'])
+
+    def test_me_not_suspended_when_clean(self):
+        self.client.force_login(self.user)
+        data = self.client.get(reverse('core:me')).json()['user']
+        self.assertIsNone(data['suspended'])
 
 
 class ProtectionApiTests(ApiTestCase):

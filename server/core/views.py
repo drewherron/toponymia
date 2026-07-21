@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from . import resolve as resolution
 from .articles import save_edit
 from .models import Article, Place, Report, Revision, TalkPost, TalkThread
+from .moderation import active_ban, ban_message, banned_response
 from .overpass import OverpassError
 from .serializers import (
     ArticleEditSerializer,
@@ -75,12 +76,16 @@ def me(request):
     user = request.user
     if not user.is_authenticated:
         return Response({'user': None})
+    ban = active_ban(user)
     return Response(
         {
             'user': {
                 'id': user.id,
                 'username': user.username,
                 'is_moderator': is_moderator(user),
+                # The SPA shows a suspension banner and hides write
+                # affordances when this is set (DESIGN.md M12).
+                'suspended': ban_message(ban) if ban is not None else None,
             }
         }
     )
@@ -382,6 +387,9 @@ def revision_detail(request, slug, revision_id):
 @throttle_classes([WriteThrottle])
 def article_revert(request, slug):
     """Revert = a new revision copying an old snapshot (DESIGN.md §6)."""
+    blocked = banned_response(request.user)
+    if blocked is not None:
+        return blocked
     serializer = RevertSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -416,6 +424,9 @@ def article_revert(request, slug):
 @permission_classes([IsAuthenticated])
 @throttle_classes([WriteThrottle])
 def article_edit(request, slug):
+    blocked = banned_response(request.user)
+    if blocked is not None:
+        return blocked
     place = get_object_or_404(
         Place.objects.select_related('article'), slug=slug
     )
@@ -494,6 +505,9 @@ def talk(request, slug):
 
     if not request.user.is_authenticated:
         return Response(status=status.HTTP_403_FORBIDDEN)
+    blocked = banned_response(request.user)
+    if blocked is not None:
+        return blocked
     serializer = TalkThreadSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -514,6 +528,9 @@ def talk(request, slug):
 @permission_classes([IsAuthenticated])
 @throttle_classes([TalkThrottle])
 def talk_reply(request, thread_id):
+    blocked = banned_response(request.user)
+    if blocked is not None:
+        return blocked
     thread = get_object_or_404(TalkThread, id=thread_id)
     serializer = TalkPostSerializer(data=request.data)
     if not serializer.is_valid():
@@ -531,6 +548,9 @@ def talk_reply(request, thread_id):
 @throttle_classes([TalkThrottle])
 def talk_post_edit(request, post_id):
     """Edit-own only; moderators delete via the queue instead."""
+    blocked = banned_response(request.user)
+    if blocked is not None:
+        return blocked
     post = get_object_or_404(TalkPost, id=post_id)
     if post.author_id != request.user.id:
         return Response(
@@ -588,6 +608,9 @@ def talk_thread_delete(request, thread_id):
 def create_report(request):
     """Flag a revision or a talk post for moderator attention. Re-filing
     an already-open report of the same target is idempotent."""
+    blocked = banned_response(request.user)
+    if blocked is not None:
+        return blocked
     serializer = ReportSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
