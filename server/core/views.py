@@ -18,8 +18,16 @@ from rest_framework.response import Response
 
 from . import resolve as resolution
 from .articles import save_edit
-from .models import Article, Place, Report, Revision, TalkPost, TalkThread
-from .moderation import active_ban, ban_message, banned_response
+from .models import (
+    Article,
+    ModAction,
+    Place,
+    Report,
+    Revision,
+    TalkPost,
+    TalkThread,
+)
+from .moderation import active_ban, ban_message, banned_response, log_action
 from .overpass import OverpassError
 from .serializers import (
     ArticleEditSerializer,
@@ -575,8 +583,11 @@ def talk_post_edit(request, post_id):
 @permission_classes([IsAuthenticated])
 def talk_post_delete(request, post_id):
     """Soft-delete a post: its own author or a moderator (DESIGN.md §6)."""
-    post = get_object_or_404(TalkPost, id=post_id)
-    if post.author_id != request.user.id and not is_moderator(request.user):
+    post = get_object_or_404(
+        TalkPost.objects.select_related('author'), id=post_id
+    )
+    is_own = post.author_id == request.user.id
+    if not is_own and not is_moderator(request.user):
         return Response(
             {'error': 'you can only delete your own posts'},
             status=status.HTTP_403_FORBIDDEN,
@@ -585,6 +596,13 @@ def talk_post_delete(request, post_id):
         post.deleted = timezone.now()
         post.deleted_by = request.user
         post.save(update_fields=['deleted', 'deleted_by'])
+        # A moderator taking down someone else's post is an audited action;
+        # authors tidying their own posts are not (DESIGN.md M12).
+        if not is_own:
+            log_action(
+                request.user, ModAction.Action.DELETE_POST,
+                target_user=post.author, talk_post=post,
+            )
     return Response({'post': _post_json(post)})
 
 
@@ -599,6 +617,10 @@ def talk_thread_delete(request, thread_id):
         thread.deleted = timezone.now()
         thread.deleted_by = request.user
         thread.save(update_fields=['deleted', 'deleted_by'])
+        log_action(
+            request.user, ModAction.Action.DELETE_THREAD,
+            reason=f'thread "{thread.title}"',
+        )
     return Response({'ok': True})
 
 
@@ -722,9 +744,14 @@ def mod_report_action(request, report_id):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     report = get_object_or_404(Report, id=report_id)
     action = serializer.validated_data['action']
+    reason = serializer.validated_data.get('reason', '')
+    # Whose content the report targets — recorded on every audit row so the
+    # dashboard's problem-user view can aggregate by author (DESIGN.md M12).
+    post = report.talk_post
+    revision = report.revision
+    target_user = post.author if post is not None else revision.author
 
     if action == 'delete':
-        post = report.talk_post
         if post is None:
             return Response(
                 {'error': 'only talk posts can be deleted from the queue'},
@@ -734,8 +761,12 @@ def mod_report_action(request, report_id):
             post.deleted = timezone.now()
             post.deleted_by = request.user
             post.save(update_fields=['deleted', 'deleted_by'])
+        log_action(
+            request.user, ModAction.Action.DELETE_POST,
+            target_user=target_user, reason=reason, talk_post=post,
+            report=report,
+        )
     elif action == 'suppress':
-        revision = report.revision
         if revision is None:
             return Response(
                 {'error': 'only revisions can be suppressed from the queue'},
@@ -750,6 +781,20 @@ def mod_report_action(request, report_id):
             revision.suppressed = timezone.now()
             revision.suppressed_by = request.user
             revision.save(update_fields=['suppressed', 'suppressed_by'])
+        log_action(
+            request.user, ModAction.Action.SUPPRESS_REVISION,
+            target_user=target_user, reason=reason, revision=revision,
+            report=report,
+        )
+    else:
+        log_action(
+            request.user,
+            ModAction.Action.DISMISS_REPORT
+            if action == 'dismiss'
+            else ModAction.Action.RESOLVE_REPORT,
+            target_user=target_user, reason=reason,
+            talk_post=post, revision=revision, report=report,
+        )
 
     report.status = (
         Report.Status.DISMISSED
@@ -769,11 +814,17 @@ def mod_revision_restore(request, revision_id):
     only, DESIGN.md M12)."""
     if not is_moderator(request.user):
         return Response(status=status.HTTP_403_FORBIDDEN)
-    revision = get_object_or_404(Revision, id=revision_id)
+    revision = get_object_or_404(
+        Revision.objects.select_related('author'), id=revision_id
+    )
     if revision.suppressed is not None:
         revision.suppressed = None
         revision.suppressed_by = None
         revision.save(update_fields=['suppressed', 'suppressed_by'])
+        log_action(
+            request.user, ModAction.Action.RESTORE_REVISION,
+            target_user=revision.author, revision=revision,
+        )
     return Response({'ok': True})
 
 
@@ -784,9 +835,15 @@ def mod_talk_post_restore(request, post_id):
     (moderators only, DESIGN.md M12)."""
     if not is_moderator(request.user):
         return Response(status=status.HTTP_403_FORBIDDEN)
-    post = get_object_or_404(TalkPost, id=post_id)
+    post = get_object_or_404(
+        TalkPost.objects.select_related('author'), id=post_id
+    )
     if post.deleted is not None:
         post.deleted = None
         post.deleted_by = None
         post.save(update_fields=['deleted', 'deleted_by'])
+        log_action(
+            request.user, ModAction.Action.RESTORE_POST,
+            target_user=post.author, talk_post=post,
+        )
     return Response({'ok': True})

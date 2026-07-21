@@ -108,6 +108,10 @@ class ReportActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
         choices=['resolve', 'dismiss', 'delete', 'suppress']
     )
+    # Optional moderator note, recorded in the audit log (DESIGN.md M12).
+    reason = serializers.CharField(
+        max_length=500, allow_blank=True, default=''
+    )
 
 
 class ProtectionSerializer(serializers.Serializer):

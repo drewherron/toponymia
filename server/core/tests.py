@@ -16,6 +16,7 @@ from .articles import save_edit
 from .models import (
     Article,
     Ban,
+    ModAction,
     Place,
     PlaceName,
     Report,
@@ -1040,6 +1041,57 @@ class ModerationApiTests(ApiTestCase):
         self.assertEqual(
             self.client.get(reverse('core:mod-reports')).json()['reports'], []
         )
+
+    def test_delete_action_writes_audit_row(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'delete', 'reason': 'spam'},
+            content_type='application/json',
+        )
+        entry = ModAction.objects.get()
+        self.assertEqual(entry.action, ModAction.Action.DELETE_POST)
+        self.assertEqual(entry.actor, self.mod)
+        self.assertEqual(entry.target_user, self.author)
+        self.assertEqual(entry.reason, 'spam')
+        self.assertEqual(entry.talk_post_id, post['id'])
+
+    def test_dismiss_action_writes_audit_row(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'dismiss'},
+            content_type='application/json',
+        )
+        entry = ModAction.objects.get()
+        self.assertEqual(entry.action, ModAction.Action.DISMISS_REPORT)
+        self.assertEqual(entry.target_user, self.author)
+
+    def test_mod_deleting_others_post_inline_is_audited(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.mod)
+        self.client.delete(
+            reverse('core:talk-post-delete', args=[post['id']])
+        )
+        entry = ModAction.objects.get()
+        self.assertEqual(entry.action, ModAction.Action.DELETE_POST)
+        self.assertEqual(entry.actor, self.mod)
+
+    def test_author_deleting_own_post_is_not_audited(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.author)
+        self.client.delete(
+            reverse('core:talk-post-delete', args=[post['id']])
+        )
+        self.assertEqual(ModAction.objects.count(), 0)
 
     def test_action_dismiss_keeps_post(self):
         post = self._thread_with_post()[1]
