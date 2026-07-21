@@ -95,6 +95,12 @@ class ReportSerializer(serializers.Serializer):
 
     target_type = serializers.ChoiceField(choices=['revision', 'talk_post'])
     target_id = serializers.IntegerField()
+    category = serializers.ChoiceField(
+        choices=[
+            'spam', 'vandalism', 'harassment', 'personal_info', 'other',
+        ],
+        default='other',
+    )
     reason = serializers.CharField(
         max_length=500, allow_blank=True, default=''
     )

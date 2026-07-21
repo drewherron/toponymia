@@ -7,6 +7,7 @@ import type {
   PlaceDetail,
   ProtectionLevel,
   ReportAction,
+  ReportCategory,
   ReportRow,
   ResolvedPlace,
   ResolveResponse,
@@ -367,6 +368,7 @@ export async function deleteTalkThread(threadId: number): Promise<void> {
 export async function createReport(
   targetType: 'revision' | 'talk_post',
   targetId: number,
+  category: ReportCategory,
   reason: string,
 ): Promise<void> {
   const response = await fetch('/api/reports/', {
@@ -375,6 +377,7 @@ export async function createReport(
     body: JSON.stringify({
       target_type: targetType,
       target_id: targetId,
+      category,
       reason,
     }),
   })

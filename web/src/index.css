@@ -1212,6 +1212,23 @@ body,
   margin: 8px 0;
 }
 
+.mod-report-category {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.report-category {
+  font: inherit;
+  padding: 2px 4px;
+}
+
 .mod-revert-hint {
   font-size: 0.82rem;
   color: #92400e;

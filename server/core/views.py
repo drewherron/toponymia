@@ -649,7 +649,7 @@ def create_report(request):
         reporter=request.user,
         status=Report.Status.OPEN,
         **{target: obj},
-        defaults={'reason': data['reason']},
+        defaults={'reason': data['reason'], 'category': data['category']},
     )
     return Response(
         {'report': {'id': report.id, 'status': report.status}},
@@ -703,6 +703,7 @@ def _report_json(report):
         }
     return {
         'id': report.id,
+        'category': report.category,
         'reason': report.reason,
         'reporter': report.reporter.username,
         'created': report.created.isoformat(),

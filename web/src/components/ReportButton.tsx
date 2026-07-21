@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { createReport } from '../api'
+import { REPORT_CATEGORIES } from '../types'
+import type { ReportCategory } from '../types'
 
 /** Inline "report" affordance: reveals a reason box and files a flag on
  * a revision or a talk post for moderator attention (DESIGN.md §6). */
@@ -14,6 +16,7 @@ function ReportButton({
   label?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [category, setCategory] = useState<ReportCategory>('other')
   const [reason, setReason] = useState('')
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
 
@@ -34,7 +37,7 @@ function ReportButton({
   const submit = (event: FormEvent) => {
     event.preventDefault()
     setState('busy')
-    createReport(targetType, targetId, reason.trim())
+    createReport(targetType, targetId, category, reason.trim())
       .then(() => setState('done'))
       .catch((error) => {
         console.error(error)
@@ -43,11 +46,23 @@ function ReportButton({
   }
   return (
     <form className="report-form" onSubmit={submit}>
+      <select
+        className="report-category"
+        value={category}
+        onChange={(e) => setCategory(e.target.value as ReportCategory)}
+        aria-label="Report reason"
+      >
+        {REPORT_CATEGORIES.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </select>
       <input
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         maxLength={500}
-        placeholder="Why report this? (optional)"
+        placeholder="Add detail (optional)"
         autoFocus
       />
       <button type="submit" disabled={state === 'busy'}>

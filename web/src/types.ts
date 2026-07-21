@@ -152,8 +152,25 @@ export interface TalkThread {
 }
 
 /** One row in the moderator queue: a report with its target's context. */
+export type ReportCategory =
+  | 'spam'
+  | 'vandalism'
+  | 'harassment'
+  | 'personal_info'
+  | 'other'
+
+/** User-facing labels for report categories. */
+export const REPORT_CATEGORIES: { value: ReportCategory; label: string }[] = [
+  { value: 'spam', label: 'Spam' },
+  { value: 'vandalism', label: 'Vandalism' },
+  { value: 'harassment', label: 'Harassment' },
+  { value: 'personal_info', label: 'Personal information' },
+  { value: 'other', label: 'Other' },
+]
+
 export interface ReportRow {
   id: number
+  category: ReportCategory
   reason: string
   reporter: string
   created: string

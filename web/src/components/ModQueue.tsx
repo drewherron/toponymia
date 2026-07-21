@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { actOnReport, fetchReports } from '../api'
-import type { ReportAction, ReportRow } from '../types'
+import { REPORT_CATEGORIES } from '../types'
+import type { ReportAction, ReportCategory, ReportRow } from '../types'
+
+function categoryLabel(value: ReportCategory): string {
+  return REPORT_CATEGORIES.find((c) => c.value === value)?.label ?? value
+}
 
 interface ModQueueProps {
   onClose: () => void
@@ -72,7 +77,10 @@ function ReportCard({
     <li className="mod-report">
       <TargetSummary report={report} />
       <p className="mod-report-meta">
-        Reported by <strong>{report.reporter}</strong> ·{' '}
+        <span className="mod-report-category">
+          {categoryLabel(report.category)}
+        </span>{' '}
+        · reported by <strong>{report.reporter}</strong> ·{' '}
         {formatWhen(report.created)}
         {report.reason && <> — “{report.reason}”</>}
       </p>

@@ -970,6 +970,41 @@ class ModerationApiTests(ApiTestCase):
         self.assertEqual(report.revision_id, revision.id)
         self.assertEqual(report.status, Report.Status.OPEN)
 
+    def test_report_stores_category(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self.client.post(
+            reverse('core:report-create'),
+            {
+                'target_type': 'talk_post',
+                'target_id': post['id'],
+                'category': 'harassment',
+                'reason': 'rude',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(Report.objects.get().category, 'harassment')
+
+    def test_report_category_defaults_to_other(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        self.assertEqual(Report.objects.get().category, 'other')
+
+    def test_report_rejects_unknown_category(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        response = self.client.post(
+            reverse('core:report-create'),
+            {
+                'target_type': 'talk_post',
+                'target_id': post['id'],
+                'category': 'bogus',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_report_unknown_target_404s(self):
         self.client.force_login(self.other)
         self.assertEqual(
