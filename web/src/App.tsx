@@ -93,6 +93,8 @@ function App() {
   const openPlace = useCallback((place: ResolvedPlace, fly: boolean) => {
     const [lng, lat] = place.label_point ?? place.centroid
     setPicker(null)
+    // Opening a place (search pick, random, deep link) drops back to the map.
+    setModerationOpen(false)
     // A fly heads for the home view, so suppress the button until it lands;
     // opening without a fly (a hashed deep link) leaves it to comparison.
     pendingHomeRef.current = fly
@@ -247,6 +249,8 @@ function App() {
     // No article here (yet): fly over and resolve it like a map click,
     // anchored at the geocoder's own coordinates.
     setPicker(null)
+    setModerationOpen(false) // picking a place returns to the map
+
     pendingHomeRef.current = true // we're flying to the hit
     setSelected({
       feature: {
@@ -295,7 +299,10 @@ function App() {
         <button
           type="button"
           className={`articles-toggle${allArticles ? ' active' : ''}`}
-          onClick={() => setAllArticles((value) => !value)}
+          onClick={() => {
+            setModerationOpen(false) // it's a map overlay — show the map
+            setAllArticles((value) => !value)
+          }}
           aria-pressed={allArticles}
         >
           All articles

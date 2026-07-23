@@ -36,7 +36,11 @@ body,
   padding: 0 16px;
   background: #fff;
   border-bottom: 1px solid #ddd;
-  z-index: 40;
+  /* Positioned + above the moderation dashboard (z-index 45) so the search
+     dropdown, which overflows down into the map area, stays visible while
+     the dashboard is open. Full-screen overlays (z-index 50) still win. */
+  position: relative;
+  z-index: 46;
 }
 
 .app-logo {
@@ -1044,7 +1048,8 @@ body,
 
 /* --- Moderation: report affordances, tombstones, mod queue --------- */
 
-.mod-queue-button {
+.mod-queue-button,
+.moderation-button {
   font: inherit;
   font-size: 0.85rem;
   padding: 6px 12px;
@@ -1056,7 +1061,8 @@ body,
   white-space: nowrap;
 }
 
-.mod-queue-button:hover {
+.mod-queue-button:hover,
+.moderation-button:hover {
   background: #fdeccf;
 }
 
@@ -1749,7 +1755,11 @@ body,
   height: 100%;
 }
 
-.moderation-button.active {
-  color: #b45309;
-  font-weight: 600;
+/* On the moderation page the button reads "Return to map" — fill it so it
+   clearly shows as the active mode. */
+.moderation-button.active,
+.moderation-button.active:hover {
+  background: #92500a;
+  border-color: #92500a;
+  color: #fff;
 }
