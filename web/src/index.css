@@ -1463,3 +1463,285 @@ body,
 .lang-help-table td:first-child {
   width: 52px;
 }
+
+/* --- Moderation dashboard (DESIGN.md M12): a full-page view that covers
+   the map, not an overlay dialog. --- */
+.mod-dashboard {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  background: #f8f7f4;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mod-dash-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px 0;
+  border-bottom: 1px solid #e2ddd3;
+  background: #fff;
+}
+
+.mod-dash-tabs button {
+  font: inherit;
+  border: none;
+  background: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: #555;
+}
+
+.mod-dash-tabs button.active {
+  color: #b45309;
+  border-bottom-color: #b45309;
+  font-weight: 600;
+}
+
+.mod-dash-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mod-users {
+  display: flex;
+  height: 100%;
+}
+
+.mod-users-list {
+  width: 340px;
+  border-right: 1px solid #e2ddd3;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mod-users-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mod-filter,
+.mod-ban-reason {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  width: 100%;
+}
+
+.mod-user-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  border: 1px solid transparent;
+  background: #fff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.mod-user-row:hover {
+  border-color: #e2ddd3;
+}
+
+.mod-user-row.active {
+  border-color: #b45309;
+  background: #fffbf3;
+}
+
+.mod-user-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mod-user-stats {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.mod-stat-open {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.mod-user-when {
+  font-size: 0.75rem;
+  color: #999;
+  text-align: right;
+}
+
+.mod-users-detail {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 28px;
+}
+
+.mod-user-detail h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.mod-user-detail section {
+  margin-top: 20px;
+}
+
+.mod-user-detail h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.mod-detail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mod-detail-list blockquote {
+  margin: 4px 0 0;
+  padding-left: 10px;
+  border-left: 3px solid #e2ddd3;
+  color: #444;
+  white-space: pre-wrap;
+}
+
+.mod-detail-list .mod-removed blockquote {
+  color: #b91c1c;
+}
+
+.mod-note {
+  color: #777;
+  font-size: 0.88rem;
+}
+
+.mod-role,
+.mod-banned-tag,
+.mod-removed-tag,
+.mod-current,
+.mod-status {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.mod-role-moderator {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.mod-role-admin {
+  color: #6d28d9;
+  background: #ede9fe;
+}
+
+.mod-banned-tag,
+.mod-removed-tag {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.mod-current {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.mod-status-open {
+  color: #b45309;
+  background: #fef3c7;
+}
+
+.mod-status-resolved {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.mod-status-dismissed {
+  color: #666;
+  background: #eee;
+}
+
+.mod-ban-panel,
+.mod-ban-form {
+  border: 1px solid #e2ddd3;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #fff;
+  margin-top: 12px;
+}
+
+.mod-ban-active {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.mod-ban-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 460px;
+}
+
+.mod-ban-form h4 {
+  margin: 0;
+}
+
+.mod-ban-field,
+.mod-ban-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.mod-table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 640px;
+}
+
+.mod-table th,
+.mod-table td {
+  text-align: left;
+  padding: 6px 12px;
+  border-bottom: 1px solid #e2ddd3;
+}
+
+.mod-table tr.mod-flag td {
+  background: #fef2f2;
+}
+
+.mod-reporters {
+  padding: 20px 28px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.moderation-button.active {
+  color: #b45309;
+  font-weight: 600;
+}

@@ -202,3 +202,98 @@ export interface TalkPostReportTarget extends ReportTargetBase {
 export type ReportTarget = RevisionReportTarget | TalkPostReportTarget
 
 export type ReportAction = 'resolve' | 'dismiss' | 'delete' | 'suppress'
+
+// --- Moderation dashboard (DESIGN.md M12) ---------------------------
+
+export type UserRole = 'user' | 'moderator' | 'admin'
+
+export interface ModUserRow {
+  id: number
+  username: string
+  role: UserRole
+  reports_open: number
+  reports_total: number
+  removed_count: number
+  upheld_actions: number
+  last_report: string | null
+  banned: boolean
+}
+
+export interface ModBan {
+  id: number
+  reason: string
+  created: string
+  created_by: string | null
+  expires: string | null
+  lifted: string | null
+  lifted_by: string | null
+  active: boolean
+}
+
+export interface ModUserPost {
+  id: number
+  thread_id: number
+  thread_title: string
+  slug: string
+  place: string
+  body_md: string
+  created: string
+  deleted: boolean
+}
+
+export interface ModUserRevision {
+  id: number
+  slug: string
+  place: string
+  comment: string
+  excerpt: string
+  created: string
+  is_current: boolean
+  suppressed: boolean
+}
+
+export interface ModUserReport {
+  id: number
+  category: ReportCategory
+  reason: string
+  status: 'open' | 'resolved' | 'dismissed'
+  reporter: string
+  created: string
+  target_kind: 'revision' | 'talk_post'
+}
+
+export interface ModAuditEntry {
+  id: number
+  action: string
+  actor: string | null
+  reason: string
+  created: string
+}
+
+export interface ModUserDetail {
+  id: number
+  username: string
+  role: UserRole
+  date_joined: string
+  bans: ModBan[]
+  can_ban: boolean
+  talk_posts: ModUserPost[]
+  revisions: ModUserRevision[]
+  reports_against: ModUserReport[]
+  audit: ModAuditEntry[]
+}
+
+export interface ModReporter {
+  id: number
+  username: string
+  total: number
+  open: number
+  resolved: number
+  dismissed: number
+}
+
+export interface BanInput {
+  reason: string
+  expires_days: number
+  remove_content: boolean
+}

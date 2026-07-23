@@ -5,6 +5,10 @@ import type {
   ClickContext,
   GeocodeHit,
   PlaceDetail,
+  BanInput,
+  ModReporter,
+  ModUserDetail,
+  ModUserRow,
   ProtectionLevel,
   ReportAction,
   ReportCategory,
@@ -398,7 +402,7 @@ export async function fetchReports(
   return body.reports
 }
 
-/** Resolve, dismiss, or delete-target a report from the queue. */
+/** Resolve, dismiss, delete, or suppress a report's target from the queue. */
 export async function actOnReport(
   reportId: number,
   action: ReportAction,
@@ -410,6 +414,88 @@ export async function actOnReport(
   })
   if (!response.ok) {
     throw new Error(`report action failed: ${response.status}`)
+  }
+}
+
+// --- Moderation dashboard (DESIGN.md M12) ---------------------------
+
+/** Users with reports or removed content against them, most-recent first. */
+export async function fetchModUsers(
+  signal?: AbortSignal,
+): Promise<ModUserRow[]> {
+  const response = await fetch('/api/mod/users/', { signal })
+  if (!response.ok) {
+    throw new Error(`mod users fetch failed: ${response.status}`)
+  }
+  return (await response.json()).users
+}
+
+/** One user's content, reports, bans, and audit trail. */
+export async function fetchModUser(
+  userId: number,
+  signal?: AbortSignal,
+): Promise<ModUserDetail> {
+  const response = await fetch(`/api/mod/users/${userId}/`, { signal })
+  if (!response.ok) {
+    throw new Error(`mod user fetch failed: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function banUser(
+  userId: number,
+  input: BanInput,
+): Promise<void> {
+  const response = await fetch(`/api/mod/users/${userId}/ban/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(`ban failed: ${response.status}`)
+  }
+}
+
+export async function unbanUser(userId: number): Promise<void> {
+  const response = await fetch(`/api/mod/users/${userId}/unban/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`unban failed: ${response.status}`)
+  }
+}
+
+/** Reporters ranked by dismissed reports — the report-abuse view. */
+export async function fetchModReporters(
+  signal?: AbortSignal,
+): Promise<ModReporter[]> {
+  const response = await fetch('/api/mod/reporters/', { signal })
+  if (!response.ok) {
+    throw new Error(`reporters fetch failed: ${response.status}`)
+  }
+  return (await response.json()).reporters
+}
+
+/** Restore a soft-deleted talk post (inverse of a queue delete). */
+export async function restoreTalkPost(postId: number): Promise<void> {
+  const response = await fetch(`/api/mod/talk/posts/${postId}/restore/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`restore failed: ${response.status}`)
+  }
+}
+
+/** Un-suppress a revision (inverse of a queue suppress). */
+export async function restoreRevision(revisionId: number): Promise<void> {
+  const response = await fetch(
+    `/api/mod/revisions/${revisionId}/restore/`,
+    { method: 'POST', headers: jsonHeaders() },
+  )
+  if (!response.ok) {
+    throw new Error(`restore failed: ${response.status}`)
   }
 }
 

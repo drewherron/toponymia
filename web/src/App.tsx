@@ -4,6 +4,7 @@ import AboutDialog from './components/AboutDialog'
 import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
+import ModerationDashboard from './components/ModerationDashboard'
 import ModQueue from './components/ModQueue'
 import SearchBox from './components/SearchBox'
 import {
@@ -59,6 +60,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
   const [modOpen, setModOpen] = useState(false)
+  const [moderationOpen, setModerationOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
@@ -323,6 +325,15 @@ function App() {
             Reports
           </button>
         )}
+        {user?.is_moderator && (
+          <button
+            type="button"
+            className={`moderation-button${moderationOpen ? ' active' : ''}`}
+            onClick={() => setModerationOpen((open) => !open)}
+          >
+            {moderationOpen ? 'Return to map' : 'Moderation'}
+          </button>
+        )}
         <button
           type="button"
           className="about-button"
@@ -371,6 +382,7 @@ function App() {
             onResolved={handleResolved}
           />
         )}
+        {moderationOpen && user?.is_moderator && <ModerationDashboard />}
       </div>
     </div>
   )
