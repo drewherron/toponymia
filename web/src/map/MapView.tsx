@@ -243,30 +243,36 @@ function MapView({
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-    // A camera animation started before the style loads gets dropped,
-    // so a fly requested at boot (deep link) waits for 'load'.
+    // A camera move issued before the style loads gets dropped, so a fly
+    // requested at boot (deep link) waits for 'load'. The gate is our own
+    // ready latch, not map.loaded() — loaded() is false whenever the map is
+    // busy (tiles streaming, camera animating), which would shelve a fly
+    // requested mid-animation instead of letting it interrupt.
     let pendingFly: (() => void) | null = null
     const flyWhenReady = (fly: () => void) => {
-      if (map.loaded()) fly()
+      if (readyRef.current) fly()
       else pendingFly = fly
     }
-    const fitBbox = ([w, s, e, n]: [number, number, number, number]) => {
+    const fitBbox = (
+      [w, s, e, n]: [number, number, number, number],
+      animate = true,
+    ) => {
       map.fitBounds(
         [
           [w, s],
           [e, n],
         ],
-        { padding: FIT_PADDING, maxZoom: FIT_MAXZOOM },
+        { padding: FIT_PADDING, maxZoom: FIT_MAXZOOM, animate },
       )
     }
     mapApi.current = {
-      flyToPlace: (place: ResolvedPlace) => {
+      flyToPlace: (place: ResolvedPlace, animate = true) => {
         flyWhenReady(() => {
           if (place.bbox) {
-            fitBbox(place.bbox)
+            fitBbox(place.bbox, animate)
           } else {
             const [lng, lat] = place.label_point ?? place.centroid
-            map.flyTo({ center: [lng, lat], zoom: FLY_ZOOM })
+            map.flyTo({ center: [lng, lat], zoom: FLY_ZOOM, animate })
           }
         })
       },

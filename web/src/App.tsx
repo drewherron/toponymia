@@ -90,33 +90,39 @@ function App() {
     return () => controller.abort()
   }, [])
 
-  const openPlace = useCallback((place: ResolvedPlace, fly: boolean) => {
-    const [lng, lat] = place.label_point ?? place.centroid
-    setPicker(null)
-    // Opening a place (search pick, random, deep link) drops back to the map.
-    setModerationOpen(false)
-    // A fly heads for the home view, so suppress the button until it lands;
-    // opening without a fly (a hashed deep link) leaves it to comparison.
-    pendingHomeRef.current = fly
-    setSelected(
-      slugSelection(place.slug, place.display_name, place.feature_class, {
-        lng,
-        lat,
-      }),
-    )
-    if (fly) mapApiRef.current?.flyToPlace(place)
-  }, [])
+  const openPlace = useCallback(
+    (place: ResolvedPlace, fly: boolean, animate = true) => {
+      const [lng, lat] = place.label_point ?? place.centroid
+      setPicker(null)
+      // Opening a place (search pick, random, deep link) drops back to the map.
+      setModerationOpen(false)
+      // A fly heads for the home view, so suppress the button until it lands;
+      // opening without a fly (a hashed deep link) leaves it to comparison.
+      pendingHomeRef.current = fly
+      setSelected(
+        slugSelection(place.slug, place.display_name, place.feature_class, {
+          lng,
+          lat,
+        }),
+      )
+      if (fly) mapApiRef.current?.flyToPlace(place, animate)
+    },
+    [],
+  )
 
   // Deep link: /place/<slug> opens the pane; the map only flies there
   // when the URL carries no #zoom/lat/lng of its own (a shared link
-  // keeps both, restoring the exact view it was copied from).
+  // keeps both, restoring the exact view it was copied from). The boot
+  // framing is a jump, not an animation: a fresh link should arrive
+  // already framed, and a jump can't be dropped by load-time frame
+  // pressure the way a long animation can.
   useEffect(() => {
     const slug = pathSlug()
     if (!slug) return
     const controller = new AbortController()
     const fly = bootHashRef.current.length < 2
     getPlace(slug, controller.signal)
-      .then(({ place }) => openPlace(place, fly))
+      .then(({ place }) => openPlace(place, fly, false))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           console.error(error)

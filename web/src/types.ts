@@ -61,7 +61,8 @@ export interface GeocodeHit {
 
 /** Imperative map controls exposed by MapView through a ref object. */
 export interface MapApi {
-  flyToPlace: (place: ResolvedPlace) => void
+  /** animate: false jumps straight to the framing (boot deep links). */
+  flyToPlace: (place: ResolvedPlace, animate?: boolean) => void
   flyToHit: (hit: GeocodeHit) => void
   getCenter: () => { lng: number; lat: number }
   /** Is the live camera still at the place's canonical framing (the view
