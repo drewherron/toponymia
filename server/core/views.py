@@ -27,7 +27,13 @@ from .models import (
     TalkPost,
     TalkThread,
 )
-from .moderation import active_ban, ban_message, banned_response, log_action
+from .moderation import (
+    active_ban,
+    ban_message,
+    banned_response,
+    is_moderator,
+    log_action,
+)
 from .overpass import OverpassError
 from .serializers import (
     ArticleEditSerializer,
@@ -48,13 +54,6 @@ from .throttles import (
 MAX_HIGHLIGHTS = 500
 MAX_SEARCH_RESULTS = 8
 MAX_REPORTS = 100
-
-
-def is_moderator(user):
-    """A moderator can act on the mod queue and delete others' content.
-    Mapped to Django's staff flag (admins are superusers) — no custom
-    user model needed for v1 (DESIGN.md §4 roles user/mod/admin)."""
-    return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
 def can_edit_article(user, article):

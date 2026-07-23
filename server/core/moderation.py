@@ -11,6 +11,26 @@ from rest_framework.response import Response
 from .models import ModAction
 
 
+def is_moderator(user):
+    """A moderator can act on the mod queue and delete others' content.
+    Mapped to Django's staff flag (admins are superusers) — no custom user
+    model needed for v1 (DESIGN.md §4 roles user/mod/admin)."""
+    return user.is_authenticated and (user.is_staff or user.is_superuser)
+
+
+def can_ban(actor, target):
+    """Ban authority (DESIGN.md M12): any moderator may ban a regular user;
+    nobody may ban a superuser; only a superuser may ban another moderator
+    (a staff account). You can't ban yourself."""
+    if actor.id == target.id:
+        return False
+    if target.is_superuser:
+        return False
+    if is_moderator(target):  # staff, but not superuser (handled above)
+        return actor.is_superuser
+    return is_moderator(actor)
+
+
 def active_ban(user):
     """The user's currently-effective ban, if any: not lifted and not
     expired. Returns the most recent such row, else None."""

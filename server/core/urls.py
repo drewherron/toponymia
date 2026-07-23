@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import dashboard, views
 
 app_name = 'core'
 
@@ -75,4 +75,21 @@ urlpatterns = [
         views.mod_talk_post_restore,
         name='mod-talk-post-restore',
     ),
+    path('mod/users/', dashboard.mod_users, name='mod-users'),
+    path(
+        'mod/users/<int:user_id>/',
+        dashboard.mod_user_detail,
+        name='mod-user-detail',
+    ),
+    path(
+        'mod/users/<int:user_id>/ban/',
+        dashboard.mod_ban_user,
+        name='mod-ban-user',
+    ),
+    path(
+        'mod/users/<int:user_id>/unban/',
+        dashboard.mod_unban_user,
+        name='mod-unban-user',
+    ),
+    path('mod/reporters/', dashboard.mod_reporters, name='mod-reporters'),
 ]

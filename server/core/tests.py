@@ -22,6 +22,7 @@ from .models import (
     Report,
     Revision,
     TalkPost,
+    TalkThread,
 )
 from .overpass import (
     OverpassError,
@@ -1424,6 +1425,170 @@ class BanEnforcementTests(ApiTestCase):
         self.client.force_login(self.user)
         data = self.client.get(reverse('core:me')).json()['user']
         self.assertIsNone(data['suspended'])
+
+
+class DashboardApiTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.author = User.objects.create_user('drew', password='pw12345!')
+        self.reporter = User.objects.create_user('sam', password='pw12345!')
+        self.mod = User.objects.create_user(
+            'mira', password='pw12345!', is_staff=True
+        )
+        self.admin = User.objects.create_superuser(
+            'root', password='pw12345!'
+        )
+
+    def _post_by(self, user, body='hello'):
+        thread = TalkThread.objects.create(place=self.place, title='t')
+        return TalkPost.objects.create(
+            thread=thread, author=user, body_md=body
+        )
+
+    def _report_post(self, post, reporter, status_=Report.Status.OPEN):
+        return Report.objects.create(
+            talk_post=post, reporter=reporter, status=status_,
+            category=Report.Category.SPAM,
+        )
+
+    # --- users list --------------------------------------------------
+    def test_users_list_requires_moderator(self):
+        self.client.force_login(self.reporter)
+        self.assertEqual(
+            self.client.get(reverse('core:mod-users')).status_code, 403
+        )
+
+    def test_users_list_includes_reported_author(self):
+        post = self._post_by(self.author)
+        self._report_post(post, self.reporter)
+        self.client.force_login(self.mod)
+        rows = self.client.get(reverse('core:mod-users')).json()['users']
+        row = next(r for r in rows if r['username'] == 'drew')
+        self.assertEqual(row['reports_open'], 1)
+        self.assertEqual(row['reports_total'], 1)
+        self.assertFalse(row['banned'])
+
+    def test_users_list_includes_removed_content_author(self):
+        post = self._post_by(self.author)
+        post.deleted = timezone.now()
+        post.save(update_fields=['deleted'])
+        self.client.force_login(self.mod)
+        rows = self.client.get(reverse('core:mod-users')).json()['users']
+        row = next(r for r in rows if r['username'] == 'drew')
+        self.assertEqual(row['removed_count'], 1)
+
+    # --- user detail -------------------------------------------------
+    def test_user_detail_shows_removed_post_body(self):
+        post = self._post_by(self.author, body='secret text')
+        post.deleted = timezone.now()
+        post.save(update_fields=['deleted'])
+        self.client.force_login(self.mod)
+        data = self.client.get(
+            reverse('core:mod-user-detail', args=[self.author.id])
+        ).json()
+        tp = data['talk_posts'][0]
+        self.assertTrue(tp['deleted'])
+        self.assertEqual(tp['body_md'], 'secret text')  # visible to mods
+
+    # --- banning -----------------------------------------------------
+    def test_mod_bans_regular_user(self):
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-ban-user', args=[self.author.id]),
+            {'reason': 'spam'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(Ban.objects.get(user=self.author).is_active())
+        self.assertEqual(
+            ModAction.objects.filter(
+                action=ModAction.Action.BAN_USER
+            ).count(),
+            1,
+        )
+
+    def test_temporary_ban_sets_expiry(self):
+        self.client.force_login(self.mod)
+        self.client.post(
+            reverse('core:mod-ban-user', args=[self.author.id]),
+            {'reason': 'x', 'expires_days': 7},
+            content_type='application/json',
+        )
+        self.assertIsNotNone(Ban.objects.get(user=self.author).expires)
+
+    def test_ban_with_remove_content_removes_posts(self):
+        post = self._post_by(self.author)
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-ban-user', args=[self.author.id]),
+            {'reason': 'x', 'remove_content': True},
+            content_type='application/json',
+        )
+        self.assertEqual(response.json()['removed_content'], 1)
+        post.refresh_from_db()
+        self.assertIsNotNone(post.deleted)
+
+    def test_mod_cannot_ban_moderator(self):
+        other_mod = User.objects.create_user(
+            'mira2', password='pw12345!', is_staff=True
+        )
+        self.client.force_login(self.mod)
+        self.assertEqual(
+            self.client.post(
+                reverse('core:mod-ban-user', args=[other_mod.id]),
+                {}, content_type='application/json',
+            ).status_code,
+            403,
+        )
+
+    def test_superuser_can_ban_moderator(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(
+            self.client.post(
+                reverse('core:mod-ban-user', args=[self.mod.id]),
+                {'reason': 'rogue'}, content_type='application/json',
+            ).status_code,
+            201,
+        )
+
+    def test_nobody_can_ban_superuser(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(
+            self.client.post(
+                reverse('core:mod-ban-user', args=[self.admin.id]),
+                {}, content_type='application/json',
+            ).status_code,
+            403,
+        )
+
+    def test_unban_lifts_active_ban(self):
+        Ban.objects.create(user=self.author, created_by=self.mod)
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-unban-user', args=[self.author.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['lifted'])
+        self.assertFalse(
+            any(b.is_active() for b in self.author.bans.all())
+        )
+
+    # --- reporters ---------------------------------------------------
+    def test_reporters_ranked_by_dismissed(self):
+        p1 = self._post_by(self.author)
+        p2 = self._post_by(self.author)
+        self._report_post(p1, self.reporter, Report.Status.DISMISSED)
+        self._report_post(p2, self.reporter, Report.Status.DISMISSED)
+        good = User.objects.create_user('good', password='pw12345!')
+        self._report_post(
+            self._post_by(self.author), good, Report.Status.RESOLVED
+        )
+        self.client.force_login(self.mod)
+        rows = self.client.get(
+            reverse('core:mod-reporters')
+        ).json()['reporters']
+        self.assertEqual(rows[0]['username'], 'sam')
+        self.assertEqual(rows[0]['dismissed'], 2)
 
 
 class ProtectionApiTests(ApiTestCase):

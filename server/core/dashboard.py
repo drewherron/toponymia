@@ -1,0 +1,352 @@
+"""The Moderation dashboard API (DESIGN.md M12, Part C) — the actor-centric
+and decision-centric views that complement the content-centric Reports queue.
+All endpoints are moderators-only.
+
+- `mod_users`      — users with reports or removed content against them.
+- `mod_user_detail`— one user's content (removed items shown), reports, bans,
+                     and the audit trail of actions against them.
+- `mod_ban_user` / `mod_unban_user` — apply and lift account bans.
+- `mod_reporters`  — reporters ranked by dismissed-vs-upheld, to catch abuse.
+"""
+
+from collections import defaultdict
+from datetime import timedelta
+
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from .models import Ban, ModAction, Report, Revision, TalkPost
+from .moderation import active_ban, can_ban, is_moderator, log_action
+from .views import _revision_excerpt
+
+User = get_user_model()
+
+
+def _forbidden(request):
+    """None if the caller may use the dashboard, else a 403 response."""
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    return None
+
+
+def _iso(value):
+    return value.isoformat() if value else None
+
+
+def _user_role(user):
+    if user.is_superuser:
+        return 'admin'
+    if user.is_staff:
+        return 'moderator'
+    return 'user'
+
+
+def _report_author_id(report):
+    """The author of a report's target — whose content was flagged."""
+    if report.talk_post_id is not None:
+        return report.talk_post.author_id
+    return report.revision.author_id
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mod_users(request):
+    """Users with any report or removed content against them, most-recently
+    reported first (DESIGN.md M12). The list is small enough to filter live
+    on the client, so everything is returned at once."""
+    forbidden = _forbidden(request)
+    if forbidden is not None:
+        return forbidden
+
+    reports = Report.objects.select_related('talk_post', 'revision')
+    report_total = defaultdict(int)
+    report_open = defaultdict(int)
+    last_report = {}
+    for report in reports:
+        author_id = _report_author_id(report)
+        report_total[author_id] += 1
+        if report.status == Report.Status.OPEN:
+            report_open[author_id] += 1
+        if author_id not in last_report or report.created > last_report[author_id]:
+            last_report[author_id] = report.created
+
+    removed = defaultdict(int)
+    for author_id in TalkPost.objects.filter(
+        deleted__isnull=False
+    ).values_list('author_id', flat=True):
+        removed[author_id] += 1
+    for author_id in Revision.objects.filter(
+        suppressed__isnull=False
+    ).values_list('author_id', flat=True):
+        removed[author_id] += 1
+
+    # Total upheld actions against each user — the chronic-offender column.
+    upheld = defaultdict(int)
+    for author_id in ModAction.objects.filter(
+        target_user__isnull=False,
+        action__in=[
+            ModAction.Action.DELETE_POST,
+            ModAction.Action.SUPPRESS_REVISION,
+            ModAction.Action.BAN_USER,
+        ],
+    ).values_list('target_user_id', flat=True):
+        upheld[author_id] += 1
+
+    now = timezone.now()
+    banned_ids = {
+        ban.user_id
+        for ban in Ban.objects.filter(
+            lifted__isnull=True
+        ).filter(Q(expires__isnull=True) | Q(expires__gt=now))
+    }
+
+    author_ids = (
+        set(report_total) | set(removed)
+    )
+    users = {u.id: u for u in User.objects.filter(id__in=author_ids)}
+    rows = []
+    for author_id in author_ids:
+        user = users.get(author_id)
+        if user is None:  # target author since deleted — skip
+            continue
+        rows.append({
+            'id': user.id,
+            'username': user.username,
+            'role': _user_role(user),
+            'reports_open': report_open.get(author_id, 0),
+            'reports_total': report_total.get(author_id, 0),
+            'removed_count': removed.get(author_id, 0),
+            'upheld_actions': upheld.get(author_id, 0),
+            'last_report': _iso(last_report.get(author_id)),
+            'banned': author_id in banned_ids,
+        })
+    # Most recently reported first; users with only removed content (no
+    # report timestamp) sort to the bottom.
+    rows.sort(key=lambda r: r['last_report'] or '', reverse=True)
+    return Response({'users': rows})
+
+
+def _ban_json(ban):
+    return {
+        'id': ban.id,
+        'reason': ban.reason,
+        'created': _iso(ban.created),
+        'created_by': ban.created_by.username if ban.created_by else None,
+        'expires': _iso(ban.expires),
+        'lifted': _iso(ban.lifted),
+        'lifted_by': ban.lifted_by.username if ban.lifted_by else None,
+        'active': ban.is_active(),
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mod_user_detail(request, user_id):
+    """Everything a moderator needs to judge one account: their content (with
+    removed items shown in full), reports against them, ban history, and the
+    audit trail of actions taken (DESIGN.md M12)."""
+    forbidden = _forbidden(request)
+    if forbidden is not None:
+        return forbidden
+    user = get_object_or_404(User, id=user_id)
+
+    posts = (
+        TalkPost.objects.filter(author=user)
+        .select_related('thread__place')
+        .order_by('-created')[:100]
+    )
+    talk_posts = [{
+        'id': p.id,
+        'thread_id': p.thread_id,
+        'thread_title': p.thread.title,
+        'slug': p.thread.place.slug,
+        'place': p.thread.place.display_name,
+        # Removed content is shown in full to moderators (that's the point).
+        'body_md': p.body_md,
+        'created': _iso(p.created),
+        'deleted': p.deleted is not None,
+    } for p in posts]
+
+    revisions = (
+        Revision.objects.filter(author=user)
+        .select_related('article__place', 'article__current_revision')
+        .order_by('-created')[:100]
+    )
+    revs = [{
+        'id': r.id,
+        'slug': r.article.place.slug,
+        'place': r.article.place.display_name,
+        'comment': r.comment,
+        'excerpt': _revision_excerpt(r.content),
+        'created': _iso(r.created),
+        'is_current': r.article.current_revision_id == r.id,
+        'suppressed': r.suppressed is not None,
+    } for r in revisions]
+
+    reports = (
+        Report.objects.filter(
+            Q(talk_post__author=user) | Q(revision__author=user)
+        )
+        .select_related('reporter')
+        .order_by('-created')[:100]
+    )
+    reports_against = [{
+        'id': rep.id,
+        'category': rep.category,
+        'reason': rep.reason,
+        'status': rep.status,
+        'reporter': rep.reporter.username,
+        'created': _iso(rep.created),
+        'target_kind': 'talk_post' if rep.talk_post_id else 'revision',
+    } for rep in reports]
+
+    actions = (
+        ModAction.objects.filter(target_user=user)
+        .select_related('actor')
+        .order_by('-created')[:100]
+    )
+    audit = [{
+        'id': a.id,
+        'action': a.action,
+        'actor': a.actor.username if a.actor else None,
+        'reason': a.reason,
+        'created': _iso(a.created),
+    } for a in actions]
+
+    return Response({
+        'id': user.id,
+        'username': user.username,
+        'role': _user_role(user),
+        'date_joined': _iso(user.date_joined),
+        'bans': [_ban_json(b) for b in user.bans.all()],
+        'can_ban': can_ban(request.user, user),
+        'talk_posts': talk_posts,
+        'revisions': revs,
+        'reports_against': reports_against,
+        'audit': audit,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mod_ban_user(request, user_id):
+    """Ban an account (DESIGN.md M12). Body: reason, expires_days (0/absent =
+    permanent), remove_content (also soft-remove all their content)."""
+    forbidden = _forbidden(request)
+    if forbidden is not None:
+        return forbidden
+    target = get_object_or_404(User, id=user_id)
+    if not can_ban(request.user, target):
+        return Response(
+            {'error': 'you do not have authority to ban this account'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    reason = (request.data.get('reason') or '')[:500]
+    days = request.data.get('expires_days') or 0
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 0
+    expires = timezone.now() + timedelta(days=days) if days > 0 else None
+
+    ban = Ban.objects.create(
+        user=target, created_by=request.user, reason=reason, expires=expires,
+    )
+    removed = 0
+    if request.data.get('remove_content'):
+        removed = _remove_all_content(target, request.user)
+    log_action(
+        request.user, ModAction.Action.BAN_USER,
+        target_user=target, reason=reason,
+    )
+    return Response(
+        {'ban': _ban_json(ban), 'removed_content': removed},
+        status=status.HTTP_201_CREATED,
+    )
+
+
+def _remove_all_content(user, actor):
+    """Soft-delete all of a user's talk posts and suppress all their
+    non-current revisions. Returns how many items were removed."""
+    now = timezone.now()
+    count = 0
+    for post in TalkPost.objects.filter(author=user, deleted__isnull=True):
+        post.deleted = now
+        post.deleted_by = actor
+        post.save(update_fields=['deleted', 'deleted_by'])
+        count += 1
+    revisions = (
+        Revision.objects.filter(author=user, suppressed__isnull=True)
+        .select_related('article')
+    )
+    for revision in revisions:
+        if revision.id == revision.article.current_revision_id:
+            continue  # can't suppress a live article's current text
+        revision.suppressed = now
+        revision.suppressed_by = actor
+        revision.save(update_fields=['suppressed', 'suppressed_by'])
+        count += 1
+    return count
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mod_unban_user(request, user_id):
+    """Lift every active ban on an account (DESIGN.md M12)."""
+    forbidden = _forbidden(request)
+    if forbidden is not None:
+        return forbidden
+    target = get_object_or_404(User, id=user_id)
+    if not can_ban(request.user, target):
+        return Response(
+            {'error': 'you do not have authority over this account'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    ban = active_ban(target)
+    if ban is None:
+        return Response({'ok': True, 'lifted': False})
+    now = timezone.now()
+    target.bans.filter(
+        lifted__isnull=True
+    ).filter(Q(expires__isnull=True) | Q(expires__gt=now)).update(
+        lifted=now, lifted_by=request.user
+    )
+    log_action(
+        request.user, ModAction.Action.UNBAN_USER, target_user=target,
+    )
+    return Response({'ok': True, 'lifted': True})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mod_reporters(request):
+    """Reporters ranked by dismissed reports — a high dismissed count is the
+    signature of report-button abuse (DESIGN.md M12)."""
+    forbidden = _forbidden(request)
+    if forbidden is not None:
+        return forbidden
+    rows = (
+        Report.objects.values('reporter_id', 'reporter__username')
+        .annotate(
+            total=Count('id'),
+            open=Count('id', filter=Q(status=Report.Status.OPEN)),
+            resolved=Count('id', filter=Q(status=Report.Status.RESOLVED)),
+            dismissed=Count('id', filter=Q(status=Report.Status.DISMISSED)),
+        )
+        .order_by('-dismissed', '-total')
+    )
+    reporters = [{
+        'id': row['reporter_id'],
+        'username': row['reporter__username'],
+        'total': row['total'],
+        'open': row['open'],
+        'resolved': row['resolved'],
+        'dismissed': row['dismissed'],
+    } for row in rows]
+    return Response({'reporters': reporters})
