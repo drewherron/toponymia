@@ -347,6 +347,14 @@ function UsersTab() {
 
 // --- reporters tab --------------------------------------------------
 
+// Share of *decided* reports that were dismissed. Open reports are excluded:
+// they haven't been judged, so counting them would let a backlog flatter a
+// reporter. Null when nothing has been decided yet.
+function dismissedRate(r: ModReporter): number | null {
+  const decided = r.resolved + r.dismissed
+  return decided === 0 ? null : r.dismissed / decided
+}
+
 function ReportersTab() {
   const [rows, setRows] = useState<ModReporter[] | null>(null)
 
@@ -360,7 +368,10 @@ function ReportersTab() {
   return (
     <div className="mod-reporters">
       <p className="mod-note">
-        A high dismissed count relative to resolved can signal report abuse.
+        Dismissed rate is the share of a reporter's decided reports that were
+        dismissed; open reports aren't counted. A high rate can signal report
+        abuse — but read it alongside the number of decisions it's based on,
+        since one dismissed report reads as 100%.
       </p>
       <table className="mod-table">
         <thead>
@@ -370,18 +381,37 @@ function ReportersTab() {
             <th>Open</th>
             <th>Upheld</th>
             <th>Dismissed</th>
+            <th>Dismissed rate</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className={r.dismissed > r.resolved ? 'mod-flag' : ''}>
-              <td>{r.username}</td>
-              <td>{r.total}</td>
-              <td>{r.open}</td>
-              <td>{r.resolved}</td>
-              <td>{r.dismissed}</td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const rate = dismissedRate(r)
+            return (
+              <tr key={r.id} className={r.dismissed > r.resolved ? 'mod-flag' : ''}>
+                <td>{r.username}</td>
+                <td>{r.total}</td>
+                <td>{r.open}</td>
+                <td>{r.resolved}</td>
+                <td>{r.dismissed}</td>
+                <td className="mod-rate">
+                  {rate === null ? (
+                    <span className="mod-rate-none" title="No reports decided yet">
+                      —
+                    </span>
+                  ) : (
+                    <>
+                      {Math.round(rate * 100)}%
+                      <span className="mod-rate-basis">
+                        {' '}
+                        of {r.resolved + r.dismissed}
+                      </span>
+                    </>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

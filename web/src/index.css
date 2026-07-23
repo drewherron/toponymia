@@ -1749,6 +1749,15 @@ body,
   background: #fef2f2;
 }
 
+.mod-table td.mod-rate {
+  white-space: nowrap;
+}
+
+.mod-rate-basis,
+.mod-rate-none {
+  color: #8a8378;
+}
+
 .mod-reporters {
   padding: 20px 28px;
   overflow-y: auto;
