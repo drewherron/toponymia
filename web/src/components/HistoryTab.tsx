@@ -246,8 +246,12 @@ function HistoryTab({
                 Revert to this revision
               </button>
             )}
-            {user && user.username !== revision.author && (
-              <ReportButton targetType="revision" targetId={revision.id} />
+            {(!user || user.username !== revision.author) && (
+              <ReportButton
+                targetType="revision"
+                targetId={revision.id}
+                loggedIn={!!user}
+              />
             )}
           </div>
         </div>
@@ -330,8 +334,12 @@ function HistoryTab({
                   revert
                 </button>
               )}
-              {user && user.username !== revision.author && (
-                <ReportButton targetType="revision" targetId={revision.id} />
+              {(!user || user.username !== revision.author) && (
+                <ReportButton
+                  targetType="revision"
+                  targetId={revision.id}
+                  loggedIn={!!user}
+                />
               )}
             </div>
           </li>

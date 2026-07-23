@@ -1072,6 +1072,12 @@ body,
   padding: 0;
 }
 
+/* Shown to logged-out users: the exact same link, but inert with a login
+   tooltip (DESIGN.md M12). */
+.report-button-disabled {
+  cursor: not-allowed;
+}
+
 .report-done {
   font-size: 0.78rem;
   font-style: italic;

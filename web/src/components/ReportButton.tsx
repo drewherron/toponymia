@@ -9,16 +9,33 @@ import type { ReportCategory } from '../types'
 function ReportButton({
   targetType,
   targetId,
+  loggedIn = true,
   label = 'report',
 }: {
   targetType: 'revision' | 'talk_post'
   targetId: number
+  /** Logged-out users see the same link, disabled, with a login tooltip. */
+  loggedIn?: boolean
   label?: string
 }) {
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState<ReportCategory>('other')
   const [reason, setReason] = useState('')
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+
+  if (!loggedIn) {
+    return (
+      <button
+        type="button"
+        className="report-button report-button-disabled"
+        aria-disabled="true"
+        title="Log in to report"
+        onClick={(e) => e.preventDefault()}
+      >
+        {label}
+      </button>
+    )
+  }
 
   if (state === 'done') {
     return <span className="report-done">reported</span>

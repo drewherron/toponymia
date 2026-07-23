@@ -104,8 +104,12 @@ function PostView({
             delete
           </button>
         )}
-        {user && !own && !editing && (
-          <ReportButton targetType="talk_post" targetId={post.id} />
+        {!own && !editing && (
+          <ReportButton
+            targetType="talk_post"
+            targetId={post.id}
+            loggedIn={!!user}
+          />
         )}
       </p>
       {editing ? (
