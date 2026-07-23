@@ -228,7 +228,7 @@ body,
   top: 0;
   left: 0;
   bottom: 0;
-  width: 460px;
+  width: 560px;
   max-width: 90vw;
   background: #fff;
   box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
@@ -1087,12 +1087,14 @@ body,
 
 .report-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 6px 0;
 }
 
 .report-form input {
   flex: 1;
+  min-width: 0;
   font: inherit;
   font-size: 0.85rem;
   padding: 5px 8px;
