@@ -187,8 +187,14 @@ function ProtectionControl({
             .finally(() => setBusy(false))
         }}
       >
-        <option value="none">None</option>
-        <option value="registered">Registered users</option>
+        {/* `registered` is omitted: with anonymous editing disallowed
+            globally it gates the same set as `none`. Kept in the model
+            (and shown if a legacy article still carries it) for a future
+            where anonymous editing exists. */}
+        <option value="none">Unprotected</option>
+        {level === 'registered' && (
+          <option value="registered">Registered users</option>
+        )}
         <option value="admin">Moderators only</option>
       </select>
     </label>
