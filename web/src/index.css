@@ -236,13 +236,14 @@ body,
   letter-spacing: 0.04em;
 }
 
+/* Width (and, as a sheet, height) is set inline from layout.ts — the map's
+   camera padding has to agree with it exactly, so the two read one constant
+   rather than each carrying their own copy. */
 .feature-pane {
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
-  width: 560px;
-  max-width: 90vw;
   background: #fff;
   box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
   padding: 20px;
@@ -722,10 +723,6 @@ body,
 
 .pane-tab-edit {
   margin-left: auto;
-}
-
-.feature-pane.wide {
-  width: 760px;
 }
 
 /* History tab */
@@ -1980,4 +1977,143 @@ body,
   background: #92500a;
   border-color: #92500a;
   color: #fff;
+}
+
+/* ---- Narrow screens: pane becomes a bottom sheet (DESIGN.md M14) ----
+   Bottom, not top: the header is already fixed top chrome and .search-results
+   overflows downward into the map area, so a top pane would fight the search
+   dropdown for the same space. Heights come from layout.ts via inline style. */
+
+.header-menu-button {
+  display: none;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 16px;
+  background: #fff;
+  color: #444;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .app-logo {
+    font-size: 1.4rem;
+  }
+
+  .search-box {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .header-menu-button {
+    display: block;
+    flex-shrink: 0;
+  }
+
+  /* Sits under the menu but over the map, so a tap outside dismisses. */
+  .header-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+  }
+
+  .header-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    z-index: 50;
+  }
+
+  .header-menu > * {
+    width: 100%;
+    text-align: center;
+  }
+
+  .feature-pane {
+    top: auto;
+    right: 0;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.25);
+    padding: 0 16px 16px;
+    transition: height 180ms ease;
+  }
+
+  /* Following a finger: the height is being written per pointermove, so a
+     transition would lag the gesture instead of smoothing it. */
+  .feature-pane.sheet-dragging {
+    transition: none;
+  }
+
+  /* Rides above the scrolling content: the sheet itself is the scroller, so
+     the grip has to stay put while the article moves under it. */
+  .sheet-handle {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(100% + 32px);
+    margin: 0 -16px 4px;
+    padding: 10px 0 6px;
+    border: none;
+    background: #fff;
+    border-radius: 12px 12px 0 0;
+    cursor: grab;
+    /* Without this the browser claims the vertical drag for scrolling. */
+    touch-action: none;
+    z-index: 1;
+  }
+
+  .sheet-handle:active {
+    cursor: grabbing;
+  }
+
+  .sheet-grip {
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: #ccc;
+  }
+
+  .sheet-handle:hover .sheet-grip {
+    background: #aaa;
+  }
+
+  /* The map is the index — keep the zoom controls clear of the sheet. */
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-bottom-left {
+    display: none;
+  }
+
+  /* Side-by-side has no room to be side-by-side; stack old over new. */
+  .diff-side-headers,
+  .diff-field-values,
+  .diff-row {
+    grid-template-columns: 1fr;
+  }
+
+  .diff-cell + .diff-cell {
+    border-left: none;
+    border-top: 1px solid #e3e3e3;
+  }
+
+  .feature-picker {
+    max-width: 80vw;
+  }
 }

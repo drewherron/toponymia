@@ -59,6 +59,15 @@ export interface GeocodeHit {
   osmRef: string | null
 }
 
+/** The chrome overlaying the map, in CSS px per edge — the camera keeps a
+ *  place inside what's left. */
+export interface MapPadding {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
 /** Imperative map controls exposed by MapView through a ref object. */
 export interface MapApi {
   /** animate: false jumps straight to the framing (boot deep links). */

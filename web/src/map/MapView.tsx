@@ -8,11 +8,19 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 import { fetchHighlights } from '../api'
+import {
+  COARSE_QUERY,
+  PANE_MAX_VW,
+  PANE_WIDTH,
+  sheetHeight,
+  type SheetDetent,
+} from '../layout'
 import type {
   ClickContext,
   FeatureCandidate,
   GeocodeHit,
   MapApi,
+  MapPadding,
   ResolvedPlace,
 } from '../types'
 import { toCandidates } from './features'
@@ -20,6 +28,10 @@ import { nameField, nameKeys, nameMatch } from './labels'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 const CLICK_TOLERANCE_PX = 6
+// A fingertip covers ~44px, so a mouse-sized query box means most taps on a
+// phone hit nothing — and "every named feature is clickable" is the whole
+// product. Applied under (pointer: coarse) only.
+const TOUCH_TOLERANCE_PX = 22
 // Framing a place gets flown to — shared by flyToPlace and the "home view"
 // the recenter button compares against, so the two never disagree.
 const FIT_PADDING = 80
@@ -30,30 +42,98 @@ const FLY_ZOOM = 12
 // rounding isn't read as movement while any real pan/zoom is.
 const HOME_PAN_PX = 6
 const HOME_ZOOM_EPS = 0.05
+// A point has no extent, so it's framed as a tiny box: one code path for both
+// branches means the padding offset below is applied identically. Non-zero to
+// keep the fit's division off 0/0 — the box is far under a pixel at any zoom,
+// so maxZoom always wins and the fit is a pure centre-on-point.
+const POINT_BOUNDS_EPS = 1e-6
+// Never pad the camera down to nothing: a full-height sheet plus FIT_PADDING
+// exceeds the canvas, and a fit into negative space is meaningless.
+const MIN_VISIBLE_PX = 60
+
+const NO_CHROME: MapPadding = { top: 0, right: 0, bottom: 0, left: 0 }
+
+/** Shrink an opposing padding pair to fit, keeping their ratio. */
+function clampPair(a: number, b: number, total: number): [number, number] {
+  const room = Math.max(total - MIN_VISIBLE_PX, 0)
+  if (a + b <= room) return [a, b]
+  if (a + b === 0) return [0, 0]
+  const scale = room / (a + b)
+  return [a * scale, b * scale]
+}
+
+/** How much of the map each edge's chrome covers. The pane overlays the
+ *  canvas, so anything the camera aims at must land in what's left. (The
+ *  diff view's wider pane is ignored: you're reading a diff, not looking at
+ *  the map.) */
+function chromeFor(
+  map: maplibregl.Map,
+  narrow: boolean,
+  paneOpen: boolean,
+  detent: SheetDetent,
+): MapPadding {
+  if (!paneOpen) return NO_CHROME
+  const canvas = map.getCanvas()
+  if (narrow) {
+    return { ...NO_CHROME, bottom: sheetHeight(detent, canvas.clientHeight) }
+  }
+  return {
+    ...NO_CHROME,
+    left: Math.min(PANE_WIDTH, canvas.clientWidth * PANE_MAX_VW),
+  }
+}
+
+/** Breathing room + the chrome, clamped to leave a usable window. */
+function fitPadding(map: maplibregl.Map, chrome: MapPadding): MapPadding {
+  const canvas = map.getCanvas()
+  const [left, right] = clampPair(
+    FIT_PADDING + chrome.left,
+    FIT_PADDING + chrome.right,
+    canvas.clientWidth,
+  )
+  const [top, bottom] = clampPair(
+    FIT_PADDING + chrome.top,
+    FIT_PADDING + chrome.bottom,
+    canvas.clientHeight,
+  )
+  return { top, right, bottom, left }
+}
+
+/** The place as a box to fit: its footprint, else a speck at the label point. */
+function placeBounds(place: ResolvedPlace): [[number, number], [number, number]] {
+  if (place.bbox) {
+    const [w, s, e, n] = place.bbox
+    return [
+      [w, s],
+      [e, n],
+    ]
+  }
+  const [lng, lat] = place.label_point ?? place.centroid
+  return [
+    [lng - POINT_BOUNDS_EPS, lat - POINT_BOUNDS_EPS],
+    [lng + POINT_BOUNDS_EPS, lat + POINT_BOUNDS_EPS],
+  ]
+}
 
 /** The camera flyToPlace lands on: fit the bbox when we have one, else
  *  center on the label point at a default zoom. cameraForBounds computes the
- *  fit without moving the map, so it matches fitBounds exactly. */
+ *  fit without moving the map, so it matches fitBounds exactly — including
+ *  the way asymmetric padding shifts the centre off the box's own middle. */
 function homeCamera(
   map: maplibregl.Map,
   place: ResolvedPlace,
+  chrome: MapPadding,
 ): { center: { lng: number; lat: number }; zoom: number } {
-  if (place.bbox) {
-    const [w, s, e, n] = place.bbox
-    const cam = map.cameraForBounds(
-      [
-        [w, s],
-        [e, n],
-      ],
-      { padding: FIT_PADDING, maxZoom: FIT_MAXZOOM },
-    )
-    if (cam?.center && cam.zoom != null) {
-      const center = maplibregl.LngLat.convert(cam.center)
-      return { center: { lng: center.lng, lat: center.lat }, zoom: cam.zoom }
-    }
+  const cam = map.cameraForBounds(placeBounds(place), {
+    padding: fitPadding(map, chrome),
+    maxZoom: place.bbox ? FIT_MAXZOOM : FLY_ZOOM,
+  })
+  if (cam?.center && cam.zoom != null && Number.isFinite(cam.zoom)) {
+    const center = maplibregl.LngLat.convert(cam.center)
+    return { center: { lng: center.lng, lat: center.lat }, zoom: cam.zoom }
   }
   const [lng, lat] = place.label_point ?? place.centroid
-  return { center: { lng, lat }, zoom: FLY_ZOOM }
+  return { center: { lng, lat }, zoom: place.bbox ? FIT_MAXZOOM : FLY_ZOOM }
 }
 
 // Shapes Arabic/Hebrew label text (self-hosted; lazy = fetched only when
@@ -95,6 +175,13 @@ interface MapViewProps {
   labelLanguage: string
   /** Bump to force a highlight refetch (e.g. after saving an article). */
   highlightsEpoch: number
+  /** Sheet mode: the pane covers the bottom rather than the left. */
+  narrow: boolean
+  /** The pane is open, so it's covering part of the canvas. */
+  paneOpen: boolean
+  /** Settled sheet detent — never the live drag offset, or the home view
+   *  (and with it the recenter button) would churn mid-gesture. */
+  sheetDetent: SheetDetent
   /** Receives imperative controls (fly-to for search/deep links). */
   mapApi: RefObject<MapApi | null>
 }
@@ -106,6 +193,9 @@ function MapView({
   allArticles,
   labelLanguage,
   highlightsEpoch,
+  narrow,
+  paneOpen,
+  sheetDetent,
   mapApi,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -118,6 +208,9 @@ function MapView({
     onViewportChange,
     allArticles,
     labelLanguage,
+    narrow,
+    paneOpen,
+    sheetDetent,
   })
   const labelLayersRef = useRef<LabelLayer[]>([])
   const articleNamesRef = useRef<string[]>([])
@@ -131,8 +224,20 @@ function MapView({
       onViewportChange,
       allArticles,
       labelLanguage,
+      narrow,
+      paneOpen,
+      sheetDetent,
     }
-  }, [onClickFeatures, onMoveStart, onViewportChange, allArticles, labelLanguage])
+  }, [
+    onClickFeatures,
+    onMoveStart,
+    onViewportChange,
+    allArticles,
+    labelLanguage,
+    narrow,
+    paneOpen,
+    sheetDetent,
+  ])
 
   /** Wrap every label layer's text color: article names go amber.
    *  Matches the displayed name, the raw `name`, and the English name
@@ -253,33 +358,50 @@ function MapView({
       if (readyRef.current) fly()
       else pendingFly = fly
     }
-    const fitBbox = (
-      [w, s, e, n]: [number, number, number, number],
+    /** Current chrome, read fresh: the pane may have opened or the sheet
+     *  settled at a new detent since the last camera move. */
+    const chrome = () => {
+      const { narrow, paneOpen, sheetDetent } = propsRef.current
+      return chromeFor(map, narrow, paneOpen, sheetDetent)
+    }
+    const fitBox = (
+      bounds: [[number, number], [number, number]],
+      maxZoom: number,
       animate = true,
     ) => {
-      map.fitBounds(
-        [
-          [w, s],
-          [e, n],
-        ],
-        { padding: FIT_PADDING, maxZoom: FIT_MAXZOOM, animate },
-      )
+      map.fitBounds(bounds, {
+        padding: fitPadding(map, chrome()),
+        maxZoom,
+        animate,
+      })
     }
     mapApi.current = {
       flyToPlace: (place: ResolvedPlace, animate = true) => {
         flyWhenReady(() => {
-          if (place.bbox) {
-            fitBbox(place.bbox, animate)
-          } else {
-            const [lng, lat] = place.label_point ?? place.centroid
-            map.flyTo({ center: [lng, lat], zoom: FLY_ZOOM, animate })
-          }
+          fitBox(placeBounds(place), place.bbox ? FIT_MAXZOOM : FLY_ZOOM, animate)
         })
       },
       flyToHit: (hit: GeocodeHit) => {
         flyWhenReady(() => {
-          if (hit.extent) fitBbox(hit.extent)
-          else map.flyTo({ center: hit.lngLat, zoom: 12 })
+          if (hit.extent) {
+            const [w, s, e, n] = hit.extent
+            fitBox(
+              [
+                [w, s],
+                [e, n],
+              ],
+              FIT_MAXZOOM,
+            )
+          } else {
+            const { lng, lat } = hit.lngLat
+            fitBox(
+              [
+                [lng - POINT_BOUNDS_EPS, lat - POINT_BOUNDS_EPS],
+                [lng + POINT_BOUNDS_EPS, lat + POINT_BOUNDS_EPS],
+              ],
+              12,
+            )
+          }
         })
       },
       getCenter: () => {
@@ -287,7 +409,7 @@ function MapView({
         return { lng: center.lng, lat: center.lat }
       },
       isAtHomeView: (place: ResolvedPlace) => {
-        const home = homeCamera(map, place)
+        const home = homeCamera(map, place, chrome())
         const c = map.getCenter()
         // Pixel tolerance → degrees at the home zoom, so the same few-px slack
         // holds whether we're framing a country or a city block.
@@ -365,7 +487,11 @@ function MapView({
     })
 
     map.on('click', (e) => {
-      const t = CLICK_TOLERANCE_PX
+      // Read per click rather than latched: a tablet with a keyboard folio
+      // switches pointer type mid-session.
+      const t = window.matchMedia(COARSE_QUERY).matches
+        ? TOUCH_TOLERANCE_PX
+        : CLICK_TOLERANCE_PX
       const box: [maplibregl.PointLike, maplibregl.PointLike] = [
         [e.point.x - t, e.point.y - t],
         [e.point.x + t, e.point.y + t],

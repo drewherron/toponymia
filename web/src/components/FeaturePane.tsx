@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   deleteArticle,
   getPlace,
@@ -6,6 +6,16 @@ import {
   restoreArticle,
   setProtection,
 } from '../api'
+import {
+  PANE_MAX_VW,
+  PANE_WIDE_WIDTH,
+  PANE_WIDTH,
+  SHEET_DETENTS,
+  SHEET_PEEK_PX,
+  sheetCssHeight,
+  sheetHeight,
+  type SheetDetent,
+} from '../layout'
 import type {
   ArticleData,
   ClickContext,
@@ -70,6 +80,20 @@ function CloseIcon() {
   )
 }
 
+/** Which detent a dragged sheet snapped closest to. */
+function nearestDetent(height: number, areaHeight: number): SheetDetent {
+  let best = SHEET_DETENTS[0]
+  let bestGap = Infinity
+  for (const detent of SHEET_DETENTS) {
+    const gap = Math.abs(height - sheetHeight(detent, areaHeight))
+    if (gap < bestGap) {
+      best = detent
+      bestGap = gap
+    }
+  }
+  return best
+}
+
 const PROTECTION_NOTE: Record<ProtectionLevel, string> = {
   none: '',
   registered: 'Semi-protected — registered users only.',
@@ -82,6 +106,12 @@ interface FeaturePaneProps {
   user: User | null
   /** The selected place has scrolled out of the map viewport. */
   offView: boolean
+  /** Sheet mode: the pane sits along the bottom with drag detents. */
+  narrow: boolean
+  sheetDetent: SheetDetent
+  /** Fires only on a settled detent — the map's camera padding keys off it,
+   *  so reporting the live drag would churn the home view mid-gesture. */
+  onSheetDetentChange: (detent: SheetDetent) => void
   onRequestAuth: () => void
   onClose: () => void
   /** Fly the map back to this place (offered when offView). */
@@ -272,6 +302,9 @@ function FeaturePane({
   click,
   user,
   offView,
+  narrow,
+  sheetDetent,
+  onSheetDetentChange,
   onRequestAuth,
   onClose,
   onRecenter,
@@ -286,6 +319,73 @@ function FeaturePane({
   const [tab, setTab] = useState<Tab>('article')
   const [wide, setWide] = useState(false)
   const [copied, setCopied] = useState(false)
+  const paneRef = useRef<HTMLElement>(null)
+  // Drag lives in a ref, not state: the sheet follows the finger by writing
+  // height straight to the node, so a re-render per pointermove would be pure
+  // cost — and the settled detent is the only thing anyone else needs.
+  const dragRef = useRef<{
+    startY: number
+    startHeight: number
+    moved: boolean
+  } | null>(null)
+
+  const areaHeight = () =>
+    paneRef.current?.parentElement?.clientHeight ?? window.innerHeight
+
+  /** Land on a detent: set the height React would, then report it. Setting it
+   *  here rather than clearing the inline style matters — snapping back to the
+   *  detent you started from re-renders nothing, and a cleared height would
+   *  leave the sheet with none at all. */
+  const settle = (detent: SheetDetent) => {
+    const pane = paneRef.current
+    if (pane) pane.style.height = sheetCssHeight(detent)
+    onSheetDetentChange(detent)
+  }
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const pane = paneRef.current
+    if (!pane) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      startY: event.clientY,
+      startHeight: pane.getBoundingClientRect().height,
+      moved: false,
+    }
+    pane.classList.add('sheet-dragging')
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    const pane = paneRef.current
+    if (!drag || !pane) return
+    const dy = drag.startY - event.clientY
+    if (Math.abs(dy) > 4) drag.moved = true
+    const height = Math.min(
+      areaHeight(),
+      Math.max(SHEET_PEEK_PX, drag.startHeight + dy),
+    )
+    pane.style.height = `${height}px`
+  }
+
+  const handlePointerUp = () => {
+    const drag = dragRef.current
+    const pane = paneRef.current
+    if (!drag || !pane) return
+    dragRef.current = null
+    const height = pane.getBoundingClientRect().height
+    pane.classList.remove('sheet-dragging')
+    if (!drag.moved) {
+      // A tap, not a drag — cycle, so the handle works without a gesture
+      // (and for keyboard, which fires click without pointermove).
+      const next =
+        SHEET_DETENTS[
+          (SHEET_DETENTS.indexOf(sheetDetent) + 1) % SHEET_DETENTS.length
+        ]
+      settle(next)
+      return
+    }
+    settle(nearestDetent(height, areaHeight()))
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -386,7 +486,40 @@ function FeaturePane({
   const canEdit = !!user && (protection !== 'admin' || user.is_moderator)
 
   return (
-    <aside className={`feature-pane${wide ? ' wide' : ''}`}>
+    <aside
+      ref={paneRef}
+      className={`feature-pane${wide ? ' wide' : ''}${narrow ? ' sheet' : ''}`}
+      style={
+        narrow
+          ? { height: sheetCssHeight(sheetDetent) }
+          : {
+              width: wide ? PANE_WIDE_WIDTH : PANE_WIDTH,
+              maxWidth: `${PANE_MAX_VW * 100}vw`,
+            }
+      }
+    >
+      {narrow && (
+        <button
+          type="button"
+          className="sheet-handle"
+          aria-label={`Resize panel (${sheetDetent})`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            settle(
+              SHEET_DETENTS[
+                (SHEET_DETENTS.indexOf(sheetDetent) + 1) % SHEET_DETENTS.length
+              ],
+            )
+          }}
+        >
+          <span className="sheet-grip" />
+        </button>
+      )}
       <div className="feature-pane-header">
         <div>
           <span className="feature-kind">{feature.kind}</span>

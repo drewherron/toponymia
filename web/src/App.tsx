@@ -7,6 +7,7 @@ import FeaturePicker from './components/FeaturePicker'
 import ModerationDashboard from './components/ModerationDashboard'
 import ModQueue from './components/ModQueue'
 import SearchBox from './components/SearchBox'
+import { NARROW_QUERY, useMediaQuery, type SheetDetent } from './layout'
 import {
   LABEL_LANGUAGES,
   storedLabelLanguage,
@@ -65,6 +66,12 @@ function App() {
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
+  const narrow = useMediaQuery(NARROW_QUERY)
+  // Half: enough article to read, enough map to stay oriented — on this
+  // product the map is the index, so a sheet that buries it removes the only
+  // way to navigate.
+  const [sheetDetent, setSheetDetent] = useState<SheetDetent>('half')
+  const [menuOpen, setMenuOpen] = useState(false)
   // Whether the selected place has scrolled out of the map viewport — drives
   // the pane's recenter button. The ref mirrors it so viewport callbacks (not
   // in React's render flow) can read the current place without re-subscribing.
@@ -179,6 +186,7 @@ function App() {
     setSelected(null)
     selectedPlaceRef.current = null
     setOffView(false)
+    setSheetDetent('half') // the next place opens at the default detent
     document.title = 'Toponymia'
     if (window.location.pathname !== '/') {
       window.history.pushState(null, '', '/' + window.location.hash)
@@ -284,6 +292,69 @@ function App() {
     [],
   )
 
+  // The header's tools: inline on a wide screen, inside the ☰ menu when the
+  // bar can't hold them. Same nodes either way — the menu is a container, not
+  // a second copy of the controls.
+  const headerTools = (
+    <>
+      <button type="button" className="random-button" onClick={handleRandom}>
+        Random article
+      </button>
+      <button
+        type="button"
+        className={`articles-toggle${allArticles ? ' active' : ''}`}
+        onClick={() => {
+          setModerationOpen(false) // it's a map overlay — show the map
+          setAllArticles((value) => !value)
+        }}
+        aria-pressed={allArticles}
+      >
+        All articles
+      </button>
+      <select
+        className="lang-select"
+        aria-label="Map label language"
+        title="Map label language"
+        value={labelLanguage}
+        onChange={(event) => {
+          storeLabelLanguage(event.target.value)
+          setLabelLanguage(event.target.value)
+        }}
+      >
+        {LABEL_LANGUAGES.map(({ code, label }) => (
+          <option key={code} value={code}>
+            {label}
+          </option>
+        ))}
+      </select>
+      {user?.is_moderator && (
+        <button
+          type="button"
+          className="mod-queue-button"
+          onClick={() => setModOpen(true)}
+        >
+          Reports
+        </button>
+      )}
+      {user?.is_moderator && (
+        <button
+          type="button"
+          className={`moderation-button${moderationOpen ? ' active' : ''}`}
+          onClick={() => setModerationOpen((open) => !open)}
+        >
+          {moderationOpen ? 'Return to map' : 'Moderation'}
+        </button>
+      )}
+      <button
+        type="button"
+        className="about-button"
+        onClick={() => setAboutOpen(true)}
+      >
+        About
+      </button>
+    </>
+  )
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -295,65 +366,42 @@ function App() {
           onSelectGeocode={handleSelectGeocode}
           getCenter={getMapCenter}
         />
-        <button
-          type="button"
-          className="random-button"
-          onClick={handleRandom}
-        >
-          Random article
-        </button>
-        <button
-          type="button"
-          className={`articles-toggle${allArticles ? ' active' : ''}`}
-          onClick={() => {
-            setModerationOpen(false) // it's a map overlay — show the map
-            setAllArticles((value) => !value)
-          }}
-          aria-pressed={allArticles}
-        >
-          All articles
-        </button>
-        <select
-          className="lang-select"
-          aria-label="Map label language"
-          title="Map label language"
-          value={labelLanguage}
-          onChange={(event) => {
-            storeLabelLanguage(event.target.value)
-            setLabelLanguage(event.target.value)
-          }}
-        >
-          {LABEL_LANGUAGES.map(({ code, label }) => (
-            <option key={code} value={code}>
-              {label}
-            </option>
-          ))}
-        </select>
-        {user?.is_moderator && (
-          <button
-            type="button"
-            className="mod-queue-button"
-            onClick={() => setModOpen(true)}
-          >
-            Reports
-          </button>
+        {narrow ? (
+          <>
+            <button
+              type="button"
+              className="header-menu-button"
+              aria-label="Menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              ☰
+            </button>
+            {menuOpen && (
+              <>
+                <div
+                  className="header-menu-backdrop"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div
+                  className="header-menu"
+                  onClick={(event) => {
+                    // Picking a tool dismisses the menu; the language <select>
+                    // fires change, not a click on a button, so it stays open
+                    // for a second look at the map's new labels.
+                    if ((event.target as HTMLElement).closest('button')) {
+                      setMenuOpen(false)
+                    }
+                  }}
+                >
+                  {headerTools}
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          headerTools
         )}
-        {user?.is_moderator && (
-          <button
-            type="button"
-            className={`moderation-button${moderationOpen ? ' active' : ''}`}
-            onClick={() => setModerationOpen((open) => !open)}
-          >
-            {moderationOpen ? 'Return to map' : 'Moderation'}
-          </button>
-        )}
-        <button
-          type="button"
-          className="about-button"
-          onClick={() => setAboutOpen(true)}
-        >
-          About
-        </button>
         <AuthControl
           user={user}
           onUserChange={setUser}
@@ -371,6 +419,9 @@ function App() {
           allArticles={allArticles}
           labelLanguage={labelLanguage}
           highlightsEpoch={highlightsEpoch}
+          narrow={narrow}
+          paneOpen={!!selected}
+          sheetDetent={sheetDetent}
           mapApi={mapApiRef}
         />
         {picker && (
@@ -387,6 +438,9 @@ function App() {
             click={selected.click}
             user={user}
             offView={offView}
+            narrow={narrow}
+            sheetDetent={sheetDetent}
+            onSheetDetentChange={setSheetDetent}
             onRequestAuth={() => setAuthOpen(true)}
             onClose={clearSelection}
             onRecenter={handleRecenter}
