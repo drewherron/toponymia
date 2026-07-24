@@ -121,6 +121,7 @@ export interface User {
   id: number
   username: string
   is_moderator: boolean
+  is_admin: boolean
 }
 
 export interface RevisionSummary {
@@ -218,6 +219,13 @@ export interface ModUserRow {
   upheld_actions: number
   last_report: string | null
   banned: boolean
+}
+
+export interface ModUsersResult {
+  users: ModUserRow[]
+  /** True when the roster hit the server's cap — the client filter can only
+   *  search what it was sent, so the UI has to admit the list is partial. */
+  truncated: boolean
 }
 
 export interface ModBan {

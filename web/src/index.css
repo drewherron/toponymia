@@ -1553,6 +1553,20 @@ body,
   width: 100%;
 }
 
+.mod-show-all {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #57534e;
+  cursor: pointer;
+}
+
+.mod-truncated {
+  margin: 6px 0 0;
+}
+
 .mod-user-row {
   display: grid;
   grid-template-columns: 1fr auto;

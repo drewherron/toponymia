@@ -12,6 +12,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from . import dashboard
 from .articles import save_edit
 from .models import (
     Article,
@@ -1477,6 +1478,52 @@ class DashboardApiTests(ApiTestCase):
         rows = self.client.get(reverse('core:mod-users')).json()['users']
         row = next(r for r in rows if r['username'] == 'drew')
         self.assertEqual(row['removed_count'], 1)
+
+    # --- the ?all=1 roster -------------------------------------------
+    def test_users_list_excludes_clean_users_by_default(self):
+        User.objects.create_user('quiet', password='pw12345!')
+        self.client.force_login(self.admin)
+        rows = self.client.get(reverse('core:mod-users')).json()['users']
+        self.assertNotIn('quiet', [r['username'] for r in rows])
+
+    def test_all_users_includes_clean_users_for_superuser(self):
+        User.objects.create_user('quiet', password='pw12345!')
+        self.client.force_login(self.admin)
+        data = self.client.get(reverse('core:mod-users'), {'all': '1'}).json()
+        names = [r['username'] for r in data['users']]
+        self.assertIn('quiet', names)
+        self.assertFalse(data['truncated'])
+
+    def test_all_users_ignored_for_plain_moderator(self):
+        User.objects.create_user('quiet', password='pw12345!')
+        self.client.force_login(self.mod)
+        rows = self.client.get(
+            reverse('core:mod-users'), {'all': '1'}
+        ).json()['users']
+        self.assertNotIn('quiet', [r['username'] for r in rows])
+
+    def test_all_users_sorts_reported_first_then_alphabetical(self):
+        # 'aaron' is clean but sorts first alphabetically; the reported
+        # author must still outrank him.
+        User.objects.create_user('aaron', password='pw12345!')
+        self._report_post(self._post_by(self.author), self.reporter)
+        self.client.force_login(self.admin)
+        rows = self.client.get(
+            reverse('core:mod-users'), {'all': '1'}
+        ).json()['users']
+        names = [r['username'] for r in rows]
+        self.assertEqual(names[0], 'drew')  # the reported author
+        tail = names[1:]
+        self.assertEqual(tail, sorted(tail))
+
+    @patch.object(dashboard, 'ALL_USERS_CAP', 2)
+    def test_all_users_truncates_at_cap(self):
+        for i in range(4):
+            User.objects.create_user(f'extra{i}', password='pw12345!')
+        self.client.force_login(self.admin)
+        data = self.client.get(reverse('core:mod-users'), {'all': '1'}).json()
+        self.assertTrue(data['truncated'])
+        self.assertEqual(len(data['users']), 2)
 
     # --- user detail -------------------------------------------------
     def test_user_detail_shows_removed_post_body(self):

@@ -8,7 +8,7 @@ import type {
   BanInput,
   ModReporter,
   ModUserDetail,
-  ModUserRow,
+  ModUsersResult,
   ProtectionLevel,
   ReportAction,
   ReportCategory,
@@ -421,13 +421,17 @@ export async function actOnReport(
 
 /** Users with reports or removed content against them, most-recent first. */
 export async function fetchModUsers(
-  signal?: AbortSignal,
-): Promise<ModUserRow[]> {
-  const response = await fetch('/api/mod/users/', { signal })
+  options: { all?: boolean; signal?: AbortSignal } = {},
+): Promise<ModUsersResult> {
+  const query = options.all ? '?all=1' : ''
+  const response = await fetch(`/api/mod/users/${query}`, {
+    signal: options.signal,
+  })
   if (!response.ok) {
     throw new Error(`mod users fetch failed: ${response.status}`)
   }
-  return (await response.json()).users
+  const data = await response.json()
+  return { users: data.users, truncated: !!data.truncated }
 }
 
 /** One user's content, reports, bans, and audit trail. */

@@ -395,7 +395,9 @@ function App() {
             onResolved={handleResolved}
           />
         )}
-        {moderationOpen && user?.is_moderator && <ModerationDashboard />}
+        {moderationOpen && user?.is_moderator && (
+          <ModerationDashboard user={user} />
+        )}
       </div>
     </div>
   )

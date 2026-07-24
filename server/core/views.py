@@ -90,6 +90,9 @@ def me(request):
                 'id': user.id,
                 'username': user.username,
                 'is_moderator': is_moderator(user),
+                # Admins get the role controls and the whole-roster view in
+                # the Moderation dashboard (DESIGN.md M12).
+                'is_admin': user.is_superuser,
                 # The SPA shows a suspension banner and hides write
                 # affordances when this is set (DESIGN.md M12).
                 'suspended': ban_message(ban) if ban is not None else None,

@@ -12,6 +12,7 @@ import type {
   ModReporter,
   ModUserDetail,
   ModUserRow,
+  User,
   UserRole,
 } from '../types'
 
@@ -321,16 +322,24 @@ function UserDetail({
 
 // --- users tab ------------------------------------------------------
 
-function UsersTab() {
+function UsersTab({ isAdmin }: { isAdmin: boolean }) {
   const [rows, setRows] = useState<ModUserRow[] | null>(null)
+  const [truncated, setTruncated] = useState(false)
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
+  // The default list is moderation-shaped: only accounts with something
+  // against them. An admin promoting a well-behaved contributor needs the
+  // whole roster, which nothing else here would ever surface.
+  const [showAll, setShowAll] = useState(false)
 
   const load = useCallback(() => {
-    fetchModUsers()
-      .then(setRows)
+    fetchModUsers({ all: showAll })
+      .then((result) => {
+        setRows(result.users)
+        setTruncated(result.truncated)
+      })
       .catch(console.error)
-  }, [])
+  }, [showAll])
 
   useEffect(load, [load])
 
@@ -349,6 +358,22 @@ function UsersTab() {
           placeholder="Filter users…"
           onChange={(e) => setFilter(e.target.value)}
         />
+        {isAdmin && (
+          <label className="mod-show-all">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+            />
+            Show all users
+          </label>
+        )}
+        {truncated && (
+          <p className="mod-note mod-truncated">
+            Showing the first {rows?.length ?? 0} accounts — filtering searches
+            only these.
+          </p>
+        )}
         {rows === null && <p className="mod-note">Loading…</p>}
         {rows !== null && shown.length === 0 && (
           <p className="mod-note">No users to show.</p>
@@ -537,7 +562,7 @@ function ReportersTab() {
 
 // --- dashboard shell ------------------------------------------------
 
-function ModerationDashboard() {
+function ModerationDashboard({ user }: { user: User | null }) {
   const [tab, setTab] = useState<'users' | 'reporters'>('users')
   return (
     <div className="mod-dashboard">
@@ -558,7 +583,11 @@ function ModerationDashboard() {
         </button>
       </div>
       <div className="mod-dash-body">
-        {tab === 'users' ? <UsersTab /> : <ReportersTab />}
+        {tab === 'users' ? (
+          <UsersTab isAdmin={!!user?.is_admin} />
+        ) : (
+          <ReportersTab />
+        )}
       </div>
     </div>
   )

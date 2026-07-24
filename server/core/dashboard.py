@@ -33,6 +33,11 @@ from .views import _revision_excerpt
 
 User = get_user_model()
 
+# Ceiling on the ?all=1 roster. Far beyond a solo wiki's roll, but the client
+# filters what it was sent, so an unbounded list would quietly become both a
+# fat payload and a lying search box.
+ALL_USERS_CAP = 500
+
 
 def _forbidden(request):
     """None if the caller may use the dashboard, else a 403 response."""
@@ -65,10 +70,18 @@ def _report_author_id(report):
 def mod_users(request):
     """Users with any report or removed content against them, most-recently
     reported first (DESIGN.md M12). The list is small enough to filter live
-    on the client, so everything is returned at once."""
+    on the client, so everything is returned at once.
+
+    `?all=1` (**superusers only**) widens it to every account, so an admin can
+    find a clean user to promote — the moderation-shaped list can't surface
+    someone with nothing against them. Capped at ALL_USERS_CAP; the client
+    filter only sees what was sent, so `truncated` tells it to say so."""
     forbidden = _forbidden(request)
     if forbidden is not None:
         return forbidden
+    show_all = (
+        request.query_params.get('all') == '1' and request.user.is_superuser
+    )
 
     reports = Report.objects.select_related('talk_post', 'revision')
     report_total = defaultdict(int)
@@ -115,6 +128,15 @@ def mod_users(request):
     author_ids = (
         set(report_total) | set(removed)
     )
+    truncated = False
+    if show_all:
+        extra = list(
+            User.objects.exclude(id__in=author_ids)
+            .order_by('username')
+            .values_list('id', flat=True)[:ALL_USERS_CAP + 1]
+        )
+        truncated = len(extra) > ALL_USERS_CAP
+        author_ids |= set(extra[:ALL_USERS_CAP])
     users = {u.id: u for u in User.objects.filter(id__in=author_ids)}
     rows = []
     for author_id in author_ids:
@@ -133,9 +155,11 @@ def mod_users(request):
             'banned': author_id in banned_ids,
         })
     # Most recently reported first; users with only removed content (no
-    # report timestamp) sort to the bottom.
+    # report timestamp) sort to the bottom. Ties break alphabetically —
+    # which under ?all=1 is what orders the whole never-reported tail.
+    rows.sort(key=lambda r: r['username'].lower())
     rows.sort(key=lambda r: r['last_report'] or '', reverse=True)
-    return Response({'users': rows})
+    return Response({'users': rows, 'truncated': truncated})
 
 
 def _ban_json(ban):
