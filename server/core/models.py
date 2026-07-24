@@ -66,6 +66,20 @@ class Article(models.Model):
     protection_level = models.CharField(
         max_length=16, choices=Protection.choices, default=Protection.NONE
     )
+    # Soft delete for the whole article (DESIGN.md M13): the place reads as a
+    # plain stub to the public while every revision stays untouched. A new
+    # write clears the flag (the write IS the restore), so this can never
+    # conflict with later content. Distinct from Revision.suppressed, which
+    # hides one abusive revision and survives any rewrite; and from revert,
+    # which is the content-correctness tool.
+    deleted = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
     created = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -342,6 +356,9 @@ class ModAction(models.Model):
         SUPPRESS_REVISION = 'suppress_revision'
         RESTORE_REVISION = 'restore_revision'
         DELETE_THREAD = 'delete_thread'
+        DELETE_ARTICLE = 'delete_article'
+        RESTORE_ARTICLE = 'restore_article'
+        REVERT_ARTICLE = 'revert_article'
         BAN_USER = 'ban_user'
         UNBAN_USER = 'unban_user'
         PROMOTE_MOD = 'promote_mod'
@@ -367,6 +384,10 @@ class ModAction(models.Model):
     )
     reason = models.CharField(max_length=500, blank=True)
     # Optional pointers to the exact content acted on, for dashboard links.
+    article = models.ForeignKey(
+        Article, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+',
+    )
     revision = models.ForeignKey(
         Revision, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='+',

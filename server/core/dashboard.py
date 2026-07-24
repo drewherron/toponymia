@@ -7,6 +7,7 @@ All endpoints are moderators-only.
                      and the audit trail of actions against them.
 - `mod_ban_user` / `mod_unban_user` — apply and lift account bans.
 - `mod_reporters`  — reporters ranked by dismissed-vs-upheld, to catch abuse.
+- `mod_audit`      — the global chronological ModAction feed (M13).
 """
 
 from collections import defaultdict
@@ -37,6 +38,11 @@ User = get_user_model()
 # filters what it was sent, so an unbounded list would quietly become both a
 # fat payload and a lying search box.
 ALL_USERS_CAP = 500
+
+# Page size for the global audit feed. The feed's job is oversight — noticing
+# a burst of removals you didn't expect — so it is capped and newest-first
+# rather than paginated into a browsable archive.
+AUDIT_PAGE = 200
 
 
 def _forbidden(request):
@@ -418,3 +424,48 @@ def mod_reporters(request):
         'dismissed': row['dismissed'],
     } for row in rows]
     return Response({'reporters': reporters})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def mod_audit(request):
+    """The global chronological audit feed (DESIGN.md M13).
+
+    The per-user trail in `mod_user_detail` answers "what was done to *this*
+    account"; it can't answer "is a moderator quietly working through every
+    article on the wiki", which is the question that needs a single stream.
+    Optional `?actor=<id>` / `?target=<id>` narrow it; `?action=` filters to
+    one kind.
+    """
+    forbidden = _forbidden(request)
+    if forbidden is not None:
+        return forbidden
+    rows = ModAction.objects.select_related(
+        'actor', 'target_user', 'article__place', 'revision', 'talk_post',
+    )
+    actor = request.query_params.get('actor')
+    if actor:
+        rows = rows.filter(actor_id=actor)
+    target = request.query_params.get('target')
+    if target:
+        rows = rows.filter(target_user_id=target)
+    action = request.query_params.get('action')
+    if action:
+        rows = rows.filter(action=action)
+    # Model Meta.ordering is already ['-created', '-id'].
+    rows = rows[:AUDIT_PAGE]
+    return Response({'actions': [{
+        'id': a.id,
+        'action': a.action,
+        'actor': a.actor.username if a.actor else None,
+        'target_user': a.target_user.username if a.target_user else None,
+        'reason': a.reason,
+        'created': _iso(a.created),
+        # Where the acted-on thing lives, so a row is clickable. Articles and
+        # revisions both resolve to a place; a talk post links to its place
+        # too (threads hang off the Place, not the Article).
+        'place_slug': (
+            a.article.place.slug if a.article_id
+            else None
+        ),
+    } for a in rows]})

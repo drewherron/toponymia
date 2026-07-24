@@ -37,6 +37,16 @@ urlpatterns = [
         views.article_protection,
         name='article-protection',
     ),
+    path(
+        'places/<slug:slug>/delete/',
+        views.article_delete,
+        name='article-delete',
+    ),
+    path(
+        'places/<slug:slug>/restore/',
+        views.article_restore,
+        name='article-restore',
+    ),
     path('places/<slug:slug>/talk/', views.talk, name='talk'),
     path(
         'talk/<int:thread_id>/posts/',
@@ -97,4 +107,5 @@ urlpatterns = [
         name='mod-set-role',
     ),
     path('mod/reporters/', dashboard.mod_reporters, name='mod-reporters'),
+    path('mod/audit/', dashboard.mod_audit, name='mod-audit'),
 ]

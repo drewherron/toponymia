@@ -18,6 +18,13 @@ def is_moderator(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
+def is_admin(user):
+    """An admin (Django superuser) additionally holds the destructive-ish
+    grants a moderator doesn't: role changes, the whole-user roster, and
+    article deletion (DESIGN.md M13)."""
+    return user.is_authenticated and user.is_superuser
+
+
 def can_ban(actor, target):
     """Ban authority (DESIGN.md M12): any moderator may ban a regular user;
     nobody may ban a superuser; only a superuser may ban another moderator
@@ -82,13 +89,14 @@ def banned_response(user):
 
 
 def log_action(actor, action, *, target_user=None, reason='',
-               revision=None, talk_post=None, report=None):
+               article=None, revision=None, talk_post=None, report=None):
     """Append one row to the moderator audit log."""
     return ModAction.objects.create(
         actor=actor,
         action=action,
         target_user=target_user,
         reason=reason or '',
+        article=article,
         revision=revision,
         talk_post=talk_post,
         report=report,

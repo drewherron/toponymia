@@ -2079,3 +2079,300 @@ class SpaTests(TestCase):
         body = response.content.decode()
         self.assertIn('Disallow: /api/', body)
         self.assertIn('Sitemap: http://testserver/sitemap.xml', body)
+
+
+class ArticleDeleteTests(ApiTestCase):
+    """Admin-only whole-article soft delete (DESIGN.md M13)."""
+
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.author = User.objects.create_user('author', password='x')
+        self.mod = User.objects.create_user('mod', password='x', is_staff=True)
+        self.admin = User.objects.create_superuser('admin', password='x')
+        self.revision = save_edit(
+            self.place, self.author, _content(), 'first'
+        )
+        self.article = self.revision.article
+
+    def _delete(self, reason=''):
+        return self.client.post(
+            reverse('core:article-delete', args=[self.place.slug]),
+            {'reason': reason},
+            content_type='application/json',
+        )
+
+    def _mark_deleted(self):
+        self.article.deleted = timezone.now()
+        self.article.deleted_by = self.admin
+        self.article.save(update_fields=['deleted', 'deleted_by'])
+
+    def test_admin_deletes_article(self):
+        self.client.force_login(self.admin)
+        response = self._delete(reason='test article')
+        self.assertEqual(response.status_code, 200)
+        self.article.refresh_from_db()
+        self.assertIsNotNone(self.article.deleted)
+        self.assertEqual(self.article.deleted_by, self.admin)
+
+    def test_delete_writes_audit_row_naming_the_author(self):
+        self.client.force_login(self.admin)
+        self._delete(reason='throwaway')
+        entry = ModAction.objects.get(action=ModAction.Action.DELETE_ARTICLE)
+        self.assertEqual(entry.actor, self.admin)
+        self.assertEqual(entry.target_user, self.author)
+        self.assertEqual(entry.reason, 'throwaway')
+        self.assertEqual(entry.article, self.article)
+
+    def test_moderator_cannot_delete_article(self):
+        """Deletion is admin-only — a moderator gets 403 (DESIGN.md M13)."""
+        self.client.force_login(self.mod)
+        self.assertEqual(self._delete().status_code, 403)
+        self.article.refresh_from_db()
+        self.assertIsNone(self.article.deleted)
+
+    def test_author_cannot_delete_own_article(self):
+        self.client.force_login(self.author)
+        self.assertEqual(self._delete().status_code, 403)
+
+    def test_anonymous_cannot_delete_article(self):
+        self.assertIn(self._delete().status_code, (401, 403))
+
+    def test_delete_rejects_place_without_article(self):
+        other = _make_place(name='Stubville', slug='stubville')
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('core:article-delete', args=[other.slug]),
+            {'reason': ''},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_is_idempotent(self):
+        """Re-deleting must not clobber the original actor/timestamp."""
+        self.client.force_login(self.admin)
+        self._delete()
+        self.article.refresh_from_db()
+        first = self.article.deleted
+        self._delete()
+        self.article.refresh_from_db()
+        self.assertEqual(self.article.deleted, first)
+
+    def test_deleted_article_reads_as_stub_to_public(self):
+        self._mark_deleted()
+        body = self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        ).json()
+        self.assertIsNone(body['article'])
+        # The public can't even tell a deleted article from an unwritten one.
+        self.assertIsNone(body['deleted'])
+
+    def test_deleted_article_visible_to_admin_with_banner(self):
+        self._mark_deleted()
+        self.client.force_login(self.admin)
+        body = self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        ).json()
+        self.assertIsNotNone(body['article'])
+        self.assertEqual(body['deleted']['by'], 'admin')
+
+    def test_deleted_article_hidden_from_moderator_too(self):
+        """Delete is admin-scoped: a mod sees the stub like anyone else."""
+        self._mark_deleted()
+        self.client.force_login(self.mod)
+        body = self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        ).json()
+        self.assertIsNone(body['article'])
+        self.assertIsNone(body['deleted'])
+
+    def test_deleted_article_history_is_empty_for_public(self):
+        """The content must not stay readable through the History tab —
+        that would make the deletion meaningless."""
+        self._mark_deleted()
+        rows = self.client.get(
+            reverse('core:revision-list', args=[self.place.slug])
+        ).json()['revisions']
+        self.assertEqual(rows, [])
+        self.client.force_login(self.admin)
+        rows = self.client.get(
+            reverse('core:revision-list', args=[self.place.slug])
+        ).json()['revisions']
+        self.assertEqual(len(rows), 1)
+
+    def test_deleted_article_revision_detail_404s_for_public(self):
+        self._mark_deleted()
+        url = reverse(
+            'core:revision-detail', args=[self.place.slug, self.revision.id]
+        )
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_deleted_article_drops_out_of_search(self):
+        self._mark_deleted()
+        results = self.client.get(
+            reverse('core:search'), {'q': 'Testville'}
+        ).json()['results']
+        self.assertEqual(results, [])
+
+    def test_deleted_article_drops_out_of_random(self):
+        self._mark_deleted()
+        body = self.client.get(reverse('core:random')).json()
+        self.assertIsNone(body['place'])
+
+    def test_deleted_article_drops_out_of_highlights(self):
+        self._mark_deleted()
+        body = self.client.get(
+            reverse('core:highlights'), {'bbox': '0,40,20,60'}
+        ).json()
+        self.assertEqual(body['features'], [])
+
+    def test_admin_restores_article(self):
+        self._mark_deleted()
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('core:article-restore', args=[self.place.slug])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.article.refresh_from_db()
+        self.assertIsNone(self.article.deleted)
+        self.assertIsNone(self.article.deleted_by)
+        entry = ModAction.objects.get(action=ModAction.Action.RESTORE_ARTICLE)
+        self.assertEqual(entry.actor, self.admin)
+
+    def test_restore_requires_admin(self):
+        self._mark_deleted()
+        self.client.force_login(self.mod)
+        self.assertEqual(
+            self.client.post(
+                reverse('core:article-restore', args=[self.place.slug])
+            ).status_code,
+            403,
+        )
+
+    def test_write_clears_the_deletion(self):
+        """A new write IS the restore (DESIGN.md M13) — which is why
+        "restore an article someone has since rewritten" can't happen."""
+        self._mark_deleted()
+        save_edit(self.place, self.author, _content(), 'rewritten')
+        self.article.refresh_from_db()
+        self.assertIsNone(self.article.deleted)
+        self.assertIsNone(self.article.deleted_by)
+
+    def test_write_on_deleted_article_preserves_earlier_revisions(self):
+        """Nothing is ever destroyed: the old content becomes history."""
+        self._mark_deleted()
+        new = save_edit(self.place, self.author, _content(), 'rewritten')
+        self.article.refresh_from_db()
+        self.assertEqual(self.article.current_revision_id, new.id)
+        ids = set(self.article.revisions.values_list('id', flat=True))
+        self.assertEqual(ids, {self.revision.id, new.id})
+
+    def test_suppressed_revision_stays_hidden_through_a_rewrite(self):
+        """Delete is not a content remedy — suppression is, and its flag is
+        independent, so it survives the article coming back."""
+        self.revision.suppressed = timezone.now()
+        self.revision.suppressed_by = self.mod
+        self.revision.save(update_fields=['suppressed', 'suppressed_by'])
+        self._mark_deleted()
+        save_edit(self.place, self.author, _content(), 'rewritten')
+        self.revision.refresh_from_db()
+        self.assertIsNotNone(self.revision.suppressed)
+        ids = [
+            r['id'] for r in self.client.get(
+                reverse('core:revision-list', args=[self.place.slug])
+            ).json()['revisions']
+        ]
+        self.assertNotIn(self.revision.id, ids)
+
+
+class RevertAuditTests(ApiTestCase):
+    """Revert used to leave no audit trail at all — a rogue mod could blank
+    the wiki through it silently (DESIGN.md M13)."""
+
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.author = User.objects.create_user('author', password='x')
+        self.mod = User.objects.create_user('mod', password='x', is_staff=True)
+        self.old = save_edit(self.place, self.author, _content(), 'first')
+        save_edit(
+            self.place, self.author, _content(names=[{
+                'name': 'Testville', 'language': 'eng',
+                'etymology_md': 'rewritten',
+            }]), 'second',
+        )
+
+    def test_moderator_revert_writes_audit_row(self):
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:article-revert', args=[self.place.slug]),
+            {'revision_id': self.old.id, 'comment': ''},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        entry = ModAction.objects.get(action=ModAction.Action.REVERT_ARTICLE)
+        self.assertEqual(entry.actor, self.mod)
+        self.assertEqual(entry.target_user, self.author)
+
+    def test_ordinary_revert_writes_no_audit_row(self):
+        """Revert is a normal content tool for regular users — only a
+        moderator's use of it is a moderation act worth logging."""
+        self.client.force_login(self.author)
+        self.client.post(
+            reverse('core:article-revert', args=[self.place.slug]),
+            {'revision_id': self.old.id, 'comment': ''},
+            content_type='application/json',
+        )
+        self.assertFalse(
+            ModAction.objects.filter(
+                action=ModAction.Action.REVERT_ARTICLE
+            ).exists()
+        )
+
+
+class AuditFeedTests(ApiTestCase):
+    """The global chronological feed (DESIGN.md M13)."""
+
+    def setUp(self):
+        super().setUp()
+        self.mod = User.objects.create_user('mod', password='x', is_staff=True)
+        self.other = User.objects.create_user('other', password='x')
+        ModAction.objects.create(
+            actor=self.mod, action=ModAction.Action.BAN_USER,
+            target_user=self.other, reason='spam',
+        )
+        ModAction.objects.create(
+            actor=self.mod, action=ModAction.Action.DELETE_POST,
+            target_user=self.other,
+        )
+
+    def test_feed_lists_actions_newest_first(self):
+        self.client.force_login(self.mod)
+        rows = self.client.get(reverse('core:mod-audit')).json()['actions']
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['action'], ModAction.Action.DELETE_POST)
+        self.assertEqual(rows[0]['actor'], 'mod')
+        self.assertEqual(rows[0]['target_user'], 'other')
+
+    def test_feed_filters_by_action(self):
+        self.client.force_login(self.mod)
+        rows = self.client.get(
+            reverse('core:mod-audit'), {'action': 'ban_user'}
+        ).json()['actions']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['reason'], 'spam')
+
+    def test_feed_filters_by_actor(self):
+        self.client.force_login(self.mod)
+        rows = self.client.get(
+            reverse('core:mod-audit'), {'actor': self.other.id}
+        ).json()['actions']
+        self.assertEqual(rows, [])
+
+    def test_feed_requires_moderator(self):
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self.client.get(reverse('core:mod-audit')).status_code, 403
+        )

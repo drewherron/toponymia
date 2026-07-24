@@ -77,6 +77,16 @@ class RevertSerializer(serializers.Serializer):
     comment = serializers.CharField(max_length=255, allow_blank=True, default='')
 
 
+class ArticleDeleteSerializer(serializers.Serializer):
+    """An admin's whole-article deletion (DESIGN.md M13). The reason is
+    optional but goes straight into the audit log, so it is the only record
+    of *why* — write it as if the author will read it."""
+
+    reason = serializers.CharField(
+        max_length=500, allow_blank=True, default=''
+    )
+
+
 class TalkPostSerializer(serializers.Serializer):
     body_md = serializers.CharField(max_length=10000, trim_whitespace=False)
 

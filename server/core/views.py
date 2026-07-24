@@ -31,11 +31,13 @@ from .moderation import (
     active_ban,
     ban_message,
     banned_response,
+    is_admin,
     is_moderator,
     log_action,
 )
 from .overpass import OverpassError
 from .serializers import (
+    ArticleDeleteSerializer,
     ArticleEditSerializer,
     ProtectionSerializer,
     ReportActionSerializer,
@@ -54,6 +56,19 @@ from .throttles import (
 MAX_HIGHLIGHTS = 500
 MAX_SEARCH_RESULTS = 8
 MAX_REPORTS = 100
+
+
+def published_places():
+    """Places whose article is live — written *and* not deleted (M13).
+
+    The single definition of "has an article" for every public listing
+    surface (highlights, search, random, sitemap), so a deleted article
+    can't linger in one of them because a filter was missed.
+    """
+    return Place.objects.filter(
+        article__current_revision__isnull=False,
+        article__deleted__isnull=True,
+    )
 
 
 def can_edit_article(user, article):
@@ -200,9 +215,7 @@ def highlights(request):
     # lon/lat rectangle, but geography edges are great-circle arcs, which
     # misbehave for boxes wider than 180 degrees.
     planar = GeometryField(srid=4326)
-    places = Place.objects.filter(
-        article__current_revision__isnull=False
-    ).annotate(
+    places = published_places().annotate(
         geometry_plane=Cast('geometry', planar),
         bbox_plane=Cast('bbox', planar),
         centroid_plane=Cast('centroid', planar),
@@ -247,7 +260,7 @@ def search(request):
     if len(query) < 2:
         return Response({'results': []})
     places = (
-        Place.objects.filter(article__current_revision__isnull=False)
+        published_places()
         .filter(
             Q(display_name__icontains=query)
             | Q(names__name__icontains=query)
@@ -284,11 +297,7 @@ def search(request):
 def random_article(request):
     """A random place that has an article; null when the wiki is empty.
     order_by('?') is fine at wiki scale."""
-    place = (
-        Place.objects.filter(article__current_revision__isnull=False)
-        .order_by('?')
-        .first()
-    )
+    place = published_places().order_by('?').first()
     return Response({'place': _place_json(place) if place else None})
 
 
@@ -315,16 +324,43 @@ def place_detail(request, slug):
         slug=slug,
     )
     article = getattr(place, 'article', None)
+    # A deleted article reads as a plain stub to everyone but an admin, who
+    # gets the content back plus the banner and Restore (DESIGN.md M13).
+    hidden = (
+        article is not None
+        and article.deleted is not None
+        and not is_admin(request.user)
+    )
     return Response(
         {
             'place': _place_json(place),
-            'article': _article_json(article) if article else None,
+            'article': (
+                _article_json(article)
+                if article is not None and not hidden
+                else None
+            ),
             # Top-level so a locked *stub* (Article row, no revision yet)
             # still reports its protection to gate the write button.
             'protection_level': (
                 article.protection_level
                 if article
                 else Article.Protection.NONE
+            ),
+            # Admin-only: null for everyone else, so the public can't even
+            # tell a deleted article from a never-written one.
+            'deleted': (
+                {
+                    'at': article.deleted.isoformat(),
+                    'by': (
+                        article.deleted_by.username
+                        if article.deleted_by
+                        else None
+                    ),
+                }
+                if article is not None
+                and article.deleted is not None
+                and is_admin(request.user)
+                else None
             ),
         }
     )
@@ -357,6 +393,11 @@ def revision_list(request, slug):
     article = getattr(place, 'article', None)
     if article is None:
         return Response({'revisions': []})
+    # A deleted article is a stub to the public — and that has to include its
+    # history, or the content stays readable in the History tab and the
+    # deletion means nothing (DESIGN.md M13).
+    if article.deleted is not None and not is_admin(request.user):
+        return Response({'revisions': []})
     revisions = article.revisions.select_related('author')
     # Suppressed revisions are hidden from public history but stay visible
     # to moderators (DESIGN.md M12).
@@ -380,6 +421,10 @@ def revision_detail(request, slug, revision_id):
         article__place__slug=slug,
     )
     if revision.suppressed is not None and not is_moderator(request.user):
+        return Response(status=status.HTTP_404_NOT_FOUND)
+    # Same reason as revision_list: a deleted article's snapshots must not be
+    # readable by slug+id either (DESIGN.md M13).
+    if revision.article.deleted is not None and not is_admin(request.user):
         return Response(status=status.HTTP_404_NOT_FOUND)
     return Response(
         {
@@ -427,7 +472,90 @@ def article_revert(request, slug):
         or f'Reverted to revision {old.id}'
     )
     revision = save_edit(place, request.user, old.content, comment)
+    # Revert is a content tool anyone may use, but in a moderator's hands it
+    # is also the most destructive one available and used to leave no trace
+    # at all — a rogue mod could blank the wiki through this path and the
+    # audit log would be empty (DESIGN.md M13).
+    if is_moderator(request.user):
+        log_action(
+            request.user, ModAction.Action.REVERT_ARTICLE,
+            target_user=old.author, reason=comment,
+            article=revision.article, revision=revision,
+        )
     return Response({'article': _article_json(revision.article)})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([WriteThrottle])
+def article_delete(request, slug):
+    """Soft-delete a whole article (admin only, DESIGN.md M13).
+
+    "This article shouldn't exist" — distinct from revert (content is wrong)
+    and from suppression (one revision is abusive). Every revision stays in
+    the table untouched; the place simply reads as a stub until an admin
+    restores it or anyone writes a new revision.
+    """
+    if not is_admin(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    serializer = ArticleDeleteSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    place = get_object_or_404(
+        Place.objects.select_related('article__current_revision__author'),
+        slug=slug,
+    )
+    article = getattr(place, 'article', None)
+    if article is None or article.current_revision_id is None:
+        return Response(
+            {'error': 'this place has no article to delete'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    reason = serializer.validated_data.get('reason', '')
+    if article.deleted is None:
+        article.deleted = timezone.now()
+        article.deleted_by = request.user
+        article.save(update_fields=['deleted', 'deleted_by'])
+    log_action(
+        request.user, ModAction.Action.DELETE_ARTICLE,
+        target_user=article.current_revision.author, reason=reason,
+        article=article, revision=article.current_revision,
+    )
+    return Response({'deleted': True})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([WriteThrottle])
+def article_restore(request, slug):
+    """Un-delete an article — the inverse of article_delete (admin only).
+
+    Note this restores the article *as it was*: any revision suppressed
+    while it was down stays suppressed, because that flag is its own.
+    """
+    if not is_admin(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    place = get_object_or_404(
+        Place.objects.select_related('article__current_revision__author'),
+        slug=slug,
+    )
+    article = getattr(place, 'article', None)
+    if article is None:
+        return Response(status=status.HTTP_404_NOT_FOUND)
+    if article.deleted is not None:
+        article.deleted = None
+        article.deleted_by = None
+        article.save(update_fields=['deleted', 'deleted_by'])
+        log_action(
+            request.user, ModAction.Action.RESTORE_ARTICLE,
+            target_user=(
+                article.current_revision.author
+                if article.current_revision
+                else None
+            ),
+            article=article, revision=article.current_revision,
+        )
+    return Response({'article': _article_json(article)})
 
 
 @api_view(['PUT'])

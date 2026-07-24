@@ -14,6 +14,7 @@ from django.http import HttpResponse
 from django.utils.html import escape
 
 from .models import Place
+from .views import published_places
 
 DEFAULT_TITLE = 'Toponymia'
 DEFAULT_DESCRIPTION = (
@@ -54,8 +55,15 @@ def _truncate(text, limit=200):
 
 def _place_description(place):
     """First name etymology of the current revision (the article's whole
-    point), legacy body text as fallback, invitation copy for stubs."""
+    point), legacy body text as fallback, invitation copy for stubs.
+
+    A deleted article falls through to the stub copy — the description is
+    served to crawlers and link previews, so it must not outlive the
+    content it summarizes (DESIGN.md M13).
+    """
     article = getattr(place, 'article', None)
+    if article is not None and article.deleted is not None:
+        article = None
     revision = article.current_revision if article else None
     content = revision.content if revision else {}
     for entry in content.get('names', []):
@@ -151,7 +159,7 @@ def fallback(request):
 
 def sitemap(request):
     places = (
-        Place.objects.filter(article__current_revision__isnull=False)
+        published_places()
         .select_related('article__current_revision')
         .order_by('slug')
     )
