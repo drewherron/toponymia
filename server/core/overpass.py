@@ -35,6 +35,14 @@ USER_AGENT = 'toponymia/0.1 (dherron@mailbox.org)'
 MIN_RADIUS_M = 50
 MAX_RADIUS_M = 10_000
 
+# Same-name component walk (roads): OSM splits a road into a new way at
+# every tag change, so one boulevard is easily 100+ ways. Ways within this
+# distance of each other count as connected — strict node-sharing would
+# miss dual carriageways, whose parallel one-way halves never share a node.
+COMPONENT_JOIN_M = 30
+COMPONENT_MAX_LOOPS = 100
+COMPONENT_TIMEOUT_S = 30
+
 QID_RE = re.compile(r'^Q\d+$')
 
 _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
@@ -80,7 +88,25 @@ def fetch_way_geometry(way_id):
     return None
 
 
-def _call(query):
+def fetch_way_component(way_id, name):
+    """All ways connected to way_id (within COMPONENT_JOIN_M) sharing
+    `name`, each with tags, bounds, and geometry.
+
+    One round trip: Overpass's `complete` statement loops the sub-query
+    to a fixed point, walking the whole road server-side (verified: the
+    131 ways of SW Barbur Boulevard, ~7 km, in one ~6-11 s call).
+    """
+    query = (
+        '[out:json][timeout:25];'
+        f'way({way_id});'
+        f'complete({COMPONENT_MAX_LOOPS})'
+        f'{{ way(around:{COMPONENT_JOIN_M})["name"="{_escape(name)}"]; }};'
+        'out geom;'
+    )
+    return _call(query, timeout_s=COMPONENT_TIMEOUT_S)
+
+
+def _call(query, timeout_s=TIMEOUT_S):
     error = None
     for pause in (0, *RETRY_BACKOFFS_S):
         if pause:
@@ -91,7 +117,7 @@ def _call(query):
                     url,
                     data={'data': query},
                     headers={'User-Agent': USER_AGENT},
-                    timeout=TIMEOUT_S,
+                    timeout=timeout_s,
                 )
                 response.raise_for_status()
                 return response.json().get('elements', [])

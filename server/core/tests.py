@@ -6,7 +6,12 @@ from unittest.mock import patch
 
 import requests
 from django.contrib.auth.models import User
-from django.contrib.gis.geos import LineString, Point, Polygon
+from django.contrib.gis.geos import (
+    LineString,
+    MultiLineString,
+    Point,
+    Polygon,
+)
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -73,6 +78,26 @@ def _way(osm_id=42, name='Mill Creek', qid=None):
         'bounds': {
             'minlat': 45.0, 'minlon': -122.6, 'maxlat': 45.2, 'maxlon': -122.4,
         },
+    }
+
+
+def _component_way(osm_id, coords, name='Mill Creek', qid=None):
+    """A member way as returned by fetch_way_component (`out geom`):
+    tags + bounds + coordinate list."""
+    tags = {'name': name}
+    if qid:
+        tags['wikidata'] = qid
+    lons = [lon for lon, _ in coords]
+    lats = [lat for _, lat in coords]
+    return {
+        'type': 'way',
+        'id': osm_id,
+        'tags': tags,
+        'bounds': {
+            'minlat': min(lats), 'minlon': min(lons),
+            'maxlat': max(lats), 'maxlon': max(lons),
+        },
+        'geometry': [{'lat': lat, 'lon': lon} for lon, lat in coords],
     }
 
 
@@ -230,19 +255,122 @@ class ResolveApiTests(ApiTestCase):
         self.assertFalse(second['created'])
         self.assertEqual(second['place']['id'], first['place']['id'])
 
+    @patch('core.resolve.overpass.fetch_way_component')
     @patch('core.resolve.overpass.fetch_way_geometry')
     @patch('core.resolve.overpass.fetch_elements')
-    def test_osm_anchor_when_no_qid(self, fetch, fetch_geom):
+    def test_osm_anchor_when_no_qid(self, fetch, fetch_geom, fetch_comp):
+        # component walk down: falls back to the single-way behavior
         fetch.return_value = [_way()]
         fetch_geom.return_value = [(-122.6, 45.0), (-122.4, 45.2)]
+        fetch_comp.side_effect = OverpassError('slot busy')
         place = self._post(
             name='Mill Creek', lngLat=[-122.5, 45.1]
         ).json()['place']
         self.assertEqual(place['anchor_level'], 'osm')
         self.assertIsNone(place['wikidata_qid'])
         self.assertEqual(place['osm_type'], 'way')
+        self.assertEqual(place['osm_id'], 42)
         db_place = Place.objects.get(pk=place['id'])
         self.assertEqual(db_place.geometry.geom_type, 'LineString')
+
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_way_component_cached_whole_with_min_id_anchor(
+        self, fetch, fetch_comp
+    ):
+        # OSM splits a road into many ways; the whole same-name component
+        # is cached as the geometry and the min member id is the anchor.
+        fetch.return_value = [_way()]
+        fetch_comp.return_value = [
+            _component_way(42, [(-122.6, 45.0), (-122.4, 45.2)]),
+            _component_way(7, [(-122.4, 45.2), (-122.0, 45.4)]),
+        ]
+        place = self._post(
+            name='Mill Creek', lngLat=[-122.5, 45.1]
+        ).json()['place']
+        fetch_comp.assert_called_once_with(42, 'Mill Creek')
+        self.assertEqual(place['osm_type'], 'way')
+        self.assertEqual(place['osm_id'], 7)
+        db_place = Place.objects.get(pk=place['id'])
+        self.assertEqual(db_place.geometry.geom_type, 'MultiLineString')
+        self.assertEqual(len(db_place.geometry), 2)
+        # bbox spans the whole component, not just the clicked segment
+        self.assertEqual(db_place.bbox.extent, (-122.6, 45.0, -122.0, 45.4))
+
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_distant_segment_click_reuses_place(self, fetch, fetch_comp):
+        fetch.return_value = [_way()]
+        fetch_comp.return_value = [
+            _component_way(42, [(-122.6, 45.0), (-122.4, 45.2)]),
+            _component_way(7, [(-122.4, 45.2), (-122.0, 45.4)]),
+        ]
+        first = self._post(name='Mill Creek', lngLat=[-122.5, 45.1]).json()
+        # a click on another segment, outside every cached footprint:
+        # the walk from that segment shares the min id -> same place
+        fetch.return_value = [_way(osm_id=43)]
+        fetch_comp.return_value = [
+            _component_way(43, [(-121.0, 45.6), (-120.8, 45.7)]),
+            _component_way(7, [(-122.4, 45.2), (-122.0, 45.4)]),
+        ]
+        second = self._post(name='Mill Creek', lngLat=[-120.9, 45.65]).json()
+        self.assertFalse(second['created'])
+        self.assertEqual(second['place']['id'], first['place']['id'])
+        self.assertEqual(Place.objects.count(), 1)
+
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_component_sibling_qid_upgrades_anchor(self, fetch, fetch_comp):
+        # the clicked segment has no wikidata tag but a sibling does
+        fetch.return_value = [_way()]
+        fetch_comp.return_value = [
+            _component_way(42, [(-122.6, 45.0), (-122.4, 45.2)]),
+            _component_way(7, [(-122.4, 45.2), (-122.0, 45.4)], qid='Q555'),
+        ]
+        place = self._post(
+            name='Mill Creek', lngLat=[-122.5, 45.1]
+        ).json()['place']
+        self.assertEqual(place['anchor_level'], 'wikidata')
+        self.assertEqual(place['wikidata_qid'], 'Q555')
+        self.assertEqual(place['osm_id'], 7)
+
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_component_sibling_qid_matches_existing_place(
+        self, fetch, fetch_comp
+    ):
+        existing = Place.objects.create(
+            slug='mill-creek',
+            anchor_level=Place.AnchorLevel.WIKIDATA,
+            wikidata_qid='Q555',
+            osm_type='way',
+            osm_id=7,
+            display_name='Mill Creek',
+            feature_class='waterway',
+            centroid=Point(0.0, 0.0, srid=4326),
+        )
+        fetch.return_value = [_way()]
+        fetch_comp.return_value = [
+            _component_way(42, [(-122.6, 45.0), (-122.4, 45.2)], qid='Q555'),
+        ]
+        body = self._post(name='Mill Creek', lngLat=[-122.5, 45.1]).json()
+        self.assertFalse(body['created'])
+        self.assertEqual(body['place']['id'], existing.id)
+
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_single_way_component(self, fetch, fetch_comp):
+        fetch.return_value = [_way()]
+        fetch_comp.return_value = [
+            _component_way(42, [(-122.6, 45.0), (-122.4, 45.2)]),
+        ]
+        place = self._post(
+            name='Mill Creek', lngLat=[-122.5, 45.1]
+        ).json()['place']
+        self.assertEqual(place['osm_id'], 42)
+        db_place = Place.objects.get(pk=place['id'])
+        self.assertEqual(db_place.geometry.geom_type, 'MultiLineString')
+        self.assertEqual(len(db_place.geometry), 1)
 
     @patch('core.resolve.overpass.fetch_elements')
     def test_name_anchor_when_overpass_empty(self, fetch):
@@ -738,6 +866,31 @@ class HighlightApiTests(ApiTestCase):
         self.assertEqual(features[0]['geometry']['coordinates'], [30.0, 55.0])
         # viewport far away: nothing
         self.assertEqual(self._get('-20,-10,-18,-8').json()['features'], [])
+
+    def test_road_component_lights_up_along_its_length(self):
+        # A road cached as a same-name component MultiLineString must be
+        # served for a viewport at its far end (the amber-label fix).
+        road = Place.objects.create(
+            slug='test-road',
+            anchor_level=Place.AnchorLevel.OSM,
+            osm_type='way',
+            osm_id=7,
+            display_name='Test Road',
+            feature_class='road',
+            geometry=MultiLineString(
+                LineString([(9.5, 50.2), (9.8, 50.3)], srid=4326),
+                LineString([(9.8, 50.3), (10.4, 50.5)], srid=4326),
+                srid=4326,
+            ),
+            centroid=Point(9.95, 50.35, srid=4326),
+        )
+        _publish(road, self.user)
+        # viewport over the second segment only
+        features = self._get('10.2,50.4,10.6,50.6').json()['features']
+        self.assertEqual(len(features), 1)
+        self.assertEqual(features[0]['properties']['slug'], 'test-road')
+        # viewport off the road entirely: nothing
+        self.assertEqual(self._get('12,52,13,53').json()['features'], [])
 
     def test_label_point_preferred_over_centroid(self):
         place = _make_place()
