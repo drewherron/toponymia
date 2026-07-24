@@ -1783,6 +1783,27 @@ body,
   background: #f3efe7;
 }
 
+/* Sits inline beside a removed/suppressed row's tag, so the inverse of a
+   removal is always within reach of the removal itself. */
+.mod-restore-button {
+  padding: 1px 8px;
+  border: 1px solid #c9c1b4;
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.mod-restore-button:hover:not(:disabled) {
+  background: #f3efe7;
+}
+
+.mod-restore-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .mod-table {
   border-collapse: collapse;
   width: 100%;

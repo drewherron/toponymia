@@ -4,6 +4,8 @@ import {
   fetchModReporters,
   fetchModUser,
   fetchModUsers,
+  restoreRevision,
+  restoreTalkPost,
   setUserRole,
   unbanUser,
 } from '../api'
@@ -208,6 +210,35 @@ function RolePanel({
   )
 }
 
+/** The inverse of a removal, next to the removed thing itself. M12 built
+ *  both restore endpoints and then never gave either one a button, so until
+ *  now a removal could only be undone from a shell (DESIGN.md M13). */
+function RestoreButton({
+  onRestore,
+  onDone,
+}: {
+  onRestore: () => Promise<void>
+  onDone: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      type="button"
+      className="mod-restore-button"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true)
+        onRestore()
+          .then(onDone)
+          .catch(console.error)
+          .finally(() => setBusy(false))
+      }}
+    >
+      Restore
+    </button>
+  )
+}
+
 // --- user detail ----------------------------------------------------
 
 function UserDetail({
@@ -277,7 +308,15 @@ function UserDetail({
         <ul className="mod-detail-list">
           {detail.talk_posts.map((p) => (
             <li key={p.id} className={p.deleted ? 'mod-removed' : ''}>
-              {p.deleted && <span className="mod-removed-tag">removed</span>}{' '}
+              {p.deleted && (
+                <>
+                  <span className="mod-removed-tag">removed</span>{' '}
+                  <RestoreButton
+                    onRestore={() => restoreTalkPost(p.id)}
+                    onDone={refresh}
+                  />{' '}
+                </>
+              )}
               <a href={`/place/${p.slug}`}>{p.place}</a> — “{p.thread_title}”
               <blockquote>{p.body_md}</blockquote>
             </li>
@@ -291,8 +330,14 @@ function UserDetail({
           {detail.revisions.map((r) => (
             <li key={r.id} className={r.suppressed ? 'mod-removed' : ''}>
               {r.suppressed && (
-                <span className="mod-removed-tag">suppressed</span>
-              )}{' '}
+                <>
+                  <span className="mod-removed-tag">suppressed</span>{' '}
+                  <RestoreButton
+                    onRestore={() => restoreRevision(r.id)}
+                    onDone={refresh}
+                  />{' '}
+                </>
+              )}
               {r.is_current && <span className="mod-current">current</span>}{' '}
               <a href={`/place/${r.slug}`}>{r.place}</a>
               {r.excerpt && <blockquote>{r.excerpt}</blockquote>}
