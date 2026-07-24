@@ -110,11 +110,20 @@ export interface ArticleData {
 
 export type ProtectionLevel = 'none' | 'registered' | 'admin'
 
+/** Who deleted a soft-deleted article and when. Admin-only: null for
+ *  everyone else, who can't tell a deleted article from an unwritten one. */
+export interface ArticleDeletion {
+  at: string
+  by: string | null
+}
+
 export interface PlaceDetail {
   place: ResolvedPlace
   article: ArticleData | null
   /** Present even for a locked stub with no article yet. */
   protection_level: ProtectionLevel
+  /** Non-null only for an admin looking at a deleted article. */
+  deleted: ArticleDeletion | null
 }
 
 export interface User {
@@ -300,6 +309,19 @@ export interface ModReporter {
   open: number
   resolved: number
   dismissed: number
+}
+
+/** One row of the global audit feed — the oversight lens that answers
+ *  "is a moderator quietly working through every article on the wiki?",
+ *  which the per-user trail structurally cannot. */
+export interface ModAuditRow {
+  id: number
+  action: string
+  actor: string | null
+  target_user: string | null
+  reason: string
+  created: string
+  place_slug: string | null
 }
 
 export interface BanInput {

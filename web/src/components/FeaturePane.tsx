@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { getPlace, resolveFeature, setProtection } from '../api'
+import {
+  deleteArticle,
+  getPlace,
+  resolveFeature,
+  restoreArticle,
+  setProtection,
+} from '../api'
 import type {
   ArticleData,
   ClickContext,
@@ -201,6 +207,66 @@ function ProtectionControl({
   )
 }
 
+/** Admin-only whole-article deletion (DESIGN.md M13). Deliberately not an
+ *  icon button next to Close: this is the one action in the pane that takes
+ *  the whole article off the map, so it wants a reason and a confirm. */
+function DeleteControl({
+  slug,
+  onDeleted,
+}: {
+  slug: string
+  onDeleted: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="article-delete-button"
+        onClick={() => setOpen(true)}
+      >
+        Delete article
+      </button>
+    )
+  }
+  return (
+    <div className="article-delete-form">
+      <p className="feature-pane-note">
+        The place becomes a stub. Every revision is kept and you can restore
+        it — but anyone writing a new article here also brings the old
+        history back, so suppress an abusive revision separately.
+      </p>
+      <input
+        className="article-delete-reason"
+        placeholder="Reason (recorded in the audit log)"
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+      />
+      <div className="article-delete-actions">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            deleteArticle(slug, reason)
+              .then(onDeleted)
+              .catch(console.error)
+              .finally(() => setBusy(false))
+          }}
+        >
+          Delete article
+        </button>
+        <button type="button" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function FeaturePane({
   feature,
   click,
@@ -295,8 +361,24 @@ function FeaturePane({
     )
   }
 
+  // Delete and restore both change what the whole pane shows (article ⇄
+  // stub) and what the map highlights, so refetch rather than patch state.
+  const reloadDetail = (slug: string) => {
+    getPlace(slug)
+      .then((fresh) => setDetail({ status: 'done', detail: fresh }))
+      .catch(() => setDetail({ status: 'error' }))
+    onArticleSaved()
+  }
+
+  const handleRestore = (slug: string) => {
+    restoreArticle(slug)
+      .then(() => reloadDetail(slug))
+      .catch(console.error)
+  }
+
   const place = resolution.status === 'done' ? resolution.place : null
   const article = detail.status === 'done' ? detail.detail.article : null
+  const deleted = detail.status === 'done' ? detail.detail.deleted : null
   const protection: ProtectionLevel =
     detail.status === 'done' ? detail.detail.protection_level : 'none'
   // `admin` protection restricts edits/reverts to moderators; anonymous
@@ -412,8 +494,34 @@ function FeaturePane({
         />
       )}
 
+      {/* Admin-only, and only ever rendered on a deleted article — for
+          everyone else `deleted` is null and this place is just a stub. */}
+      {place && tab === 'article' && deleted && (
+        <div className="article-deleted-banner">
+          <p>
+            <strong>Deleted article.</strong> Removed by {deleted.by ?? '—'}{' '}
+            on {new Date(deleted.at).toLocaleDateString()}. Only admins can
+            see this; the place reads as a stub to everyone else.
+          </p>
+          <button
+            type="button"
+            className="article-restore-button"
+            onClick={() => handleRestore(place.slug)}
+          >
+            Restore article
+          </button>
+        </div>
+      )}
+
       {place && tab === 'article' && article && (
         <ArticleView article={article} onSelectSlug={onSelectSlug} />
+      )}
+
+      {place && tab === 'article' && article && !deleted && user?.is_admin && (
+        <DeleteControl
+          slug={place.slug}
+          onDeleted={() => reloadDetail(place.slug)}
+        />
       )}
 
       {place && tab === 'article' && detail.status === 'done' && !article && (

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   banUser,
+  fetchModAudit,
   fetchModReporters,
   fetchModUser,
   fetchModUsers,
@@ -11,6 +12,7 @@ import {
 } from '../api'
 import { REPORT_CATEGORIES } from '../types'
 import type {
+  ModAuditRow,
   ModReporter,
   ModUserDetail,
   ModUserRow,
@@ -605,10 +607,87 @@ function ReportersTab() {
   )
 }
 
+// --- audit tab ------------------------------------------------------
+
+/** Human wording for each ModAction kind. The raw enum leaks in the
+ *  per-user trail; a feed meant for scanning deserves better. */
+const ACTION_LABEL: Record<string, string> = {
+  delete_post: 'removed a talk post',
+  restore_post: 'restored a talk post',
+  suppress_revision: 'suppressed a revision',
+  restore_revision: 'restored a revision',
+  delete_thread: 'removed a talk thread',
+  delete_article: 'deleted an article',
+  restore_article: 'restored an article',
+  revert_article: 'reverted an article',
+  ban_user: 'banned',
+  unban_user: 'unbanned',
+  promote_mod: 'promoted to moderator',
+  demote_mod: 'demoted to user',
+  resolve_report: 'resolved a report',
+  dismiss_report: 'dismissed a report',
+}
+
+/** The whole point of the feed: removals stand out when you scan it. */
+const DESTRUCTIVE = new Set([
+  'delete_post',
+  'suppress_revision',
+  'delete_thread',
+  'delete_article',
+  'revert_article',
+  'ban_user',
+])
+
+function AuditTab() {
+  const [rows, setRows] = useState<ModAuditRow[] | null>(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    fetchModAudit()
+      .then(setRows)
+      .catch(() => setError(true))
+  }, [])
+
+  if (error) return <p className="mod-note">Could not load the audit log.</p>
+  if (!rows) return <p className="mod-note">Loading…</p>
+  if (rows.length === 0) {
+    return <p className="mod-note">No moderator actions yet.</p>
+  }
+
+  return (
+    <div className="mod-audit">
+      <p className="mod-note">
+        Every moderator action, newest first — the lens that catches a burst
+        of removals no single user’s history would reveal.
+      </p>
+      <ul className="mod-audit-list">
+        {rows.map((a) => (
+          <li
+            key={a.id}
+            className={DESTRUCTIVE.has(a.action) ? 'mod-audit-destructive' : ''}
+          >
+            <span className="mod-audit-when">{when(a.created)}</span>{' '}
+            <strong>{a.actor ?? '—'}</strong>{' '}
+            {ACTION_LABEL[a.action] ?? a.action}
+            {a.target_user && <> · {a.target_user}</>}
+            {a.place_slug && (
+              <>
+                {' '}
+                <a href={`/place/${a.place_slug}`}>/place/{a.place_slug}</a>
+              </>
+            )}
+            {a.reason && <> — “{a.reason}”</>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 // --- dashboard shell ------------------------------------------------
 
 function ModerationDashboard({ user }: { user: User | null }) {
-  const [tab, setTab] = useState<'users' | 'reporters'>('users')
+  const [tab, setTab] = useState<'users' | 'reporters' | 'audit'>('users')
   return (
     <div className="mod-dashboard">
       <div className="mod-dash-tabs">
@@ -626,13 +705,18 @@ function ModerationDashboard({ user }: { user: User | null }) {
         >
           Reporters
         </button>
+        <button
+          type="button"
+          className={tab === 'audit' ? 'active' : ''}
+          onClick={() => setTab('audit')}
+        >
+          Audit
+        </button>
       </div>
       <div className="mod-dash-body">
-        {tab === 'users' ? (
-          <UsersTab isAdmin={!!user?.is_admin} />
-        ) : (
-          <ReportersTab />
-        )}
+        {tab === 'users' && <UsersTab isAdmin={!!user?.is_admin} />}
+        {tab === 'reporters' && <ReportersTab />}
+        {tab === 'audit' && <AuditTab />}
       </div>
     </div>
   )

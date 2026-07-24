@@ -6,6 +6,7 @@ import type {
   GeocodeHit,
   PlaceDetail,
   BanInput,
+  ModAuditRow,
   ModReporter,
   ModUserDetail,
   ModUsersResult,
@@ -267,6 +268,35 @@ export async function setProtection(
   return body.protection_level
 }
 
+/** Soft-delete a whole article (admin only). Every revision survives — the
+ *  place just reads as a stub until a restore or the next write. */
+export async function deleteArticle(
+  slug: string,
+  reason: string,
+): Promise<void> {
+  const response = await fetch(`/api/places/${slug}/delete/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ reason }),
+  })
+  if (!response.ok) {
+    throw new Error(`delete failed: ${response.status}`)
+  }
+}
+
+/** Un-delete an article (admin only, inverse of deleteArticle). */
+export async function restoreArticle(slug: string): Promise<ArticleData> {
+  const response = await fetch(`/api/places/${slug}/restore/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(`restore failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.article
+}
+
 export async function revertArticle(
   slug: string,
   revisionId: number,
@@ -494,6 +524,16 @@ export async function fetchModReporters(
     throw new Error(`reporters fetch failed: ${response.status}`)
   }
   return (await response.json()).reporters
+}
+
+export async function fetchModAudit(
+  signal?: AbortSignal,
+): Promise<ModAuditRow[]> {
+  const response = await fetch('/api/mod/audit/', { signal })
+  if (!response.ok) {
+    throw new Error(`audit fetch failed: ${response.status}`)
+  }
+  return (await response.json()).actions
 }
 
 /** Restore a soft-deleted talk post (inverse of a queue delete). */
