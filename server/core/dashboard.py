@@ -22,7 +22,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Ban, ModAction, Report, Revision, TalkPost
-from .moderation import active_ban, can_ban, is_moderator, log_action
+from .moderation import (
+    active_ban,
+    can_ban,
+    can_set_role,
+    is_moderator,
+    log_action,
+)
 from .views import _revision_excerpt
 
 User = get_user_model()
@@ -226,6 +232,7 @@ def mod_user_detail(request, user_id):
         'date_joined': _iso(user.date_joined),
         'bans': [_ban_json(b) for b in user.bans.all()],
         'can_ban': can_ban(request.user, user),
+        'can_set_role': can_set_role(request.user, user),
         'talk_posts': talk_posts,
         'revisions': revs,
         'reports_against': reports_against,
@@ -293,6 +300,43 @@ def _remove_all_content(user, actor):
         revision.save(update_fields=['suppressed', 'suppressed_by'])
         count += 1
     return count
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mod_set_role(request, user_id):
+    """Promote a user to moderator or demote one back (superuser only —
+    see `can_set_role`). Body: role ∈ user|moderator. Moderator is Django's
+    `is_staff`, so this is the one write that changes what the account is
+    rather than what it has done."""
+    forbidden = _forbidden(request)
+    if forbidden is not None:
+        return forbidden
+    target = get_object_or_404(User, id=user_id)
+    if not can_set_role(request.user, target):
+        return Response(
+            {'error': 'only an admin may change an account’s role, and not '
+                      'their own'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    role = request.data.get('role')
+    if role not in ('user', 'moderator'):
+        return Response(
+            {'error': "role must be 'user' or 'moderator'"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    promote = role == 'moderator'
+    if target.is_staff != promote:
+        target.is_staff = promote
+        target.save(update_fields=['is_staff'])
+        log_action(
+            request.user,
+            ModAction.Action.PROMOTE_MOD if promote
+            else ModAction.Action.DEMOTE_MOD,
+            target_user=target,
+            reason=(request.data.get('reason') or '')[:500],
+        )
+    return Response({'id': target.id, 'role': _user_role(target)})
 
 
 @api_view(['POST'])

@@ -278,6 +278,7 @@ export interface ModUserDetail {
   date_joined: string
   bans: ModBan[]
   can_ban: boolean
+  can_set_role: boolean
   talk_posts: ModUserPost[]
   revisions: ModUserRevision[]
   reports_against: ModUserReport[]

@@ -91,5 +91,10 @@ urlpatterns = [
         dashboard.mod_unban_user,
         name='mod-unban-user',
     ),
+    path(
+        'mod/users/<int:user_id>/role/',
+        dashboard.mod_set_role,
+        name='mod-set-role',
+    ),
     path('mod/reporters/', dashboard.mod_reporters, name='mod-reporters'),
 ]

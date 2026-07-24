@@ -344,6 +344,8 @@ class ModAction(models.Model):
         DELETE_THREAD = 'delete_thread'
         BAN_USER = 'ban_user'
         UNBAN_USER = 'unban_user'
+        PROMOTE_MOD = 'promote_mod'
+        DEMOTE_MOD = 'demote_mod'
         RESOLVE_REPORT = 'resolve_report'
         DISMISS_REPORT = 'dismiss_report'
 

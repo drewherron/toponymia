@@ -1573,6 +1573,90 @@ class DashboardApiTests(ApiTestCase):
             any(b.is_active() for b in self.author.bans.all())
         )
 
+    # --- roles -------------------------------------------------------
+    def _set_role(self, target, role):
+        return self.client.post(
+            reverse('core:mod-set-role', args=[target.id]),
+            {'role': role}, content_type='application/json',
+        )
+
+    def test_superuser_promotes_user_to_moderator(self):
+        self.client.force_login(self.admin)
+        response = self._set_role(self.author, 'moderator')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['role'], 'moderator')
+        self.author.refresh_from_db()
+        self.assertTrue(self.author.is_staff)
+        self.assertEqual(
+            ModAction.objects.filter(
+                action=ModAction.Action.PROMOTE_MOD, target_user=self.author
+            ).count(),
+            1,
+        )
+
+    def test_superuser_demotes_moderator(self):
+        self.client.force_login(self.admin)
+        response = self._set_role(self.mod, 'user')
+        self.assertEqual(response.status_code, 200)
+        self.mod.refresh_from_db()
+        self.assertFalse(self.mod.is_staff)
+        self.assertEqual(
+            ModAction.objects.filter(
+                action=ModAction.Action.DEMOTE_MOD, target_user=self.mod
+            ).count(),
+            1,
+        )
+
+    def test_moderator_cannot_change_roles(self):
+        self.client.force_login(self.mod)
+        self.assertEqual(self._set_role(self.author, 'moderator').status_code, 403)
+        self.author.refresh_from_db()
+        self.assertFalse(self.author.is_staff)
+
+    def test_nobody_can_change_own_role(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self._set_role(self.admin, 'user').status_code, 403)
+
+    def test_superuser_role_cannot_be_changed(self):
+        other_admin = User.objects.create_superuser(
+            'root2', password='pw12345!'
+        )
+        self.client.force_login(self.admin)
+        self.assertEqual(self._set_role(other_admin, 'user').status_code, 403)
+        other_admin.refresh_from_db()
+        self.assertTrue(other_admin.is_superuser)
+
+    def test_invalid_role_rejected(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self._set_role(self.author, 'wizard').status_code, 400)
+
+    def test_repeat_promotion_does_not_duplicate_audit_rows(self):
+        self.client.force_login(self.admin)
+        self._set_role(self.author, 'moderator')
+        self._set_role(self.author, 'moderator')
+        self.assertEqual(
+            ModAction.objects.filter(
+                action=ModAction.Action.PROMOTE_MOD
+            ).count(),
+            1,
+        )
+
+    def test_anonymous_cannot_change_roles(self):
+        self.assertIn(self._set_role(self.author, 'moderator').status_code,
+                      (401, 403))
+
+    def test_user_detail_reports_role_authority(self):
+        self.client.force_login(self.admin)
+        data = self.client.get(
+            reverse('core:mod-user-detail', args=[self.author.id])
+        ).json()
+        self.assertTrue(data['can_set_role'])
+        self.client.force_login(self.mod)
+        data = self.client.get(
+            reverse('core:mod-user-detail', args=[self.author.id])
+        ).json()
+        self.assertFalse(data['can_set_role'])
+
     # --- reporters ---------------------------------------------------
     def test_reporters_ranked_by_dismissed(self):
         p1 = self._post_by(self.author)

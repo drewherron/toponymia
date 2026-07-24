@@ -1699,6 +1699,7 @@ body,
   background: #eee;
 }
 
+.mod-role-panel,
 .mod-ban-panel,
 .mod-ban-form {
   border: 1px solid #e2ddd3;
@@ -1730,6 +1731,33 @@ body,
   align-items: center;
   gap: 8px;
   font-size: 0.88rem;
+}
+
+/* Role changes are admin-only and rare — a quiet control, not a red one:
+   promoting someone is not a punishment. */
+.mod-role-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 460px;
+}
+
+.mod-role-panel .mod-note {
+  margin: 0;
+}
+
+.mod-role-button {
+  padding: 5px 12px;
+  border: 1px solid #c9c1b4;
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mod-role-button:hover:not(:disabled) {
+  background: #f3efe7;
 }
 
 .mod-table {

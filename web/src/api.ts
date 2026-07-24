@@ -466,6 +466,21 @@ export async function unbanUser(userId: number): Promise<void> {
   }
 }
 
+/** Promote a user to moderator or demote one back (superuser only). */
+export async function setUserRole(
+  userId: number,
+  role: 'user' | 'moderator',
+): Promise<void> {
+  const response = await fetch(`/api/mod/users/${userId}/role/`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ role }),
+  })
+  if (!response.ok) {
+    throw new Error(`role change failed: ${response.status}`)
+  }
+}
+
 /** Reporters ranked by dismissed reports — the report-abuse view. */
 export async function fetchModReporters(
   signal?: AbortSignal,

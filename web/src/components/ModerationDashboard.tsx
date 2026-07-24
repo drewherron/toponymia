@@ -4,6 +4,7 @@ import {
   fetchModReporters,
   fetchModUser,
   fetchModUsers,
+  setUserRole,
   unbanUser,
 } from '../api'
 import { REPORT_CATEGORIES } from '../types'
@@ -159,6 +160,53 @@ function BanPanel({
   return <BanForm user={user} onDone={onChanged} />
 }
 
+// --- role controls --------------------------------------------------
+
+// Promote/demote is admin-only and deliberately confirmed: it is the one
+// control here that changes what an account *is* rather than what it may do.
+function RolePanel({
+  user,
+  onChanged,
+}: {
+  user: ModUserDetail
+  onChanged: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  if (!user.can_set_role) return null
+
+  const promote = user.role === 'user'
+  const submit = () => {
+    const verb = promote ? 'Promote' : 'Demote'
+    const detail = promote
+      ? `${user.username} will be able to handle reports, remove content, and ban accounts.`
+      : `${user.username} will lose all moderator powers.`
+    if (!window.confirm(`${verb} ${user.username}? ${detail}`)) return
+    setBusy(true)
+    setUserRole(user.id, promote ? 'moderator' : 'user')
+      .then(onChanged)
+      .catch(console.error)
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="mod-role-panel">
+      <p className="mod-note">
+        {promote
+          ? 'A moderator can handle reports, remove content, and ban regular users.'
+          : 'Demoting returns this account to a regular user.'}
+      </p>
+      <button
+        type="button"
+        className="mod-role-button"
+        disabled={busy}
+        onClick={submit}
+      >
+        {promote ? 'Promote to moderator' : 'Demote to user'}
+      </button>
+    </div>
+  )
+}
+
 // --- user detail ----------------------------------------------------
 
 function UserDetail({
@@ -198,6 +246,7 @@ function UserDetail({
       <p className="mod-note">Joined {when(detail.date_joined)}</p>
 
       <BanPanel user={detail} onChanged={refresh} />
+      <RolePanel user={detail} onChanged={refresh} />
 
       <section>
         <h4>Reports against them ({detail.reports_against.length})</h4>
