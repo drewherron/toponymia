@@ -1753,6 +1753,36 @@ body,
   white-space: nowrap;
 }
 
+/* Sortable headers: a plain button that inherits the <th> look, so the
+   column reads as a heading rather than a form control. */
+.mod-table th {
+  padding: 0;
+}
+
+.mod-sort {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mod-sort:hover {
+  background: #f3efe7;
+}
+
+.mod-sort-arrow {
+  font-size: 9px;
+  color: #8a8378;
+}
+
 .mod-rate-basis,
 .mod-rate-none {
   color: #8a8378;

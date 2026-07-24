@@ -355,15 +355,64 @@ function dismissedRate(r: ModReporter): number | null {
   return decided === 0 ? null : r.dismissed / decided
 }
 
+type ReporterSort = 'username' | 'total' | 'open' | 'resolved' | 'dismissed' | 'rate'
+
+const REPORTER_COLUMNS: { key: ReporterSort; label: string }[] = [
+  { key: 'username', label: 'Reporter' },
+  { key: 'total', label: 'Total' },
+  { key: 'open', label: 'Open' },
+  { key: 'resolved', label: 'Upheld' },
+  { key: 'dismissed', label: 'Dismissed' },
+  { key: 'rate', label: 'Dismissed rate' },
+]
+
+// Names read best A–Z; every count reads best biggest-first.
+function defaultDir(key: ReporterSort): 'asc' | 'desc' {
+  return key === 'username' ? 'asc' : 'desc'
+}
+
 function ReportersTab() {
   const [rows, setRows] = useState<ModReporter[] | null>(null)
+  // Matches the server's own order (-dismissed, -total): the abuse-finding
+  // sort, and the default for a reason — ranking by volume would put the most
+  // prolific (usually most helpful) reporter on top.
+  const [sort, setSort] = useState<ReporterSort>('dismissed')
+  const [dir, setDir] = useState<'asc' | 'desc'>('desc')
 
   useEffect(() => {
     fetchModReporters().then(setRows).catch(console.error)
   }, [])
 
-  if (rows === null) return <p className="mod-note">Loading…</p>
-  if (rows.length === 0) return <p className="mod-note">No reports yet.</p>
+  const sorted = useMemo(() => {
+    if (rows === null) return null
+    const sign = dir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => {
+      if (sort === 'username') return sign * a.username.localeCompare(b.username)
+      if (sort === 'rate') {
+        // A reporter with nothing decided has no rate — park them at the
+        // bottom either way rather than letting null rank as zero.
+        const ra = dismissedRate(a)
+        const rb = dismissedRate(b)
+        if (ra === null || rb === null) {
+          if (ra === rb) return b.total - a.total
+          return ra === null ? 1 : -1
+        }
+        return sign * (ra - rb) || b.total - a.total
+      }
+      return sign * (a[sort] - b[sort]) || b.total - a.total
+    })
+  }, [rows, sort, dir])
+
+  function sortBy(key: ReporterSort) {
+    if (key === sort) setDir(dir === 'asc' ? 'desc' : 'asc')
+    else {
+      setSort(key)
+      setDir(defaultDir(key))
+    }
+  }
+
+  if (sorted === null) return <p className="mod-note">Loading…</p>
+  if (sorted.length === 0) return <p className="mod-note">No reports yet.</p>
 
   return (
     <div className="mod-reporters">
@@ -376,16 +425,35 @@ function ReportersTab() {
       <table className="mod-table">
         <thead>
           <tr>
-            <th>Reporter</th>
-            <th>Total</th>
-            <th>Open</th>
-            <th>Upheld</th>
-            <th>Dismissed</th>
-            <th>Dismissed rate</th>
+            {REPORTER_COLUMNS.map((col) => (
+              <th
+                key={col.key}
+                aria-sort={
+                  sort === col.key
+                    ? dir === 'asc'
+                      ? 'ascending'
+                      : 'descending'
+                    : 'none'
+                }
+              >
+                <button
+                  type="button"
+                  className="mod-sort"
+                  onClick={() => sortBy(col.key)}
+                >
+                  {col.label}
+                  {sort === col.key && (
+                    <span aria-hidden="true" className="mod-sort-arrow">
+                      {dir === 'asc' ? '▲' : '▼'}
+                    </span>
+                  )}
+                </button>
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
+          {sorted.map((r) => {
             const rate = dismissedRate(r)
             return (
               <tr key={r.id} className={r.dismissed > r.resolved ? 'mod-flag' : ''}>
