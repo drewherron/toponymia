@@ -292,6 +292,22 @@ function App() {
     [],
   )
 
+  const authControl = (
+    <AuthControl
+      user={user}
+      onUserChange={setUser}
+      open={authOpen}
+      onOpenChange={(open) => {
+        setAuthOpen(open)
+        // Narrow: the form is an overlay over the menu it was opened from, so
+        // dismissing it (by backdrop or by logging in) should leave the map,
+        // not the menu it came through.
+        if (!open) setMenuOpen(false)
+      }}
+      narrow={narrow}
+    />
+  )
+
   // The header's tools: inline on a wide screen, inside the ☰ menu when the
   // bar can't hold them. Same nodes either way — the menu is a container, not
   // a second copy of the controls.
@@ -386,28 +402,32 @@ function App() {
                 <div
                   className="header-menu"
                   onClick={(event) => {
-                    // Picking a tool dismisses the menu; the language <select>
-                    // fires change, not a click on a button, so it stays open
-                    // for a second look at the map's new labels.
-                    if ((event.target as HTMLElement).closest('button')) {
+                    const target = event.target as HTMLElement
+                    // Picking a tool dismisses the menu. Two exceptions: the
+                    // language <select> fires change rather than a button
+                    // click, so it stays open for a look at the new labels;
+                    // and the auth buttons must not unmount their own form
+                    // out from under themselves.
+                    if (
+                      target.closest('button') &&
+                      !target.closest('.auth-control')
+                    ) {
                       setMenuOpen(false)
                     }
                   }}
                 >
                   {headerTools}
+                  {authControl}
                 </div>
               </>
             )}
           </>
         ) : (
-          headerTools
+          <>
+            {headerTools}
+            {authControl}
+          </>
         )}
-        <AuthControl
-          user={user}
-          onUserChange={setUser}
-          open={authOpen}
-          onOpenChange={setAuthOpen}
-        />
       </header>
       {modOpen && <ModQueue onClose={() => setModOpen(false)} />}
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
@@ -441,7 +461,13 @@ function App() {
             narrow={narrow}
             sheetDetent={sheetDetent}
             onSheetDetentChange={setSheetDetent}
-            onRequestAuth={() => setAuthOpen(true)}
+            onRequestAuth={() => {
+              // Narrow: the auth control lives in the menu, so the CTA has to
+              // open the menu that hosts it — otherwise it sets a flag on an
+              // unmounted component and appears to do nothing.
+              setMenuOpen(true)
+              setAuthOpen(true)
+            }}
             onClose={clearSelection}
             onRecenter={handleRecenter}
             onSelectSlug={handleSelectSlug}

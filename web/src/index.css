@@ -410,6 +410,9 @@ body,
   align-items: center;
   gap: 8px;
   font-size: 0.9rem;
+  /* The search box is the header's designated shrinker (flex: 0 1 340px);
+     without this the auth control gets squeezed too and its label wraps. */
+  flex-shrink: 0;
 }
 
 .auth-link {
@@ -419,10 +422,14 @@ body,
   cursor: pointer;
   background: none;
   padding: 6px 4px;
+  /* Matches the other header pills — a two-line "Log in" sets the header's
+     line-height and pushes the whole bar taller. */
+  white-space: nowrap;
 }
 
 .auth-username {
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .auth-form {
@@ -2042,6 +2049,35 @@ body,
   .header-menu > * {
     width: 100%;
     text-align: center;
+  }
+
+  /* Auth moves into the menu: `alice · Log out` is wider than the logged-out
+     trigger and crowds the search box hardest exactly when the affordance
+     matters least. Identity costs one tap to see — the trade DESIGN.md M14
+     records. */
+  .header-menu .auth-control {
+    justify-content: center;
+    border-top: 1px solid #eee;
+    padding-top: 8px;
+  }
+
+  .auth-overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 60;
+  }
+
+  /* Not a dropdown hanging off a dropdown: centred over everything. */
+  .auth-form.auth-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    right: auto;
+    transform: translate(-50%, -50%);
+    width: min(300px, 86vw);
+    text-align: left;
+    z-index: 61;
   }
 
   .feature-pane {

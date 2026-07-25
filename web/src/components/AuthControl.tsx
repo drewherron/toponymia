@@ -8,9 +8,18 @@ interface AuthControlProps {
   onUserChange: (user: User | null) => void
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** In the ☰ menu rather than the header bar: the form can't be a dropdown
+   *  hanging off a dropdown, so it opens as a centred overlay instead. */
+  narrow: boolean
 }
 
-function AuthControl({ user, onUserChange, open, onOpenChange }: AuthControlProps) {
+function AuthControl({
+  user,
+  onUserChange,
+  open,
+  onOpenChange,
+  narrow,
+}: AuthControlProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -51,60 +60,77 @@ function AuthControl({ user, onUserChange, open, onOpenChange }: AuthControlProp
     )
   }
 
+  const form = (
+    <form
+      className={`auth-form${narrow ? ' auth-overlay' : ''}`}
+      onSubmit={handleSubmit}
+    >
+      <div className="auth-tabs">
+        <button
+          type="button"
+          className={mode === 'login' ? 'active' : ''}
+          onClick={() => setMode('login')}
+        >
+          Log in
+        </button>
+        <button
+          type="button"
+          className={mode === 'signup' ? 'active' : ''}
+          onClick={() => setMode('signup')}
+        >
+          Sign up
+        </button>
+      </div>
+      <label>
+        Username
+        <input
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoComplete="username"
+          required
+        />
+      </label>
+      <label>
+        Password
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          required
+        />
+      </label>
+      {error && <p className="auth-error">{error}</p>}
+      <button type="submit" disabled={busy}>
+        {mode === 'login' ? 'Log in' : 'Create account'}
+      </button>
+    </form>
+  )
+
   return (
     <div className="auth-control">
+      {/* "/ Sign up" would only repeat the form's own tabs — the button just
+          has to open the door. Matches the stub's "Log in to write this
+          article" CTA. */}
       <button
         type="button"
         className="auth-link"
         onClick={() => onOpenChange(!open)}
       >
-        Log in / Sign up
+        Log in
       </button>
-      {open && (
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="auth-tabs">
-            <button
-              type="button"
-              className={mode === 'login' ? 'active' : ''}
-              onClick={() => setMode('login')}
-            >
-              Log in
-            </button>
-            <button
-              type="button"
-              className={mode === 'signup' ? 'active' : ''}
-              onClick={() => setMode('signup')}
-            >
-              Sign up
-            </button>
-          </div>
-          <label>
-            Username
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
+      {open &&
+        (narrow ? (
+          <>
+            <div
+              className="auth-overlay-backdrop"
+              onClick={() => onOpenChange(false)}
             />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={
-                mode === 'login' ? 'current-password' : 'new-password'
-              }
-              required
-            />
-          </label>
-          {error && <p className="auth-error">{error}</p>}
-          <button type="submit" disabled={busy}>
-            {mode === 'login' ? 'Log in' : 'Create account'}
-          </button>
-        </form>
-      )}
+            {form}
+          </>
+        ) : (
+          form
+        ))}
     </div>
   )
 }
