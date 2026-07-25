@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 
-/** Below this the article pane becomes a bottom sheet and the header collapses. */
+/** Below this the article pane becomes a bottom sheet. */
 export const NARROW_QUERY = '(max-width: 768px)'
+/** Below this the header's tools (and auth) collapse into the ☰ menu. Wider
+ *  than NARROW_QUERY on purpose: the bar runs out of room long before the pane
+ *  does, and the two share no constraint — left inline any longer, the tools
+ *  just eat the search box, which is the header's designated shrinker. */
+export const HEADER_MENU_QUERY = '(max-width: 900px)'
 /** Touch (or pen): tap targets need a fingertip-sized query box, not a mouse one. */
 export const COARSE_QUERY = '(pointer: coarse)'
 

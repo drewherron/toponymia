@@ -7,7 +7,12 @@ import FeaturePicker from './components/FeaturePicker'
 import ModerationDashboard from './components/ModerationDashboard'
 import ModQueue from './components/ModQueue'
 import SearchBox from './components/SearchBox'
-import { NARROW_QUERY, useMediaQuery, type SheetDetent } from './layout'
+import {
+  HEADER_MENU_QUERY,
+  NARROW_QUERY,
+  useMediaQuery,
+  type SheetDetent,
+} from './layout'
 import {
   LABEL_LANGUAGES,
   storedLabelLanguage,
@@ -66,7 +71,10 @@ function App() {
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
+  // Two independent breakpoints: the header collapses first (900), the pane
+  // becomes a sheet later (768).
   const narrow = useMediaQuery(NARROW_QUERY)
+  const compactHeader = useMediaQuery(HEADER_MENU_QUERY)
   // Half: enough article to read, enough map to stay oriented — on this
   // product the map is the index, so a sheet that buries it removes the only
   // way to navigate.
@@ -304,7 +312,7 @@ function App() {
         // not the menu it came through.
         if (!open) setMenuOpen(false)
       }}
-      narrow={narrow}
+      inMenu={compactHeader}
     />
   )
 
@@ -382,7 +390,7 @@ function App() {
           onSelectGeocode={handleSelectGeocode}
           getCenter={getMapCenter}
         />
-        {narrow ? (
+        {compactHeader ? (
           <>
             <button
               type="button"

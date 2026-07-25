@@ -9,8 +9,9 @@ interface AuthControlProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** In the ☰ menu rather than the header bar: the form can't be a dropdown
-   *  hanging off a dropdown, so it opens as a centred overlay instead. */
-  narrow: boolean
+   *  hanging off a dropdown, so it opens as a centred overlay instead. Keyed
+   *  to the header's breakpoint (900), not the pane's (768). */
+  inMenu: boolean
 }
 
 function AuthControl({
@@ -18,7 +19,7 @@ function AuthControl({
   onUserChange,
   open,
   onOpenChange,
-  narrow,
+  inMenu,
 }: AuthControlProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [username, setUsername] = useState('')
@@ -62,7 +63,7 @@ function AuthControl({
 
   const form = (
     <form
-      className={`auth-form${narrow ? ' auth-overlay' : ''}`}
+      className={`auth-form${inMenu ? ' auth-overlay' : ''}`}
       onSubmit={handleSubmit}
     >
       <div className="auth-tabs">
@@ -120,7 +121,7 @@ function AuthControl({
         Log in
       </button>
       {open &&
-        (narrow ? (
+        (inMenu ? (
           <>
             <div
               className="auth-overlay-backdrop"

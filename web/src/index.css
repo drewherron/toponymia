@@ -97,6 +97,9 @@ body,
 .search-box {
   position: relative;
   flex: 0 1 340px;
+  /* Flex items floor at their content's intrinsic width by default, which for
+     a text input is wide enough to push the header off a phone screen. */
+  min-width: 0;
 }
 
 .search-input {
@@ -2004,24 +2007,15 @@ body,
   cursor: pointer;
 }
 
-@media (max-width: 768px) {
-  .app-header {
-    gap: 8px;
-    padding: 0 10px;
-  }
-
-  .app-logo {
-    font-size: 1.4rem;
-  }
-
-  .search-box {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
+/* Header first (900): the bar runs out of room long before the pane does, and
+   leaving the tools inline any longer just eats the search box. */
+@media (max-width: 900px) {
   .header-menu-button {
     display: block;
     flex-shrink: 0;
+    /* Flush right: it's the last thing in the bar, and capping the search box
+       leaves slack that would otherwise strand it mid-header. */
+    margin-left: auto;
   }
 
   /* Sits under the menu but over the map, so a tap outside dismisses. */
@@ -2078,6 +2072,19 @@ body,
     width: min(300px, 86vw);
     text-align: left;
     z-index: 61;
+  }
+}
+
+/* Then the pane (768): phone territory, where a side pane can't leave enough
+   map to navigate by. */
+@media (max-width: 768px) {
+  .app-header {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .app-logo {
+    font-size: 1.4rem;
   }
 
   .feature-pane {
