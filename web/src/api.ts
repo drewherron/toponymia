@@ -23,6 +23,7 @@ import type {
   TalkThread,
   User,
 } from './types'
+import { isToponymicPhotonHit } from './poi'
 
 function csrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)
@@ -192,6 +193,11 @@ export async function searchGeocoder(
   for (const feature of (body.features ?? []) as PhotonFeature[]) {
     const props = feature.properties
     if (!props.name) continue
+    // The map's poi filter has no say here — geocoder hits never touch the
+    // style — so the same rule is applied again in Photon's vocabulary.
+    if (!isToponymicPhotonHit(props.osm_key ?? '', props.osm_value ?? '')) {
+      continue
+    }
     const context = [props.city, props.state, props.country]
       .filter((part): part is string => !!part && part !== props.name)
       .join(', ')

@@ -23,6 +23,7 @@ import type {
   MapPadding,
   ResolvedPlace,
 } from '../types'
+import { poiClassFilter } from '../poi'
 import { toCandidates } from './features'
 import { nameField, nameKeys, nameMatch } from './labels'
 
@@ -523,6 +524,15 @@ function MapView({
       // which label the `ref` property).
       const labelLayers: LabelLayer[] = []
       for (const layer of map.getStyle().layers ?? []) {
+        // Commercial POIs are not toponyms (see poi.ts). Keyed on the
+        // source layer, not the style's layer ids (poi_r1, poi_transit,
+        // ...): those are OpenFreeMap's own naming and may be restyled,
+        // while `poi` is the OpenMapTiles schema. Hiding them is also
+        // what un-clicks them — queryRenderedFeatures only returns
+        // features from layers in the style.
+        if ('source-layer' in layer && layer['source-layer'] === 'poi') {
+          map.setFilter(layer.id, poiClassFilter(layer.filter))
+        }
         if (layer.type !== 'symbol') continue
         const textField = layer.layout?.['text-field']
         if (!textField || !JSON.stringify(textField).includes('"name"')) {
