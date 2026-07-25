@@ -17,7 +17,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from . import dashboard
+from . import dashboard, overpass
 from .articles import save_edit
 from .models import (
     Article,
@@ -32,6 +32,7 @@ from .models import (
 )
 from .overpass import (
     OverpassError,
+    bounds_of,
     center_of,
     choose_element,
     fetch_elements,
@@ -139,6 +140,81 @@ class OverpassLogicTests(TestCase):
         self.assertEqual(radius_for_click(19, 60), 50)
         self.assertEqual(radius_for_click(None, 45), 500)
 
+    def test_boundary_relation_beats_land_area(self):
+        """Both carry wikidata=Q142; the land mass has the lower id.
+
+        Without the type tiebreak, France resolved to a place titled
+        "France (land mass)".
+        """
+        land = _relation(osm_id=11980, name='France (terres)', qid='Q142')
+        land['tags']['type'] = 'land_area'
+        boundary = _relation(osm_id=2202162, name='France', qid='Q142')
+        boundary['tags']['type'] = 'boundary'
+        self.assertEqual(choose_element([land, boundary]), boundary)
+        self.assertEqual(choose_element([boundary, land]), boundary)
+
+    def test_bounds_kept_for_an_ordinary_extent(self):
+        self.assertEqual(
+            bounds_of(_relation()), (-95.2, 29.0, -89.1, 47.4)
+        )
+
+    def test_wrapped_bounds_rejected(self):
+        """France: minlon > maxlon means "east, round the globe, to maxlon".
+
+        Stored verbatim it normalises to the extent's complement — a
+        0.002°-wide ribbon down the prime meridian — and frames the whole
+        world on zoom-to-place.
+        """
+        france = _relation(
+            osm_id=2202162, name='France', qid='Q142',
+            bounds={
+                'minlat': -50.2187169, 'minlon': 0.0002451,
+                'maxlat': 51.3055721, 'maxlon': -0.0012556,
+            },
+        )
+        self.assertIsNone(bounds_of(france))
+
+    def test_bounds_wider_than_half_the_globe_rejected(self):
+        """The United States: Guam (144.4E) to Maine (64.4W).
+
+        151° across the Pacific, which as a planar rectangle reads as 209°
+        across the Atlantic — excluding Hawaii and most of Alaska.
+        """
+        usa = _relation(
+            osm_id=148838, name='United States', qid='Q30',
+            bounds={
+                'minlat': -14.7608358, 'minlon': 144.4129186,
+                'maxlat': 71.5889534, 'maxlon': -64.35549,
+            },
+        )
+        self.assertIsNone(bounds_of(usa))
+        # ...and the same numbers un-wrapped are still too wide to trust.
+        self.assertIsNone(
+            bounds_of(_relation(bounds={
+                'minlat': -14.76, 'minlon': -64.35549,
+                'maxlat': 71.59, 'maxlon': 144.4129186,
+            }))
+        )
+
+    def test_zero_width_bounds_kept(self):
+        """A due-north-south way is legitimately zero-wide — not wrapped."""
+        vertical = _relation(bounds={
+            'minlat': 45.4, 'minlon': -122.7, 'maxlat': 45.5,
+            'maxlon': -122.7,
+        })
+        self.assertEqual(bounds_of(vertical), (-122.7, 45.4, -122.7, 45.5))
+
+    def test_wrapped_bounds_give_no_centre_either(self):
+        """center_of averages the bounds, so a wrapped box lands nowhere
+        near the feature — France's midpoint would sit in the Gulf of
+        Guinea. Falling through to None lets resolve() use the click."""
+        france = _relation(bounds={
+            'minlat': -50.2, 'minlon': 0.0002, 'maxlat': 51.3,
+            'maxlon': -0.0013,
+        })
+        del france['center']
+        self.assertIsNone(center_of(france))
+
 
 class _FakeResponse:
     def __init__(self, elements=None, http_error=None):
@@ -245,6 +321,42 @@ class ResolveApiTests(ApiTestCase):
         # dots hang at the click, the only point known to be ON the river
         self.assertEqual(
             (db_place.label_point.x, db_place.label_point.y), (-91.0, 32.0)
+        )
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_antimeridian_country_stores_no_bbox(self, fetch):
+        """France resolves to a usable place with *no* footprint.
+
+        A wrapped extent has no planar rectangle, so the place keeps only
+        points — and the client picks its zoom from feature_class rather
+        than framing a bogus box (which was the whole world).
+        """
+        france = _relation(
+            osm_id=2202162, name='France', qid='Q142',
+            bounds={
+                'minlat': -50.2187169, 'minlon': 0.0002451,
+                'maxlat': 51.3055721, 'maxlon': -0.0012556,
+            },
+        )
+        # We query with `out bb`, which carries no center (M2 finding), so
+        # the centroid is derived from the bounds — and must not be.
+        del france['center']
+        fetch.return_value = [france]
+        body = self._post(
+            name='France', **{'class': 'country'}, lngLat=[2.3, 46.6]
+        ).json()
+        place = body['place']
+        self.assertEqual(place['anchor_level'], 'wikidata')
+        self.assertIsNone(place['bbox'])
+        db_place = Place.objects.get(pk=place['id'])
+        self.assertIsNone(db_place.bbox)
+        # The click is on the mainland; that's what fly-to gets to use.
+        self.assertEqual(
+            (db_place.label_point.x, db_place.label_point.y), (2.3, 46.6)
+        )
+        # Not the bounds' midpoint, which for France is the Gulf of Guinea.
+        self.assertEqual(
+            (db_place.centroid.x, db_place.centroid.y), (2.3, 46.6)
         )
 
     @patch('core.resolve.overpass.fetch_elements')
@@ -795,6 +907,36 @@ class ResolveQidHintTests(ApiTestCase):
         place = self._post(name='成都市').json()['place']
         fetch.assert_called_once()
         self.assertEqual(place['anchor_level'], 'wikidata')
+
+    @patch('core.resolve.overpass._call')
+    def test_qid_query_carries_no_proximity_filter(self, call):
+        """A QID is globally unique, so `around` only adds false negatives.
+
+        `["wikidata"="Q30"](around:50000, <centre of the US>)` really does
+        return nothing: Overpass counts a relation as near a point only if
+        its *members* are, and a country's borders aren't near its middle.
+        """
+        call.return_value = []
+        overpass.fetch_by_qid('Q30')
+        query = call.call_args[0][0]
+        self.assertIn('["wikidata"="Q30"]', query)
+        self.assertNotIn('around', query)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    @patch('core.resolve.overpass.fetch_by_qid')
+    def test_hint_finds_a_country_from_its_interior(self, by_qid, fetch):
+        """The case the radius broke: a click nowhere near the border."""
+        usa = _relation(osm_id=148838, name='United States', qid='Q30')
+        usa['tags']['type'] = 'boundary'
+        by_qid.return_value = [usa]
+        fetch.return_value = []
+        place = self._post(
+            name='United States', **{'class': 'country'},
+            lngLat=[-98.5, 39.8], qid='Q30',
+        ).json()['place']
+        self.assertEqual(place['anchor_level'], 'wikidata')
+        self.assertEqual(place['osm_id'], 148838)
+        fetch.assert_not_called()
 
     @patch('core.resolve.overpass.fetch_elements')
     @patch('core.resolve.overpass.fetch_by_qid')

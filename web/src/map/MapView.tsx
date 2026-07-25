@@ -37,6 +37,33 @@ const TOUCH_TOLERANCE_PX = 22
 const FIT_PADDING = 80
 const FIT_MAXZOOM = 14
 const FLY_ZOOM = 12
+// Zoom for a place with no cached footprint, by feature class. A flat
+// FLY_ZOOM is a street-level number: fine for the villages and POIs that
+// usually lack a bbox, absurd for a country. Countries reach this path
+// because an antimeridian-crossing extent has no planar bbox at all
+// (`bounds_of` in overpass.py), so France arrives here with nothing but a
+// point on the mainland — z4 frames that as a country instead of a
+// Parisian street. Keys are the tile/Photon `class` values; anything
+// unlisted keeps FLY_ZOOM.
+const FLY_ZOOM_BY_CLASS: Record<string, number> = {
+  continent: 3,
+  country: 4,
+  state: 5,
+  province: 5,
+  region: 5,
+  county: 7,
+  island: 7,
+  city: 10,
+  town: 11,
+  village: 12,
+  hamlet: 13,
+  suburb: 13,
+  neighbourhood: 14,
+}
+
+function flyZoomFor(place: ResolvedPlace): number {
+  return FLY_ZOOM_BY_CLASS[place.feature_class] ?? FLY_ZOOM
+}
 // How far the live camera may drift from the home view and still count as
 // "there" — a few screen px of pan and a hair of zoom, so the fly landing's
 // rounding isn't read as movement while any real pan/zoom is.
@@ -126,14 +153,17 @@ function homeCamera(
 ): { center: { lng: number; lat: number }; zoom: number } {
   const cam = map.cameraForBounds(placeBounds(place), {
     padding: fitPadding(map, chrome),
-    maxZoom: place.bbox ? FIT_MAXZOOM : FLY_ZOOM,
+    maxZoom: place.bbox ? FIT_MAXZOOM : flyZoomFor(place),
   })
   if (cam?.center && cam.zoom != null && Number.isFinite(cam.zoom)) {
     const center = maplibregl.LngLat.convert(cam.center)
     return { center: { lng: center.lng, lat: center.lat }, zoom: cam.zoom }
   }
   const [lng, lat] = place.label_point ?? place.centroid
-  return { center: { lng, lat }, zoom: place.bbox ? FIT_MAXZOOM : FLY_ZOOM }
+  return {
+    center: { lng, lat },
+    zoom: place.bbox ? FIT_MAXZOOM : flyZoomFor(place),
+  }
 }
 
 // Shapes Arabic/Hebrew label text (self-hosted; lazy = fetched only when
@@ -440,7 +470,11 @@ function MapView({
       clearFocusGeometry: clearFocus,
       flyToPlace: (place: ResolvedPlace, animate = true) => {
         flyWhenReady(() => {
-          fitBox(placeBounds(place), place.bbox ? FIT_MAXZOOM : FLY_ZOOM, animate)
+          fitBox(
+            placeBounds(place),
+            place.bbox ? FIT_MAXZOOM : flyZoomFor(place),
+            animate,
+          )
         })
       },
       flyToHit: (hit: GeocodeHit) => {

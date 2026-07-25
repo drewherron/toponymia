@@ -64,9 +64,7 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
 
     element = None
     if qid:
-        element = overpass.choose_element(
-            overpass.fetch_by_qid(qid, lat, lng)
-        )
+        element = overpass.choose_element(overpass.fetch_by_qid(qid))
     if element is None:
         element = overpass.choose_element(
             overpass.fetch_elements(name, lat, lng, radius)

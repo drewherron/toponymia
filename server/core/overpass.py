@@ -51,13 +51,6 @@ COMPONENT_JOIN_M = 30
 COMPONENT_MAX_LOOPS = 100
 COMPONENT_TIMEOUT_S = 30
 
-# A QID identifies the entity outright, so proximity is only a query-cost
-# bound, not a disambiguator — no two OSM elements carry the same QID in
-# different parts of the world. Generous enough to cover the gap between
-# Wikidata's P625 point and OSM's own placement, which for a city is
-# routinely a kilometre and for a large feature far more.
-QID_SEARCH_RADIUS_M = 50_000
-
 # Relation geometry (line-like relations only — see LINEAR_RELATION_TYPES).
 # The Mississippi's relation is 1064 member ways / ~19k vertices / 1.1 MB,
 # fetched in ~5s: affordable but not free, so it happens once per relation
@@ -79,6 +72,12 @@ LINEAR_RELATION_TYPES = frozenset({'waterway', 'route'})
 QID_RE = re.compile(r'^Q\d+$')
 
 _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
+# Relation `type` tags that describe cartography rather than the place.
+# `land_area` is the big one: OSM carries relation 11980 "France (terres)"
+# — the *land mass* of France — tagged `wikidata=Q142`, exactly like the
+# real boundary relation 2202162. It has a lower id, so it used to win the
+# tiebreak and Q142 resolved to a place titled "France (land mass)".
+_DEPRIORITISED_RELATION_TYPES = frozenset({'land_area'})
 
 
 class OverpassError(Exception):
@@ -111,8 +110,8 @@ def fetch_elements(name, lat, lon, radius):
     return _call(query)
 
 
-def fetch_by_qid(qid, lat, lon, radius=QID_SEARCH_RADIUS_M):
-    """All OSM elements tagged with `qid` near the given point.
+def fetch_by_qid(qid):
+    """All OSM elements tagged with `qid`, **worldwide**.
 
     For callers that already know the entity (a seeding bot working from
     Wikidata, or a tile feature carrying a wikidata tag), this replaces
@@ -120,10 +119,32 @@ def fetch_by_qid(qid, lat, lon, radius=QID_SEARCH_RADIUS_M):
     OSM's `name` tag disagree often enough — suffixes (深圳 vs 深圳市),
     missing native labels, and node placements a kilometre off centre —
     that a name+radius lookup misses entities it should find.
+
+    **No proximity filter** (dropped 2026-07-21; it was 50 km). A QID is
+    globally unique, so a radius can only ever produce false negatives —
+    and it did, for exactly the features whose extent is largest.
+    Overpass's `around` treats a relation as near a point only if its
+    *members* are, and a country's borders are nowhere near its interior:
+    `["wikidata"="Q30"](around:50000,39.8,-98.5)` — the geographic centre
+    of the United States — returns **zero elements**, so the hint missed,
+    the name query missed too, and the US fell all the way to a level-3
+    name anchor. Widening is not the fix: a 1,500 km radius times out,
+    while the unfiltered query answers in ~1.4 s because the wikidata tag
+    is indexed.
+
+    The trust model this changes: §3.1's "a stale hint costs a query, not
+    a resolution" now holds only for a QID **OSM doesn't carry at all**. A
+    QID that exists but isn't the caller's entity resolves confidently to
+    the wrong place instead of falling through. Accepted because in both
+    real callers the QID is authoritative rather than a guess — topobot
+    passes the QID of the article it is writing, and a tile feature's
+    wikidata tag is on the very feature that was clicked. `choose_element`
+    still prefers a relation, which is what keeps a stray mistagged node
+    from winning (OSM has one tagged `wikidata=Q30`: a US consulate).
     """
     query = (
-        '[out:json][timeout:10];'
-        f'nwr["wikidata"="{_escape(qid)}"](around:{radius},{lat},{lon});'
+        '[out:json][timeout:25];'
+        f'nwr["wikidata"="{_escape(qid)}"];'
         'out tags bb;'
     )
     return _call(query)
@@ -228,14 +249,24 @@ def choose_element(elements):
 
     Elements carrying a wikidata QID win (they anchor at level 1), then
     relations over ways over nodes ("prefer the relation that ways belong
-    to"), then proximity to the click as a tiebreak.
+    to"), then the place itself over a cartographic stand-in for it
+    (`_DEPRIORITISED_RELATION_TYPES`).
+
+    Beyond that the order is Overpass's own, which is by id — so a tie is
+    broken by whichever element was mapped first. That is arbitrary but
+    stable; don't read meaning into it.
     """
     if not elements:
         return None
 
     def sort_key(element):
         has_qid = qid_of(element) is not None
-        return (0 if has_qid else 1, _TYPE_RANK.get(element['type'], 3))
+        relation_type = element.get('tags', {}).get('type', '')
+        return (
+            0 if has_qid else 1,
+            _TYPE_RANK.get(element['type'], 3),
+            1 if relation_type in _DEPRIORITISED_RELATION_TYPES else 0,
+        )
 
     return min(elements, key=sort_key)
 
@@ -258,12 +289,53 @@ def center_of(element):
     return None
 
 
+# A stored bbox is a planar rectangle, so it can only describe an extent
+# that doesn't cross the antimeridian. Anything wider than half the globe
+# went the wrong way round; see bounds_of.
+MAX_BBOX_LON_SPAN_DEG = 180
+
+
 def bounds_of(element):
-    """(min_lon, min_lat, max_lon, max_lat) or None."""
+    """(min_lon, min_lat, max_lon, max_lat), or None when unusable.
+
+    **None for an antimeridian-crossing extent**, which no planar
+    rectangle can represent. Overpass signals the crossing by *wrapping*
+    — `minlon > maxlon`, meaning "east from minlon, round the globe, to
+    maxlon" — and countries with overseas territories are full of them:
+
+    - France (relation 2202162) reports `minlon 0.0002 / maxlon -0.0013`,
+      because its territories between them cover nearly every longitude.
+    - The United States (148838) reports `minlon 144.41` (Guam) /
+      `maxlon -64.36` (Maine): 151° across the Pacific.
+
+    Taking those verbatim was a real bug. `Polygon.from_bbox` silently
+    normalises inverted corners by swapping them, which yields the
+    extent's **complement** — the US box became 209° wide across the
+    Atlantic, Europe and Asia, excluding Hawaii and most of Alaska, while
+    France collapsed to a 0.002°-wide ribbon down the prime meridian
+    101° tall. Both then framed the whole world on "zoom to place", and
+    both silently degraded the highlight viewport test and the resolve
+    proximity cache, which OR in the bbox.
+
+    Returning None is deliberate over storing the true wrapped extent:
+    France really does span ~360°, so the honest rectangle frames the
+    whole planet — correct and useless. With no bbox the caller falls
+    back to `label_point`, which is *on* the feature, and the client
+    picks a zoom from the feature class (`flyZoomFor` in MapView). The
+    better answer for a country — frame its largest component — needs
+    the area-relation member geometry that M4 deferred.
+
+    Same hazard, and the same fix, as the M4 finding on the *incoming*
+    viewport bbox in the highlights query; that one was handled and this
+    one was not.
+    """
     bounds = element.get('bounds')
-    if bounds:
-        return (
-            bounds['minlon'], bounds['minlat'],
-            bounds['maxlon'], bounds['maxlat'],
-        )
-    return None
+    if not bounds:
+        return None
+    min_lon, max_lon = bounds['minlon'], bounds['maxlon']
+    # Equal is fine: a due-north-south way is legitimately zero-wide.
+    if max_lon < min_lon:
+        return None
+    if max_lon - min_lon > MAX_BBOX_LON_SPAN_DEG:
+        return None
+    return (min_lon, bounds['minlat'], max_lon, bounds['maxlat'])
