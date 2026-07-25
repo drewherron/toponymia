@@ -35,7 +35,7 @@ from .moderation import (
     is_moderator,
     log_action,
 )
-from .overpass import OverpassError
+from .overpass import QID_RE, OverpassError
 from .serializers import (
     ArticleDeleteSerializer,
     ArticleEditSerializer,
@@ -149,6 +149,8 @@ def resolve(request):
     feature_class = data.get('class')
     lng_lat = data.get('lngLat')
     zoom = data.get('zoom')
+    # optional Wikidata hint from a caller that already knows the entity
+    qid = data.get('qid')
 
     if (
         not isinstance(name, str) or not name.strip()
@@ -157,9 +159,13 @@ def resolve(request):
         or not isinstance(lng_lat, (list, tuple)) or len(lng_lat) != 2
         or not all(isinstance(c, (int, float)) for c in lng_lat)
         or not (isinstance(zoom, (int, float)) or zoom is None)
+        or not (qid is None or (isinstance(qid, str) and QID_RE.match(qid)))
     ):
         return Response(
-            {'error': 'expected {name, class, lngLat: [lng, lat], zoom?}'},
+            {
+                'error': 'expected {name, class, lngLat: [lng, lat], '
+                         'zoom?, qid?}'
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
     name_en = name_en.strip() or None if name_en else None
@@ -172,7 +178,7 @@ def resolve(request):
 
     try:
         place, created = resolution.resolve(
-            name.strip(), feature_class, lng, lat, zoom, name_en
+            name.strip(), feature_class, lng, lat, zoom, name_en, qid=qid
         )
     except OverpassError:
         return Response(

@@ -469,6 +469,84 @@ class ResolveApiTests(ApiTestCase):
         self.assertEqual(place['anchor_level'], 'name')
 
 
+class ResolveQidHintTests(ApiTestCase):
+    """The optional `qid` hint (DESIGN.md §3.1).
+
+    Regression cover for the seeding bot's level-3 anchors: every one of
+    Chicago, Beijing, Shenzhen and Chengdu resolved by name and missed,
+    two because OSM's node sits further from Wikidata's P625 point than
+    the click radius, two because Wikidata's native label and OSM's name
+    tag differ (深圳 vs 深圳市; no P1705 at all, so an English label got
+    sent at a Chinese name tag). A QID matches all four exactly.
+    """
+
+    def _post(self, **overrides):
+        payload = {
+            'name': 'Chengdu',          # the English fallback that missed
+            'class': 'city',
+            'lngLat': [104.06333, 30.66],
+            'qid': 'Q30002',
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('core:resolve'), payload, content_type='application/json'
+        )
+
+    def _chengdu(self):
+        return _relation(osm_id=2110264, name='成都市', qid='Q30002')
+
+    def test_rejects_malformed_qid(self):
+        self.assertEqual(self._post(qid='not-a-qid').status_code, 400)
+        self.assertEqual(self._post(qid=30002).status_code, 400)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    @patch('core.resolve.overpass.fetch_by_qid')
+    def test_hint_anchors_at_level_1_when_name_would_miss(self, by_qid, fetch):
+        fetch.return_value = []           # what the name query really returns
+        by_qid.return_value = [self._chengdu()]
+        place = self._post().json()['place']
+        self.assertEqual(place['anchor_level'], 'wikidata')
+        self.assertEqual(place['wikidata_qid'], 'Q30002')
+        self.assertEqual(place['osm_type'], 'relation')
+        # the name query is never reached once the hint matches
+        fetch.assert_not_called()
+
+    @patch('core.resolve.overpass.fetch_elements')
+    @patch('core.resolve.overpass.fetch_by_qid')
+    def test_hint_reuses_existing_place_without_touching_overpass(
+        self, by_qid, fetch
+    ):
+        by_qid.return_value = [self._chengdu()]
+        first = self._post().json()
+        by_qid.reset_mock()
+        # a re-run from anywhere: the QID alone identifies the place, so
+        # a seeding bot re-publishing costs no Overpass call at all.
+        second = self._post(lngLat=[0.0, 0.0]).json()
+        self.assertFalse(second['created'])
+        self.assertEqual(second['place']['id'], first['place']['id'])
+        by_qid.assert_not_called()
+        fetch.assert_not_called()
+        self.assertEqual(Place.objects.count(), 1)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    @patch('core.resolve.overpass.fetch_by_qid')
+    def test_stale_hint_falls_through_to_the_name_ladder(self, by_qid, fetch):
+        # A QID that OSM doesn't carry costs one query, not a resolution.
+        by_qid.return_value = []
+        fetch.return_value = [self._chengdu()]
+        place = self._post(name='成都市').json()['place']
+        fetch.assert_called_once()
+        self.assertEqual(place['anchor_level'], 'wikidata')
+
+    @patch('core.resolve.overpass.fetch_elements')
+    @patch('core.resolve.overpass.fetch_by_qid')
+    def test_no_hint_leaves_behavior_unchanged(self, by_qid, fetch):
+        fetch.return_value = [self._chengdu()]
+        place = self._post(name='成都市', qid=None).json()['place']
+        by_qid.assert_not_called()
+        self.assertEqual(place['wikidata_qid'], 'Q30002')
+
+
 def _make_place(name='Testville', slug='testville'):
     return Place.objects.create(
         slug=slug,

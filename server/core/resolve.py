@@ -20,15 +20,28 @@ from . import overpass
 from .models import Place
 
 
-def resolve(name, feature_class, lng, lat, zoom=None, name_en=None):
+def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
+            qid=None):
     """Return (place, created). Raises overpass.OverpassError on outage.
 
     `name` is the feature's native OSM name (what Overpass matches on);
     `name_en` is the English-first label the client displayed, preferred
     for display_name so the article is titled what the user clicked.
+
+    `qid` is an optional Wikidata hint from a caller that already knows
+    the entity. It short-circuits the name guess: an existing Place with
+    that QID wins outright, else Overpass is queried by wikidata tag,
+    which anchors at level 1 by construction. A miss falls through to the
+    name ladder below, so a wrong or stale hint costs a query, not a
+    resolution.
     """
     radius = overpass.radius_for_click(zoom, lat)
     click = Point(lng, lat, srid=4326)
+
+    if qid:
+        existing = Place.objects.filter(wikidata_qid=qid).first()
+        if existing:
+            return existing, False
 
     display_names = {name, name_en} - {None}
     # bbox matters for relations, which cache no geometry: without it a
@@ -48,9 +61,15 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None):
     if cached:
         return cached, False
 
-    element = overpass.choose_element(
-        overpass.fetch_elements(name, lat, lng, radius)
-    )
+    element = None
+    if qid:
+        element = overpass.choose_element(
+            overpass.fetch_by_qid(qid, lat, lng)
+        )
+    if element is None:
+        element = overpass.choose_element(
+            overpass.fetch_elements(name, lat, lng, radius)
+        )
     if element is None:
         return _create_name_anchor(name_en or name, feature_class, click), True
 
@@ -63,7 +82,7 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None):
     anchor_id = min(w['id'] for w in component) if component else element['id']
     # A sibling segment often carries the road's wikidata tag when the
     # clicked one doesn't.
-    qid = overpass.qid_of(element) or _component_qid(component)
+    qid = overpass.qid_of(element) or _component_qid(component) or qid
 
     if qid:
         existing = Place.objects.filter(wikidata_qid=qid).first()

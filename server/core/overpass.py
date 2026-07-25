@@ -51,6 +51,13 @@ COMPONENT_JOIN_M = 30
 COMPONENT_MAX_LOOPS = 100
 COMPONENT_TIMEOUT_S = 30
 
+# A QID identifies the entity outright, so proximity is only a query-cost
+# bound, not a disambiguator — no two OSM elements carry the same QID in
+# different parts of the world. Generous enough to cover the gap between
+# Wikidata's P625 point and OSM's own placement, which for a city is
+# routinely a kilometre and for a large feature far more.
+QID_SEARCH_RADIUS_M = 50_000
+
 QID_RE = re.compile(r'^Q\d+$')
 
 _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
@@ -81,6 +88,24 @@ def fetch_elements(name, lat, lon, radius):
     query = (
         '[out:json][timeout:10];'
         f'nwr["name"="{_escape(name)}"](around:{radius},{lat},{lon});'
+        'out tags bb;'
+    )
+    return _call(query)
+
+
+def fetch_by_qid(qid, lat, lon, radius=QID_SEARCH_RADIUS_M):
+    """All OSM elements tagged with `qid` near the given point.
+
+    For callers that already know the entity (a seeding bot working from
+    Wikidata, or a tile feature carrying a wikidata tag), this replaces
+    the name-filtered guess with an exact match. Wikidata's P625 point and
+    OSM's `name` tag disagree often enough — suffixes (深圳 vs 深圳市),
+    missing native labels, and node placements a kilometre off centre —
+    that a name+radius lookup misses entities it should find.
+    """
+    query = (
+        '[out:json][timeout:10];'
+        f'nwr["wikidata"="{_escape(qid)}"](around:{radius},{lat},{lon});'
         'out tags bb;'
     )
     return _call(query)
