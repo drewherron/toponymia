@@ -13,6 +13,11 @@ urlpatterns = [
     path('random/', views.random_article, name='random'),
     path('places/<slug:slug>/', views.place_detail, name='place-detail'),
     path(
+        'places/<slug:slug>/geometry/',
+        views.place_geometry,
+        name='place-geometry',
+    ),
+    path(
         'places/<slug:slug>/article/',
         views.article_edit,
         name='article-edit',

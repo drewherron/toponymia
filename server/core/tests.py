@@ -1284,6 +1284,52 @@ class HighlightApiTests(ApiTestCase):
         self.assertEqual(len(features), 1)
 
 
+class PlaceGeometryApiTests(ApiTestCase):
+    """The lazily-fetched course behind the "zoom to place" highlight."""
+
+    def _get(self, slug):
+        return self.client.get(
+            reverse('core:place-geometry', args=[slug])
+        )
+
+    def test_returns_cached_course_as_geojson(self):
+        place = _make_place(name='Long Creek', slug='long-creek')
+        place.geometry = MultiLineString(
+            LineString([(9.0, 50.0), (10.0, 51.0)], srid=4326),
+            LineString([(10.0, 51.0), (12.0, 52.0)], srid=4326),
+            srid=4326,
+        )
+        place.save()
+        body = self._get('long-creek').json()
+        self.assertEqual(body['geometry']['type'], 'MultiLineString')
+        self.assertEqual(
+            body['geometry']['coordinates'],
+            [[[9.0, 50.0], [10.0, 51.0]], [[10.0, 51.0], [12.0, 52.0]]],
+        )
+
+    def test_area_relation_reports_no_geometry(self):
+        # Cities and countries cache centroid+bbox only, so they have
+        # nothing to draw — null, not a 404: the place exists.
+        _make_place()
+        response = self._get('testville')
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['geometry'])
+
+    def test_unknown_slug_404s(self):
+        self.assertEqual(self._get('nowhere').status_code, 404)
+
+    def test_geometry_stays_out_of_the_detail_response(self):
+        # The detail endpoint is fetched on every article open; keeping
+        # tens of kB of course off it is the whole point of this endpoint.
+        place = _make_place()
+        place.geometry = LineString([(9.0, 50.0), (10.0, 51.0)], srid=4326)
+        place.save()
+        body = self.client.get(
+            reverse('core:place-detail', args=['testville'])
+        ).json()
+        self.assertNotIn('geometry', body['place'])
+
+
 class AuthApiTests(ApiTestCase):
     def test_me_anonymous(self):
         response = self.client.get(reverse('core:me'))

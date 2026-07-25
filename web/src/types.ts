@@ -79,6 +79,11 @@ export interface MapApi {
    *  appears the moment you leave that view, even if the place is still
    *  visible. */
   isAtHomeView: (place: ResolvedPlace) => boolean
+  /** Draw the place's own course over the basemap, answering "where does
+   *  this thing run?" at the framing zoom a dot can't. Transient by
+   *  design: the map clears it on the first user-initiated move. */
+  showFocusGeometry: (slug: string) => void
+  clearFocusGeometry: () => void
 }
 
 export interface ResolveResponse {

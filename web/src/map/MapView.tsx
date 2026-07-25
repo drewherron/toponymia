@@ -7,7 +7,7 @@ import type { ExpressionSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
-import { fetchHighlights } from '../api'
+import { fetchHighlights, fetchPlaceGeometry } from '../api'
 import {
   COARSE_QUERY,
   PANE_MAX_VW,
@@ -216,6 +216,15 @@ function MapView({
   const articleNamesRef = useRef<string[]>([])
   const collectionRef = useRef<FeatureCollection>(EMPTY_COLLECTION)
   const hiddenDotsRef = useRef('')
+  const focusAbortRef = useRef<AbortController | null>(null)
+  // Slug of the place currently drawing its course — set only once
+  // geometry is actually on the map, so a city (which has none) keeps its
+  // dot. Read by updateDotFilter.
+  const focusSlugRef = useRef<string | null>(null)
+  // Down once the programmatic fly that requested the highlight has
+  // settled; until then a move is ours, not the user's. See the teardown
+  // in the 'movestart' handler.
+  const focusFlyingRef = useRef(false)
 
   useEffect(() => {
     propsRef.current = {
@@ -265,8 +274,10 @@ function MapView({
 
   /**
    * A dot only stands in for a missing label: hide it as soon as any of
-   * the place's names is currently rendered as a basemap label. Runs on
-   * 'idle', so the dot→label handoff follows tile/collision changes.
+   * the place's names is currently rendered as a basemap label — or as
+   * soon as the feature is drawing its own course, which says where the
+   * thing is far better than a dot on it. Runs on 'idle', so the
+   * dot→label handoff follows tile/collision changes.
    */
   const updateDotFilter = (map: maplibregl.Map) => {
     const layerIds = labelLayersRef.current.map((layer) => layer.id)
@@ -292,6 +303,10 @@ function MapView({
         hidden.push(props.slug)
       }
     }
+    // The highlighted feature's own dot, which the label rule misses: at
+    // the zoom that frames a whole river there is no label to hand off to.
+    const focus = focusSlugRef.current
+    if (focus && !hidden.includes(focus)) hidden.push(focus)
     const key = hidden.sort().join('|')
     if (key === hiddenDotsRef.current) return
     hiddenDotsRef.current = key
@@ -375,7 +390,54 @@ function MapView({
         animate,
       })
     }
+    const setFocusData = (data: FeatureCollection) => {
+      const source = map.getSource('focus-geometry') as
+        | maplibregl.GeoJSONSource
+        | undefined
+      source?.setData(data)
+    }
+    const clearFocus = () => {
+      focusAbortRef.current?.abort()
+      focusAbortRef.current = null
+      focusFlyingRef.current = false
+      const wasFocused = focusSlugRef.current !== null
+      focusSlugRef.current = null
+      if (readyRef.current) {
+        setFocusData(EMPTY_COLLECTION)
+        // Give the dot back straight away rather than waiting for 'idle'.
+        if (wasFocused) updateDotFilter(map)
+      }
+    }
     mapApi.current = {
+      showFocusGeometry: (slug: string) => {
+        // Latch before the caller's fly starts, so the movestart it
+        // provokes isn't mistaken for the user moving away.
+        clearFocus()
+        focusFlyingRef.current = true
+        const controller = new AbortController()
+        focusAbortRef.current = controller
+        fetchPlaceGeometry(slug, controller.signal)
+          .then((geometry) => {
+            // A second press (or a teardown) landed while we were in
+            // flight; that request owns the layer now.
+            if (focusAbortRef.current !== controller || !readyRef.current) {
+              return
+            }
+            // Null for area relations — cities simply don't highlight.
+            if (!geometry || geometry.type === 'Point') return
+            setFocusData({
+              type: 'FeatureCollection',
+              features: [{ type: 'Feature', geometry, properties: {} }],
+            })
+            // The course now stands in for the dot the way a label would.
+            focusSlugRef.current = slug
+            updateDotFilter(map)
+          })
+          .catch((error: unknown) => {
+            if (!controller.signal.aborted) console.error(error)
+          })
+      },
+      clearFocusGeometry: clearFocus,
       flyToPlace: (place: ResolvedPlace, animate = true) => {
         flyWhenReady(() => {
           fitBox(placeBounds(place), place.bbox ? FIT_MAXZOOM : FLY_ZOOM, animate)
@@ -445,6 +507,30 @@ function MapView({
       }
       labelLayersRef.current = labelLayers
 
+      // Its own source, not `highlights`: that one is replaced wholesale
+      // on every moveend from the viewport query, which would clobber it.
+      map.addSource('focus-geometry', {
+        type: 'geojson',
+        data: EMPTY_COLLECTION,
+      })
+      map.addLayer(
+        {
+          id: 'focus-line',
+          type: 'line',
+          source: 'focus-geometry',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': DOT_COLOR,
+            'line-opacity': 0.85,
+            // Thin enough at the framing zoom to show a river's shape,
+            // heavier once you're in close.
+            'line-width': ['interpolate', ['linear'], ['zoom'], 4, 2.5, 12, 5],
+          },
+        },
+        // Under the basemap's names, so the labels stay readable through it.
+        labelLayers[0]?.id,
+      )
+
       map.addSource('highlights', {
         type: 'geojson',
         data: EMPTY_COLLECTION,
@@ -474,6 +560,9 @@ function MapView({
       if (readyRef.current) updateDotFilter(map)
     })
     map.on('moveend', () => {
+      // Our fly has landed; from here any move is the user's, and the
+      // next one takes the highlight down.
+      focusFlyingRef.current = false
       if (readyRef.current) {
         refreshHighlights(map)
         propsRef.current.onViewportChange()
@@ -512,12 +601,22 @@ function MapView({
         },
       )
     })
-    map.on('movestart', () => {
+    map.on('movestart', (e) => {
+      // The highlight answers a question the user just asked, and the
+      // fly that frames it is itself a movestart — so clearing naively
+      // here would kill it on the frame it appeared. Two signals say the
+      // move is the user's: an originalEvent (a drag, even one that
+      // interrupts our fly mid-flight), or the latch already down
+      // because our fly settled. Either alone is unreliable —
+      // originalEvent is absent for keyboard nav and inertial drift —
+      // so honour both, the same belt-and-braces as App's pendingHomeRef.
+      if (e.originalEvent || !focusFlyingRef.current) clearFocus()
       propsRef.current.onMoveStart()
     })
 
     return () => {
       abortRef.current?.abort()
+      focusAbortRef.current?.abort()
       readyRef.current = false
       mapRef.current = null
       mapApi.current = null

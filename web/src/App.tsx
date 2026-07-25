@@ -214,9 +214,20 @@ function App() {
     if (selectedPlaceRef.current) {
       pendingHomeRef.current = true
       setOffView(false)
+      // Only here, not on the other flyToPlace paths (deep links, search
+      // hits): the highlight answers the question this button asks, and
+      // arriving somewhere isn't the same as asking where it reaches.
+      mapApiRef.current?.showFocusGeometry(selectedPlaceRef.current.slug)
       mapApiRef.current?.flyToPlace(selectedPlaceRef.current)
     }
   }, [])
+
+  // The highlight belongs to one press of "zoom to place" on one place, so
+  // anything that swaps or drops the selection ends it: closing the pane,
+  // following an in-article link, back/forward, a delete.
+  useEffect(() => {
+    mapApiRef.current?.clearFocusGeometry()
+  }, [selected])
 
   // Fires on every map settle: the fly (if any) has landed, so clear the
   // pending guard and re-test the live camera against the home view.

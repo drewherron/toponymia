@@ -1,4 +1,4 @@
-import type { FeatureCollection } from 'geojson'
+import type { FeatureCollection, Geometry } from 'geojson'
 import type {
   ArticleContent,
   ArticleData,
@@ -89,6 +89,22 @@ export async function fetchHighlights(
     throw new Error(`highlights failed: ${response.status}`)
   }
   return response.json()
+}
+
+/** A place's cached course, for the transient "zoom to place" highlight.
+ *  Null for area relations, which cache no geometry. Its own request
+ *  rather than a field on getPlace: it can run to tens of kB, and only
+ *  the recenter button ever needs it. */
+export async function fetchPlaceGeometry(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<Geometry | null> {
+  const response = await fetch(`/api/places/${slug}/geometry/`, { signal })
+  if (!response.ok) {
+    throw new Error(`geometry fetch failed: ${response.status}`)
+  }
+  const body = await response.json()
+  return body.geometry
 }
 
 /** Our own articles matching the query, by any of their names. */

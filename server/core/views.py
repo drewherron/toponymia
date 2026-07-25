@@ -372,6 +372,33 @@ def place_detail(request, slug):
     )
 
 
+@api_view(['GET'])
+def place_geometry(request, slug):
+    """The place's cached course as bare GeoJSON, for the focus highlight.
+
+    Deliberately its own endpoint rather than a field on place_detail:
+    the detail response is fetched on every article open, and the
+    Mississippi's geometry is 47 kB. This is fetched only when the user
+    presses "zoom to place", so most readers never pay for it.
+
+    `{"geometry": null}` for a place that caches none — area relations
+    (cities, countries) store centroid+bbox only, so they simply don't
+    highlight (SECRET/highlight.md §7).
+    """
+    place = get_object_or_404(Place.objects.only('geometry'), slug=slug)
+    response = Response(
+        {
+            'geometry': (
+                json.loads(place.geometry.geojson) if place.geometry else None
+            )
+        }
+    )
+    # Only changes when the place is re-resolved, which mints no new URL —
+    # so allow a short cache, not an indefinite one.
+    response['Cache-Control'] = 'public, max-age=3600'
+    return response
+
+
 def _revision_json(revision, current_id, with_content=False):
     data = {
         'id': revision.id,
