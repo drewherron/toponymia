@@ -314,6 +314,19 @@ body,
   color: #a15c00;
 }
 
+.anchor-error p {
+  margin: 0 0 6px;
+  line-height: 1.45;
+}
+
+.anchor-error p:last-child {
+  margin-bottom: 0;
+}
+
+.anchor-error-hint {
+  color: #888;
+}
+
 .anchor-badge {
   display: inline-block;
   padding: 2px 8px;

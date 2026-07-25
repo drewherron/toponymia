@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import {
   deleteArticle,
   getPlace,
+  ResolveError,
+  type ResolveFailure,
   resolveFeature,
   restoreArticle,
   setProtection,
@@ -126,7 +128,7 @@ interface FeaturePaneProps {
 
 type Resolution =
   | { status: 'loading' }
-  | { status: 'error' }
+  | { status: 'error'; reason: ResolveFailure }
   | { status: 'done'; place: ResolvedPlace }
 
 type Detail =
@@ -160,9 +162,29 @@ function AnchorInfo({
   }
   if (resolution.status === 'error') {
     return (
-      <p className="anchor-info anchor-error">
-        Could not resolve this feature to a place right now.
-      </p>
+      <div className="anchor-info anchor-error">
+        {resolution.reason === 'unavailable' ? (
+          <>
+            <p>
+              Couldn’t identify this place. Toponymia looks up places it
+              hasn’t seen before through Overpass, OpenStreetMap’s public
+              query service — and it’s busy or unreachable right now.
+              Nothing is wrong with your click or with this place.
+            </p>
+            <p className="anchor-error-hint">
+              It usually clears within a minute or two. Places already in
+              Toponymia are unaffected, which is why some clicks still work.
+            </p>
+          </>
+        ) : resolution.reason === 'throttled' ? (
+          <p>
+            You’re opening new places faster than we can look them up. Give
+            it a minute, then try again.
+          </p>
+        ) : (
+          <p>Couldn’t identify this place right now. Try again in a moment.</p>
+        )}
+      </div>
     )
   }
   // Anchor plumbing (QID, OSM ref, slug) is moderator-only.
@@ -418,8 +440,10 @@ function FeaturePane({
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           console.error(error)
+          const reason =
+            error instanceof ResolveError ? error.reason : 'failed'
           setResolution((prev) =>
-            prev.status === 'done' ? prev : { status: 'error' },
+            prev.status === 'done' ? prev : { status: 'error', reason },
           )
           setDetail({ status: 'error' })
         }

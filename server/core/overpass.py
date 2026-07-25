@@ -10,23 +10,31 @@ import time
 
 import requests
 
-# Tried in order. overpass-api.de rate-limits to 2 concurrent slots per
-# IP, so we fall through to other public general-purpose mirrors (from the
-# OSM wiki's Overpass API instance list) when it rejects us. More mirrors
-# = the "every slot busy" moment that used to fail a resolution is far
-# likelier to find a free instance on the same pass.
+# Tried in order. Vetted 2026-07-15: the list had held three mirrors that
+# were entirely dead — kumi.systems and private.coffee never answered at
+# all (not even /api/status), and osm.jp serves a TLS cert for another
+# host. The fallback they promised was fiction, and each failing pass paid
+# ~30s of connect timeouts to learn nothing, so a doomed resolution took
+# ~2min to report failure. Retrying the one live instance is what actually
+# recovers a busy 504, and it usually does so within seconds.
+#
+# Before adding a mirror, check it returns *data* for a known feature, not
+# merely HTTP 200. Regional extracts (overpass.osm.ch, say, is Switzerland
+# only) answer 200 with zero elements for everywhere else — which resolve()
+# cannot distinguish from "no such feature here", so it would silently
+# create bogus level-3 name anchors for most of the planet.
+#
+# Real redundancy means self-hosting Overpass; see DESIGN.md's "Later".
 OVERPASS_URLS = [
     'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://overpass.private.coffee/api/interpreter',
-    'https://overpass.osm.jp/api/interpreter',
 ]
 TIMEOUT_S = 15
 # A cache-missing click hits Overpass live while the user waits, and a
 # rejection is almost always a transient "no free slot" (429/504) that
-# clears in seconds — so retry the whole mirror list a couple more times,
-# backing off between passes, before giving up on the user.
-RETRY_BACKOFFS_S = (1, 3)
+# clears in seconds — so retry, backing off, before giving up. The budget
+# is bounded by what a user will sit through rather than by hope: four
+# passes at ~8s a rejection plus the backoffs is ~40s worst case.
+RETRY_BACKOFFS_S = (1, 3, 6)
 # overpass-api.de 406es generic client user agents; identify ourselves.
 USER_AGENT = 'toponymia/0.1 (dherron@mailbox.org)'
 

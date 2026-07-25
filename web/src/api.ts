@@ -36,6 +36,22 @@ function jsonHeaders(): Record<string, string> {
   }
 }
 
+/** Why a resolution failed, so the pane can say whose problem it is:
+ *  `unavailable` = Overpass (upstream) is busy or down, `throttled` = our
+ *  own rate limit, `failed` = anything else. */
+export type ResolveFailure = 'unavailable' | 'throttled' | 'failed'
+
+export class ResolveError extends Error {
+  readonly reason: ResolveFailure
+
+  constructor(status: number) {
+    super(`resolve failed: ${status}`)
+    this.name = 'ResolveError'
+    this.reason =
+      status === 503 ? 'unavailable' : status === 429 ? 'throttled' : 'failed'
+  }
+}
+
 export async function resolveFeature(
   name: string,
   kind: string,
@@ -56,7 +72,7 @@ export async function resolveFeature(
     }),
   })
   if (!response.ok) {
-    throw new Error(`resolve failed: ${response.status}`)
+    throw new ResolveError(response.status)
   }
   return response.json()
 }

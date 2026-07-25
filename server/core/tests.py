@@ -170,6 +170,29 @@ class OverpassCallTests(TestCase):
         self.assertEqual(post.call_count, len(OVERPASS_URLS) + 1)
         sleep.assert_called()  # backed off before the retry pass
 
+    def test_known_bad_mirrors_stay_out_of_the_list(self):
+        """Guard the vetting rule documented on OVERPASS_URLS.
+
+        Every host here was in the list once and cost us either time or
+        correctness. The first three never answer at all, so they only
+        ever added connect-timeout latency to a failing resolution. osm.ch
+        is worse: a Switzerland-only extract that returns 200 with zero
+        elements for the rest of the planet, which resolve() cannot tell
+        from "no such feature here" — it would silently anchor bogus
+        level-3 places. Re-adding any of them from the OSM wiki's instance
+        list would be a regression, not a redundancy win.
+        """
+        from core.overpass import OVERPASS_URLS
+
+        for host in (
+            'overpass.kumi.systems',
+            'overpass.private.coffee',
+            'overpass.osm.jp',
+            'overpass.osm.ch',
+        ):
+            for url in OVERPASS_URLS:
+                self.assertNotIn(host, url)
+
     @patch('core.overpass.time.sleep')
     @patch('core.overpass.requests.post')
     def test_raises_after_exhausting_retries(self, post, sleep):
