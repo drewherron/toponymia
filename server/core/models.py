@@ -20,8 +20,14 @@ class Place(models.Model):
     display_name = models.CharField(max_length=255)
     feature_class = models.CharField(max_length=40)
     # Representative geometry cached from Overpass, for the highlight
-    # overlay and proximity cache lookups. Nullable: relations only cache
-    # centroid+bbox for now (full member geometry can be huge).
+    # overlay and proximity cache lookups. Nullable: *area* relations cache
+    # centroid+bbox only (full member geometry can be huge).
+    #
+    # NOT survey-grade — deliberately thinned on write by
+    # resolve.simplified(), to a tolerance scaled to the feature's own
+    # extent so the error stays sub-pixel at the zoom that frames it
+    # (Mississippi: 292 kB -> 47 kB). Fine for drawing and for the
+    # intersects/dwithin filters; do not use it to measure anything.
     geometry = models.GeometryField(geography=True, null=True, blank=True)
     centroid = models.PointField(geography=True)
     # A point guaranteed to lie ON the feature — the click that created

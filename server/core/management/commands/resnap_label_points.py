@@ -49,22 +49,29 @@ class Command(BaseCommand):
             if place.osm_type == 'node':
                 continue
 
+            # Snap from the full course when we can get it, storing the
+            # thinned copy — the same order resolve uses, and for the same
+            # reason (the dot belongs on the geometry the basemap draws).
+            # Without --fetch all we have is the already-thinned geometry,
+            # which puts the midpoint up to tens of km off; fine for a
+            # first pass, worth --fetch for a river.
+            source = place.geometry
             if (
                 place.geometry is None
                 and options['fetch']
                 and place.osm_type == 'relation'
             ):
-                geometry = resolve._relation_geometry(place.osm_id)
-                if geometry is not None:
-                    place.geometry = geometry
+                source = resolve._relation_geometry(place.osm_id)
+                if source is not None:
+                    place.geometry = resolve.simplified(source)
                     fetched += 1
                 time.sleep(FETCH_INTERVAL_S)
 
-            if place.geometry is None:
+            if source is None:
                 skipped += 1
                 continue
 
-            point = resolve.representative_point(place.geometry)
+            point = resolve.representative_point(source)
             if point is None:
                 skipped += 1
                 continue

@@ -39,7 +39,7 @@ from .overpass import (
     qid_of,
     radius_for_click,
 )
-from .resolve import representative_point
+from .resolve import representative_point, simplified
 
 
 class ApiTestCase(TestCase):
@@ -541,6 +541,52 @@ class RepresentativePointTests(TestCase):
         self.assertIsNone(representative_point(None))
 
 
+class SimplifyGeometryTests(TestCase):
+    """Stored geometry is thinned to a tolerance scaled to the feature's
+    own extent, so the error is sub-pixel at the zoom that frames it."""
+
+    def _zigzag(self, span, wobble, n=400):
+        """A line `span` degrees long with `wobble`-degree detours."""
+        return LineString(
+            [
+                (span * i / n, wobble if i % 2 else -wobble)
+                for i in range(n + 1)
+            ],
+            srid=4326,
+        )
+
+    def test_thinning_scales_with_the_feature(self):
+        """The same wobble survives on a small feature and is dropped on a
+        large one — a fixed tolerance could not do both."""
+        big = simplified(self._zigzag(span=18.0, wobble=0.002))
+        small = simplified(self._zigzag(span=0.05, wobble=0.002))
+        self.assertLess(len(big.coords), 50)
+        self.assertGreater(len(small.coords), 300)
+
+    def test_points_are_untouched(self):
+        point = Point(1, 2, srid=4326)
+        self.assertEqual(simplified(point), point)
+
+    def test_none_is_untouched(self):
+        self.assertIsNone(simplified(None))
+
+    def test_zero_extent_is_untouched(self):
+        degenerate = LineString([(5, 5), (5, 5)], srid=4326)
+        self.assertEqual(len(simplified(degenerate).coords), 2)
+
+    def test_srid_survives(self):
+        self.assertEqual(simplified(self._zigzag(18.0, 0.002)).srid, 4326)
+
+    def test_multilinestring_stays_a_multilinestring(self):
+        """GEOS collapses a one-part MultiLineString to a LineString;
+        stored line features are entitled to a stable type."""
+        one_part = MultiLineString([self._zigzag(18.0, 0.002)], srid=4326)
+        thinned = simplified(one_part)
+        self.assertEqual(thinned.geom_type, 'MultiLineString')
+        self.assertLess(len(thinned[0].coords), 50)
+        self.assertEqual(thinned.srid, 4326)
+
+
 class RelationMemberFetchTests(TestCase):
     """fetch_relation_member_ways drops the members that aren't the
     feature. The Mississippi's relation carries 155 side_stream and 2
@@ -620,6 +666,39 @@ class RelationGeometryResolveTests(ApiTestCase):
         # the click was the source at lat 47; the dot is now mid-course
         self.assertAlmostEqual(place.label_point.y, 38.0, places=4)
         self.assertIsNotNone(place.geometry)
+
+    @patch('core.resolve.overpass.fetch_relation_member_ways')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_label_point_comes_from_the_full_course_not_the_thinned_one(
+        self, fetch, members
+    ):
+        """Order matters. The dot is drawn over the basemap, which renders
+        OSM's true geometry, so it must be snapped to the full course —
+        thinning first would move it (63 km on the Mississippi, whose
+        thinned copy is 4.8% shorter once the meanders go)."""
+        fetch.return_value = [_relation(
+            tags={'name': 'Mississippi River', 'wikidata': 'Q1497',
+                  'type': 'waterway'})]
+        # A meandering course: the wobbles carry length that thinning eats.
+        # 18 degrees of span -> a 0.0045 degree tolerance, so these
+        # sub-tolerance wobbles are exactly what thinning removes.
+        coords = [
+            (-95.0 + (0.002 if i % 2 else -0.002), 47.0 - i * 0.045)
+            for i in range(401)
+        ]
+        members.return_value = [_component_way(1, coords, name='Mississippi')]
+        place = Place.objects.get(pk=self._post().json()['place']['id'])
+
+        stored = place.geometry
+        vertices = (
+            len(stored.coords) if stored.geom_type == 'LineString'
+            else sum(len(part.coords) for part in stored)
+        )
+        self.assertLess(vertices, len(coords))         # it was thinned
+        full = MultiLineString([LineString(coords, srid=4326)], srid=4326)
+        self.assertAlmostEqual(
+            place.label_point.y, representative_point(full).y, places=6
+        )
 
     @patch('core.resolve.overpass.fetch_relation_member_ways')
     @patch('core.resolve.overpass.fetch_elements')

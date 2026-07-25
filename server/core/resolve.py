@@ -160,6 +160,24 @@ def _create_from_element(element, qid, name, feature_class, click,
 
     bbox = Polygon.from_bbox(bounds) if bounds else None
 
+    # A node IS the feature. Otherwise prefer a point snapped to the middle
+    # of the course; failing that (no geometry — area relations, a failed
+    # geometry fetch) the click is still the only point known to lie on the
+    # feature, since bbox centroids can sit far off it.
+    #
+    # Snap to the FULL course, then thin for storage — not the reverse. The
+    # dot is drawn over the basemap, which renders OSM's true geometry, so
+    # the point has to lie on *that*. Snapping to our thinned copy instead
+    # would put it up to a tolerance (500 m on the Mississippi) off the
+    # river the user can see. The cost is that the stored geometry no
+    # longer passes exactly through label_point — by 130 m here, and
+    # nothing draws the stored geometry at a zoom where that resolves.
+    label_point = (
+        centroid if element['type'] == 'node'
+        else representative_point(geometry) or click
+    )
+    geometry = simplified(geometry)
+
     return Place.objects.create(
         slug=_unique_slug(display_name),
         wikidata_qid=qid,
@@ -172,18 +190,20 @@ def _create_from_element(element, qid, name, feature_class, click,
         feature_class=feature_class,
         geometry=geometry,
         centroid=centroid,
-        # A node IS the feature. Otherwise prefer a point snapped to the
-        # middle of the cached course; failing that (no geometry — area
-        # relations, a failed geometry fetch) the click is still the only
-        # point known to lie on the feature, since bbox centroids can sit
-        # far off it.
-        label_point=(
-            centroid if element['type'] == 'node'
-            else representative_point(geometry) or click
-        ),
+        label_point=label_point,
         bbox=bbox,
     )
 
+
+# Stored geometry is a display-and-filter approximation, not survey truth
+# (see Place.geometry). The tolerance scales with each feature's own
+# extent, so the worst-case deviation is a constant fraction of a pixel at
+# the zoom that frames the whole feature — about viewport_px/DIVISOR, i.e.
+# well under a pixel at 1600px wide. A fixed tolerance can't work for both
+# ends of the range: 500 m is invisible on the Mississippi (18° across,
+# ~850 m/px when framed) and 8 px of error on a creek.
+# Measured: Mississippi 292 kB -> 47 kB, Columbia 110 kB -> 17 kB.
+SIMPLIFY_EXTENT_DIVISOR = 4000
 
 # How wide a break still counts as the same course, in degrees (~2 km).
 # Sized off the real gaps in OSM relation data (the Mississippi's is
@@ -193,6 +213,32 @@ STITCH_TOLERANCE_DEG = 0.02
 # Guard against a pathological relation turning the O(n²) join quadratic
 # on hundreds of pieces; GEOS normally leaves only a handful.
 STITCH_MAX_CHAINS = 60
+
+
+def simplified(geometry):
+    """Drop vertices too fine to draw at the feature's own framing zoom.
+
+    Take the label point *before* calling this — thinning removes meander
+    length unevenly (the Mississippi loses 4.8% of its course), which
+    moves the arc-length midpoint 63 km. See _create_from_element.
+    """
+    if geometry is None or geometry.geom_type == 'Point':
+        return geometry
+    min_x, min_y, max_x, max_y = geometry.extent
+    span = max(max_x - min_x, max_y - min_y)
+    if not span:
+        return geometry
+    thinned = geometry.simplify(
+        span / SIMPLIFY_EXTENT_DIVISOR, preserve_topology=True
+    )
+    # GEOS collapses a one-part MultiLineString to a LineString. Callers
+    # (and the stored rows) are entitled to get back the type they gave.
+    if (
+        geometry.geom_type == 'MultiLineString'
+        and thinned.geom_type == 'LineString'
+    ):
+        thinned = MultiLineString([thinned], srid=geometry.srid)
+    return thinned
 
 
 def _path_length(coords):
