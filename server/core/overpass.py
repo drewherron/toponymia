@@ -58,6 +58,24 @@ COMPONENT_TIMEOUT_S = 30
 # routinely a kilometre and for a large feature far more.
 QID_SEARCH_RADIUS_M = 50_000
 
+# Relation geometry (line-like relations only — see LINEAR_RELATION_TYPES).
+# The Mississippi's relation is 1064 member ways / ~19k vertices / 1.1 MB,
+# fetched in ~5s: affordable but not free, so it happens once per relation
+# resolve and is cached thereafter in Place.geometry.
+RELATION_TIMEOUT_S = 60
+# Members that aren't the feature itself. A waterway relation carries its
+# side channels and tributaries alongside the main stem (the Mississippi:
+# 907 main_stream ways, 155 side_stream, 2 tributary) — including them
+# would drag the merged course, and the midpoint derived from it, off the
+# river. `inner` is the multipolygon hole equivalent.
+EXCLUDED_MEMBER_ROLES = frozenset({'side_stream', 'tributary', 'inner'})
+# Only relations whose geometry is a *line* get a geometry + snapped label
+# point. A boundary/multipolygon relation merges into a closed ring, and
+# the midpoint of a ring sits on the city limits rather than downtown —
+# for those the creating click (a city's P625, or where a user clicked)
+# is already the better answer.
+LINEAR_RELATION_TYPES = frozenset({'waterway', 'route'})
+
 QID_RE = re.compile(r'^Q\d+$')
 
 _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
@@ -119,6 +137,52 @@ def fetch_way_geometry(way_id):
         if geometry:
             return [(point['lon'], point['lat']) for point in geometry]
     return None
+
+
+def is_linear_relation(element):
+    """True if this relation's geometry is a line rather than an area."""
+    return (
+        element['type'] == 'relation'
+        and element.get('tags', {}).get('type') in LINEAR_RELATION_TYPES
+    )
+
+
+def fetch_relation_member_ways(relation_id):
+    """Member ways of a relation, with geometry, minus the roles that
+    aren't the feature itself (EXCLUDED_MEMBER_ROLES).
+
+    Shaped like fetch_way_component's output — tags, bounds and a
+    coordinate list per way — so both feed the same geometry builder.
+    """
+    query = (
+        f'[out:json][timeout:{RELATION_TIMEOUT_S}];'
+        f'rel({relation_id});'
+        'out geom;'
+    )
+    ways = []
+    for element in _call(query, timeout_s=RELATION_TIMEOUT_S + 5):
+        for member in element.get('members', []):
+            if member.get('type') != 'way' or not member.get('geometry'):
+                continue
+            if member.get('role', '') in EXCLUDED_MEMBER_ROLES:
+                continue
+            ways.append({
+                'type': 'way',
+                'id': member['ref'],
+                'tags': {},
+                'geometry': member['geometry'],
+                'bounds': _bounds_of_points(member['geometry']),
+            })
+    return ways
+
+
+def _bounds_of_points(points):
+    lons = [p['lon'] for p in points]
+    lats = [p['lat'] for p in points]
+    return {
+        'minlon': min(lons), 'minlat': min(lats),
+        'maxlon': max(lons), 'maxlat': max(lats),
+    }
 
 
 def fetch_way_component(way_id, name):

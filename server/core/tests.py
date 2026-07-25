@@ -35,9 +35,11 @@ from .overpass import (
     center_of,
     choose_element,
     fetch_elements,
+    fetch_relation_member_ways,
     qid_of,
     radius_for_click,
 )
+from .resolve import representative_point
 
 
 class ApiTestCase(TestCase):
@@ -467,6 +469,183 @@ class ResolveApiTests(ApiTestCase):
         ).json()['place']
         self.assertEqual(place['display_name'], 'Iceland Mountain')
         self.assertEqual(place['anchor_level'], 'name')
+
+
+class RepresentativePointTests(TestCase):
+    """Snapping the label point onto the middle of a feature."""
+
+    def _line(self, coords):
+        return LineString(coords, srid=4326)
+
+    def test_midpoint_of_a_straight_line(self):
+        point = representative_point(self._line([(0, 0), (10, 0)]))
+        self.assertAlmostEqual(point.x, 5.0)
+        self.assertAlmostEqual(point.y, 0.0)
+
+    def test_midpoint_follows_the_curve_not_the_bbox(self):
+        """The whole point of the change: an L-shaped feature's bbox
+        centre is off the feature, its arc midpoint is on it."""
+        line = self._line([(0, 0), (0, 10), (10, 10)])
+        point = representative_point(line)
+        # half of a 20-unit path is the corner
+        self.assertAlmostEqual(point.x, 0.0)
+        self.assertAlmostEqual(point.y, 10.0)
+        # the bbox centre (5, 5) is nowhere near the line
+        self.assertGreater(line.distance(Point(5, 5, srid=4326)), 4)
+
+    def test_segments_are_merged_before_measuring(self):
+        """Segments in OSM order, not draw order, still yield the middle."""
+        pieces = MultiLineString([
+            self._line([(6, 0), (10, 0)]),
+            self._line([(0, 0), (3, 0)]),
+            self._line([(3, 0), (6, 0)]),
+        ], srid=4326)
+        self.assertAlmostEqual(representative_point(pieces).x, 5.0)
+
+    def test_small_gaps_are_stitched_before_measuring(self):
+        """LineMerge needs an exactly shared node, but real relations have
+        breaks — the Mississippi's course splits either side of a 950 m
+        gap near La Crosse. Left unstitched, "longest chain" means the
+        lower 69% of the river and the midpoint lands ~343 km too far
+        downstream. Here: two runs of 10 with a gap, so the true midpoint
+        is the seam, not the middle of either run.
+        """
+        pieces = MultiLineString([
+            self._line([(0, 0), (10, 0)]),
+            self._line([(10.008, 0), (20.008, 0)]),   # ~950 m break
+        ], srid=4326)
+        point = representative_point(pieces)
+        self.assertAlmostEqual(point.x, 10.004, places=2)
+
+    def test_gaps_too_wide_to_be_one_feature_are_not_stitched(self):
+        pieces = MultiLineString([
+            self._line([(0, 0), (10, 0)]),
+            self._line([(40, 0), (44, 0)]),   # a different feature
+        ], srid=4326)
+        # falls back to the longest run, whose midpoint is 5
+        self.assertAlmostEqual(representative_point(pieces).x, 5.0)
+
+    def test_longest_chain_wins_when_pieces_do_not_join(self):
+        """A stray disconnected member must not become the course."""
+        pieces = MultiLineString([
+            self._line([(0, 0), (10, 0)]),      # the main course
+            self._line([(50, 50), (50, 51)]),   # an orphan
+        ], srid=4326)
+        self.assertAlmostEqual(representative_point(pieces).x, 5.0)
+
+    def test_point_geometry_is_returned_unchanged(self):
+        point = Point(3, 4, srid=4326)
+        self.assertEqual(representative_point(point), point)
+
+    def test_none_geometry_is_none(self):
+        self.assertIsNone(representative_point(None))
+
+
+class RelationMemberFetchTests(TestCase):
+    """fetch_relation_member_ways drops the members that aren't the
+    feature. The Mississippi's relation carries 155 side_stream and 2
+    tributary ways beside its 907 main_stream ones; letting those through
+    would drag the merged course, and the midpoint taken from it, off the
+    river."""
+
+    def _member(self, ref, role, coords):
+        return {
+            'type': 'way', 'ref': ref, 'role': role,
+            'geometry': [{'lat': lat, 'lon': lon} for lon, lat in coords],
+        }
+
+    @patch('core.overpass._call')
+    def test_excluded_roles_are_dropped(self, call):
+        call.return_value = [{
+            'type': 'relation', 'id': 1756854,
+            'members': [
+                self._member(1, 'main_stream', [(-95.0, 47.0), (-95.0, 29.0)]),
+                self._member(2, 'side_stream', [(-95.1, 40.0), (-95.1, 39.0)]),
+                self._member(3, 'tributary', [(-95.0, 40.0), (-70.0, 40.0)]),
+                self._member(4, '', [(-95.0, 29.0), (-95.0, 28.0)]),
+            ],
+        }]
+        ways = fetch_relation_member_ways(1756854)
+        self.assertEqual([w['id'] for w in ways], [1, 4])
+        # bounds are derived per way, so the geometry builder can use them
+        self.assertEqual(ways[0]['bounds']['minlat'], 29.0)
+
+    @patch('core.overpass._call')
+    def test_nodes_and_geometryless_members_are_skipped(self, call):
+        call.return_value = [{
+            'type': 'relation', 'id': 5,
+            'members': [
+                {'type': 'node', 'ref': 9, 'role': 'label', 'lat': 1, 'lon': 2},
+                {'type': 'way', 'ref': 10, 'role': ''},   # no geometry
+                self._member(11, '', [(0.0, 0.0), (1.0, 1.0)]),
+            ],
+        }]
+        self.assertEqual([w['id'] for w in fetch_relation_member_ways(5)], [11])
+
+
+class RelationGeometryResolveTests(ApiTestCase):
+    """Line-like relations cache their course and snap the label point;
+    area relations keep the click (a ring's midpoint is the city limit)."""
+
+    def _ways(self, *coord_lists):
+        """Member ways as fetch_relation_member_ways returns them — that
+        call has already dropped the excluded roles."""
+        return [
+            _component_way(100 + i, coords, name='Mississippi River')
+            for i, coords in enumerate(coord_lists)
+        ]
+
+    def _post(self, **overrides):
+        payload = {
+            'name': 'Mississippi River',
+            'class': 'waterway',
+            'lngLat': [-95.2075, 47.2397],   # P625: the source, not the middle
+            'zoom': 8,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('core:resolve'), payload, content_type='application/json'
+        )
+
+    @patch('core.resolve.overpass.fetch_relation_member_ways')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_label_point_snaps_to_mid_course_not_the_click(
+        self, fetch, members
+    ):
+        relation = _relation(tags={'name': 'Mississippi River',
+                                   'wikidata': 'Q1497', 'type': 'waterway'})
+        fetch.return_value = [relation]
+        members.return_value = self._ways([(-95.0, 47.0), (-95.0, 29.0)])
+        place = Place.objects.get(pk=self._post().json()['place']['id'])
+        # the click was the source at lat 47; the dot is now mid-course
+        self.assertAlmostEqual(place.label_point.y, 38.0, places=4)
+        self.assertIsNotNone(place.geometry)
+
+    @patch('core.resolve.overpass.fetch_relation_member_ways')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_area_relation_keeps_the_click(self, fetch, members):
+        fetch.return_value = [_relation(
+            osm_id=122604, name='Chicago', qid='Q1297',
+            tags={'name': 'Chicago', 'wikidata': 'Q1297', 'type': 'boundary'})]
+        place = Place.objects.get(pk=self._post(
+            name='Chicago', lngLat=[-87.6278, 41.8819], **{'class': 'city'},
+        ).json()['place']['id'])
+        members.assert_not_called()
+        self.assertAlmostEqual(place.label_point.x, -87.6278, places=4)
+        self.assertIsNone(place.geometry)
+
+    @patch('core.resolve.overpass.fetch_relation_member_ways')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_geometry_fetch_failure_degrades_to_the_click(
+        self, fetch, members
+    ):
+        fetch.return_value = [_relation(
+            tags={'name': 'Mississippi River', 'wikidata': 'Q1497',
+                  'type': 'waterway'})]
+        members.side_effect = OverpassError('no free slot')
+        place = Place.objects.get(pk=self._post().json()['place']['id'])
+        self.assertAlmostEqual(place.label_point.y, 47.2397, places=4)
+        self.assertIsNone(place.geometry)
 
 
 class ResolveQidHintTests(ApiTestCase):
