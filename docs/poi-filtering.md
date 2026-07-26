@@ -53,8 +53,8 @@ right direction to be wrong.
 3. Mirror it in the Photon lists so search agrees.
 4. Rebuild and eyeball it (`npm run build`, then a screenshot check).
 
-Verified-real class values not currently shown, if you want them:
-`monument`, `museum`, `art_gallery`.
+See [the class reference](#reference-the-class-vocabulary) below for what
+exists and what's worth considering.
 
 > **Do not read category names off the map style.** The OpenFreeMap Liberty
 > style has a `poi_transit` layer filtering on `class in [airport, bus,
@@ -156,6 +156,87 @@ chromium-browser --headless=new --enable-unsafe-swiftshader \
   --virtual-time-budget=20000 --screenshot=out.png \
   'http://localhost:4173/#17/50.0875/14.4213'
 ```
+
+## Reference: the class vocabulary
+
+Counts below are from **eight z14 tiles** — central Paris, Portland, London,
+rural Norfolk, Tokyo, New York, Cairo and Sydney — totalling 32,552 POI
+features in **94 distinct classes**. They show relative volume, not global
+truth; regenerate them with the script at the end of this section.
+
+**Allowed today**
+
+| class | in sample | note |
+|---|---|---|
+| `castle` | 19 | subclasses `castle`, `ruins` |
+| `attraction` | 163 | subclasses `attraction`, `viewpoint` |
+| `railway` | 142 | **`subclass=station` only** — see the `halt` warning |
+| `lighthouse` | 0 | coastal, so absent from these eight urban tiles; it is a real class (it appears in the style's sprite sheet) |
+
+**Plausible additions** — things that carry a name of their own, roughly in
+order of how comfortably they read as toponyms:
+
+| class | in sample | caution |
+|---|---|---|
+| `monument` | 42 | |
+| `museum` | 78 | |
+| `castle` | — | already allowed |
+| `harbor` | 24 | subclass `marina` |
+| `cemetery` | 45 | subclasses `grave_yard`, `cemetery` |
+| `ferry_terminal` | 54 | |
+| `stadium` | 4 | often a sponsor's name, which is a business name again |
+| `zoo` / `aquarium` | 1 / 3 | |
+| `town_hall` | 96 | subclasses include `courthouse`, `public_building` |
+| `place_of_worship` | 200 | genuinely toponymic (Notre-Dame, Hagia Sophia) but the class is *every* church, most of them unremarkable |
+| `college` | 66 | includes `university` |
+| `art_gallery` | 1007 | **mostly `subclass=artwork`** — street art, not galleries. Narrow by subclass if you want this |
+| `park` / `garden` | 407 / 2667 | huge volume, and parks already reach the map through their own `park` source layer |
+
+**Everything else** is commercial premises, civic amenities, or street
+furniture, and should stay out. In descending volume:
+`bicycle_parking`, `shop`, `restaurant`, `waste_basket`, `gate`, `bollard`,
+`office`, `parking`, `cafe`, `bus`, `fast_food`, `information`,
+`clothing_store`, `lodging`, `entrance`, `bar`, `post`, `drinking_water`,
+`toilets`, `pitch`, `hairdresser`, `bicycle_rental`, `telephone`, `bank`,
+`shelter`, `beer`, `recycling`, `school`, `grocery`, `motorcycle_parking`,
+`pharmacy`, `atm`, `swimming_pool`, `bakery`, `library`, `lift_gate`,
+`theatre`, `playground`, `alcohol_shop`, `brownfield`, `laundry`,
+`hospital`, `doctors`, `dentist`, `fuel`, `ice_cream`, `music`, `car`,
+`sports_centre`, `police`, `cinema`, `chess`, `bicycle`, `butcher`,
+`cycle_barrier`, `fire_station`, `veterinary`, `dog_park`, `running`,
+`athletics`, `picnic_site`, `golf`, `prison`, `basin`, `swimming`,
+`escape_game`, `campsite`, `climbing`, `hackerspace`, `boxing`, `ice_rink`,
+`cycling`, `yoga`, `billiards`, `skateboard`, `gymnastics`, `toll_booth`.
+
+### On `subclass`
+
+`subclass` is the **raw OSM tag value**, so it is open-ended and cannot be
+enumerated — new values appear whenever mappers use a new tag. Filter on
+`class` by default, and reach for `subclass` only to *narrow* an allowed
+class, the way `railway` is narrowed to `station`.
+
+### Regenerating these numbers
+
+```js
+// npm install @mapbox/vector-tile pbf
+import { VectorTile } from '@mapbox/vector-tile'
+import { PbfReader } from 'pbf'
+import fs from 'fs'
+const tally = {}, subs = {}
+for (const f of process.argv.slice(2)) {
+  const l = new VectorTile(new PbfReader(fs.readFileSync(f))).layers.poi
+  for (let i = 0; i < (l?.length ?? 0); i++) {
+    const p = l.feature(i).properties
+    tally[p.class] = (tally[p.class] ?? 0) + 1
+    ;(subs[p.class] ??= new Set()).add(p.subclass)
+  }
+}
+for (const [c, n] of Object.entries(tally).sort((a, b) => b[1] - a[1]))
+  console.log(String(n).padStart(6), c.padEnd(20), [...subs[c]].slice(0, 5).join(','))
+```
+
+Fetch tiles with the recipe in the previous section; convert lat/lon to
+`z/x/y` with the standard slippy-map formula.
 
 ## Known gaps
 
