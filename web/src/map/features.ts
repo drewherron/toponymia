@@ -81,5 +81,35 @@ export function toCandidates(
       anchor,
     })
   }
-  return candidates
+  return groupByName(candidates)
+}
+
+/** How strong a claim a candidate has on a name it shares with others.
+ *  A station called "Paddington" is a real feature worth its own article
+ *  (cf. Cork Kent), but the district is what someone clicking that name
+ *  usually means — so the toponym leads and the POI sits under it. */
+function nameRank(candidate: FeatureCandidate): number {
+  if (candidate.sourceLayer === 'article-dots') return 0
+  if (candidate.sourceLayer === 'place') return 1
+  return 2
+}
+
+/** Keep same-named candidates adjacent and ranked, without disturbing the
+ *  order distinct names arrived in (dots first, then the click's own
+ *  layer order). A plain sort can't express "only reorder ties". */
+function groupByName(candidates: FeatureCandidate[]): FeatureCandidate[] {
+  const byName = new Map<string, FeatureCandidate[]>()
+  for (const candidate of candidates) {
+    const group = byName.get(candidate.name)
+    if (group) group.push(candidate)
+    else byName.set(candidate.name, [candidate])
+  }
+  const ordered: FeatureCandidate[] = []
+  for (const candidate of candidates) {
+    const group = byName.get(candidate.name)
+    if (!group) continue
+    byName.delete(candidate.name)
+    ordered.push(...group.sort((a, b) => nameRank(a) - nameRank(b)))
+  }
+  return ordered
 }

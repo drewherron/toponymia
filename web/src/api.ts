@@ -168,6 +168,14 @@ interface PhotonFeature {
   }
 }
 
+/** Where a hit is, for the dropdown's second line — and half of the key
+ *  rows are deduped by, so it has to be computed identically twice. */
+function photonContext(props: PhotonFeature['properties']): string {
+  return [props.city, props.state, props.country]
+    .filter((part): part is string => !!part && part !== props.name)
+    .join(', ')
+}
+
 /** Geocoder half of search (Photon — public, keyless, CORS-open).
  * Biased toward the current map view when a center is given. */
 export async function searchGeocoder(
@@ -190,7 +198,21 @@ export async function searchGeocoder(
   const body = await response.json()
   const hits: GeocodeHit[] = []
   const seen = new Set<string>()
-  for (const feature of (body.features ?? []) as PhotonFeature[]) {
+  const features = (body.features ?? []) as PhotonFeature[]
+  // Rows are deduped by name+context below, keeping whichever Photon ranked
+  // first — so a station can suppress the district it is named after. All
+  // eight "Paddington" hits in London share one key, and only the `place`
+  // one is the toponym. Claim those keys up front so it always wins the
+  // row; a differently-named station ("London Paddington", "Cork Kent")
+  // has its own key and is unaffected.
+  const toponymKeys = new Set<string>()
+  for (const feature of features) {
+    const props = feature.properties
+    if (props.name && props.osm_key === 'place') {
+      toponymKeys.add(`${props.name}|${photonContext(props)}`)
+    }
+  }
+  for (const feature of features) {
     const props = feature.properties
     if (!props.name) continue
     // The map's poi filter has no say here — geocoder hits never touch the
@@ -198,11 +220,10 @@ export async function searchGeocoder(
     if (!isToponymicPhotonHit(props.osm_key ?? '', props.osm_value ?? '')) {
       continue
     }
-    const context = [props.city, props.state, props.country]
-      .filter((part): part is string => !!part && part !== props.name)
-      .join(', ')
+    const context = photonContext(props)
     const key = `${props.name}|${context}`
     if (seen.has(key)) continue
+    if (props.osm_key !== 'place' && toponymKeys.has(key)) continue
     seen.add(key)
     const [lng, lat] = feature.geometry.coordinates
     const extent = props.extent

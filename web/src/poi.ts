@@ -31,6 +31,37 @@ import type { ExpressionSpecification, FilterSpecification } from 'maplibre-gl'
 export const POI_CLASS_ALLOWLIST = ['castle', 'lighthouse', 'attraction']
 
 /**
+ * Rail stations, allowed alongside the list above.
+ *
+ * Kept because a station is not reliably "a facility named after the place
+ * it serves": Cork Kent is named for Thomas Kent (executed 1916) and Gare
+ * Saint-Lazare, Austerlitz and Waterloo all carry etymologies of their own.
+ * A category-wide exclusion would lose every one of those to catch the
+ * narrow case where a station's name exactly matches its district's — and
+ * that case is handled where it actually bites, by ranking the toponym
+ * first in the picker (`features.ts`) and in search (`isToponymicPhotonHit`
+ * plus the dedupe in `searchGeocoder`).
+ *
+ * The class is **`railway`**, not `rail` — the style's own `poi_transit`
+ * layer filters on `["airport", "bus", "rail"]` and so matches no station
+ * in current planet tiles at all; stations reach the map through the
+ * rank-banded `poi_r1`/`poi_r7`/`poi_r20` layers (z15/16/17), which is
+ * also a better zoom gate than anything we would pick by hand.
+ *
+ * `subclass` is the raw OSM value, so this admits stations and halts and
+ * leaves `subway` (Métro entrances), tram stops and platforms out.
+ */
+const RAILWAY_CLASS = 'railway'
+const RAILWAY_SUBCLASSES = ['station', 'halt']
+
+/**
+ * Bus stops stay out of both surfaces: they are numerous — 221 in one
+ * central-Paris tile against 28 railway features — essentially always
+ * named for the street or place they sit on, and carry no etymology of
+ * their own.
+ */
+
+/**
  * The same set as raw OSM key → values, for Photon hits.
  *
  * Keys absent here (amenity, shop, office, craft, healthcare, …) are
@@ -46,6 +77,19 @@ const PHOTON_TAG_ALLOWLIST: Record<string, string[]> = {
   tourism: ['attraction'],
 }
 
+/**
+ * Transit values dropped even though their key is otherwise toponymic.
+ *
+ * `railway=stop` is the operational stop node beside a station and simply
+ * duplicates it — Photon returns four rows for Cork Kent, three of them
+ * these. The rest are the bus/tram/platform furniture the map also hides.
+ */
+const PHOTON_TRANSIT_DENY: Record<string, string[]> = {
+  railway: ['stop', 'tram_stop', 'subway_entrance', 'platform'],
+  highway: ['bus_stop', 'platform'],
+  public_transport: ['stop_position', 'platform', 'stop_area'],
+}
+
 /** Keys whose every value is a business or an institution, never a toponym. */
 const PHOTON_COMMERCIAL_KEYS = new Set([
   'amenity',
@@ -59,6 +103,7 @@ const PHOTON_COMMERCIAL_KEYS = new Set([
 /** True when a geocoder hit may become a Place. */
 export function isToponymicPhotonHit(key: string, value: string): boolean {
   if (PHOTON_COMMERCIAL_KEYS.has(key)) return false
+  if (PHOTON_TRANSIT_DENY[key]?.includes(value)) return false
   const allowed = PHOTON_TAG_ALLOWLIST[key]
   return allowed ? allowed.includes(value) : true
 }
@@ -71,11 +116,13 @@ export function poiClassFilter(
   existing?: FilterSpecification,
 ): FilterSpecification {
   const allow: ExpressionSpecification = [
-    'match',
-    ['get', 'class'],
-    POI_CLASS_ALLOWLIST,
-    true,
-    false,
+    'any',
+    ['match', ['get', 'class'], POI_CLASS_ALLOWLIST, true, false],
+    [
+      'all',
+      ['==', ['get', 'class'], RAILWAY_CLASS],
+      ['match', ['get', 'subclass'], RAILWAY_SUBCLASSES, true, false],
+    ],
   ]
   if (!existing) return allow
   // `all` is typed as all-expression or all-legacy, and `existing` is the
