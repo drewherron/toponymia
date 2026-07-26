@@ -58,8 +58,12 @@ No API keys anywhere — every external dependency is free and open.
 ```
 server/   Django project (config/) + the core app (models, API, SPA serving)
 web/      Vite + React + TypeScript frontend (MapLibre map, article pane)
+docs/     Maintainer notes for things that need tuning over time
 docker-compose.yml   PostGIS for local development
 ```
+
+- [`docs/poi-filtering.md`](docs/poi-filtering.md) — which features are
+  clickable and searchable, and how to change the lists.
 
 In production Django serves the built frontend from `web/dist` (SPA
 plus server-rendered SEO meta, sitemap, and robots); in development
