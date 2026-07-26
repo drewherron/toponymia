@@ -22,7 +22,7 @@ The same rule has to be expressed twice, in different vocabularies:
 
 | Surface | Vocabulary | Where |
 |---|---|---|
-| Map (clickable features) | OpenMapTiles derived `class` / `subclass` — e.g. `castle`, `railway`+`station` | `POI_CLASS_ALLOWLIST`, `RAILWAY_SUBCLASSES` |
+| Map (clickable features) | OpenMapTiles derived `class` / `subclass` — e.g. `castle`, `railway`+`station` | `POI_CLASS_ALLOWLIST`, `RAILWAY_SUBCLASSES` (station only — see the `halt` warning) |
 | Search (Photon geocoder) | Raw OSM tags — e.g. `historic=castle`, `railway=station` | `PHOTON_TAG_ALLOWLIST`, `PHOTON_COMMERCIAL_KEYS`, `PHOTON_TRANSIT_DENY` |
 
 They **cannot be shared** — the tile schema and raw OSM tags genuinely
@@ -62,6 +62,16 @@ Verified-real class values not currently shown, if you want them:
 > draws no station at all, and an allowlist written from it silently matches
 > nothing. Always confirm against tile data.
 
+> **Do not trust OSM's documented meaning either.** `railway=halt` is
+> documented as a small passenger station — the British "Bearsted Halt"
+> sense — and was allowed on that basis. In practice it is used for light
+> rail: one central Portland tile carries 24 halts and 23 tram stops, the
+> same MAX system tagged both ways, named for the crossings they sit on
+> ("Library/Southwest 9th Avenue"). Meanwhile the small-station case the
+> name suggests is tagged `station` anyway (Cantley, Norfolk, population
+> ~350). Tagging practice beats the wiki page; count real features before
+> allowing a category.
+
 ## Adding or removing a search category
 
 Photon returns `osm_key` / `osm_value`. Three controls, checked in order by
@@ -70,10 +80,10 @@ Photon returns `osm_key` / `osm_value`. Three controls, checked in order by
 - `PHOTON_COMMERCIAL_KEYS` — keys dropped wholesale (`amenity`, `shop`,
   `office`, `craft`, `healthcare`, `emergency`). Every value under them is a
   business or an institution.
-- `PHOTON_TRANSIT_DENY` — specific values under otherwise-fine keys:
-  bus stops, tram stops, platforms, and `railway=stop` (the operational node
-  beside a station, pure duplication — three of Photon's four "Cork Kent"
-  rows).
+- `PHOTON_TRANSIT_DENY` — specific values under otherwise-fine keys: bus
+  stops, tram stops, platforms, `railway=halt` (light rail, see above), and
+  `railway=stop` (the operational node beside a station, pure duplication —
+  three of Photon's four "Cork Kent" rows).
 - `PHOTON_TAG_ALLOWLIST` — for *mixed* keys, the only values allowed
   (`historic=castle`, `man_made=lighthouse`, `tourism=attraction`). A key
   that appears here is otherwise fully blocked.

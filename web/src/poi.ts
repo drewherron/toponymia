@@ -48,11 +48,18 @@ export const POI_CLASS_ALLOWLIST = ['castle', 'lighthouse', 'attraction']
  * rank-banded `poi_r1`/`poi_r7`/`poi_r20` layers (z15/16/17), which is
  * also a better zoom gate than anything we would pick by hand.
  *
- * `subclass` is the raw OSM value, so this admits stations and halts and
- * leaves `subway` (Métro entrances), tram stops and platforms out.
+ * `subclass` is the raw OSM value. **`station` only** — `halt` looks like it
+ * belongs (OSM documents it as a small passenger station, the British
+ * "Bearsted Halt" sense) but is in practice used for light rail: one central
+ * Portland tile holds 24 halts and 23 tram stops, the same MAX system tagged
+ * both ways, named for the crossings they sit on ("Library/Southwest 9th
+ * Avenue"). Nothing is lost by excluding it — even a tiny rural station is
+ * tagged `station` (Cantley, Norfolk), so the small-station case the name
+ * suggests is already covered. `subway`, `tram_stop` and platforms are out
+ * for the same reason.
  */
 const RAILWAY_CLASS = 'railway'
-const RAILWAY_SUBCLASSES = ['station', 'halt']
+const RAILWAY_SUBCLASSES = ['station']
 
 /**
  * Bus stops stay out of both surfaces: they are numerous — 221 in one
@@ -85,7 +92,7 @@ const PHOTON_TAG_ALLOWLIST: Record<string, string[]> = {
  * these. The rest are the bus/tram/platform furniture the map also hides.
  */
 const PHOTON_TRANSIT_DENY: Record<string, string[]> = {
-  railway: ['stop', 'tram_stop', 'subway_entrance', 'platform'],
+  railway: ['halt', 'stop', 'tram_stop', 'subway_entrance', 'platform'],
   highway: ['bus_stop', 'platform'],
   public_transport: ['stop_position', 'platform', 'stop_area'],
 }
