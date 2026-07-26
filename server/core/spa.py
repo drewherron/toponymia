@@ -10,10 +10,11 @@ import re
 from pathlib import Path
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse, HttpResponsePermanentRedirect
 from django.utils.html import escape
 
 from .models import Place
+from .slugs import place_by_slug
 from .views import published_places
 
 DEFAULT_TITLE = 'Toponymia'
@@ -121,10 +122,10 @@ def index(request):
 
 def place(request, slug):
     try:
-        found = Place.objects.select_related(
-            'article__current_revision'
-        ).get(slug=slug)
-    except Place.DoesNotExist:
+        found = place_by_slug(
+            slug, Place.objects.select_related('article__current_revision')
+        )
+    except Http404:
         return _render(
             request,
             title=DEFAULT_TITLE,
@@ -132,6 +133,10 @@ def place(request, slug):
             path='/',
             status=404,
         )
+    # An alias 301s to the canonical URL, so crawlers and shared links
+    # converge on one address per place (see docs/slug-renames.md).
+    if slug != found.slug:
+        return HttpResponsePermanentRedirect(f'/place/{found.slug}')
     article = getattr(found, 'article', None)
     has_article = bool(article and article.current_revision_id)
     return _render(

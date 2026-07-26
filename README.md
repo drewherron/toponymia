@@ -64,6 +64,8 @@ docker-compose.yml   PostGIS for local development
 
 - [`docs/poi-filtering.md`](docs/poi-filtering.md) — which features are
   clickable and searchable, and how to change the lists.
+- [`docs/slug-renames.md`](docs/slug-renames.md) — how to rename a place's
+  URL slug without breaking existing links.
 
 In production Django serves the built frontend from `web/dist` (SPA
 plus server-rendered SEO meta, sitemap, and robots); in development

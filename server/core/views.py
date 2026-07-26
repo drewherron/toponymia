@@ -46,6 +46,7 @@ from .serializers import (
     TalkPostSerializer,
     TalkThreadSerializer,
 )
+from .slugs import place_by_slug
 from .throttles import (
     ReportThrottle,
     ResolveThrottle,
@@ -323,11 +324,9 @@ def _article_json(article):
 
 @api_view(['GET'])
 def place_detail(request, slug):
-    place = get_object_or_404(
-        Place.objects.select_related(
-            'article__current_revision__author'
-        ),
-        slug=slug,
+    place = place_by_slug(
+        slug,
+        Place.objects.select_related('article__current_revision__author'),
     )
     article = getattr(place, 'article', None)
     # A deleted article reads as a plain stub to everyone but an admin, who
@@ -383,9 +382,9 @@ def place_geometry(request, slug):
 
     `{"geometry": null}` for a place that caches none — area relations
     (cities, countries) store centroid+bbox only, so they simply don't
-    highlight (SECRET/highlight.md §7).
+    highlight.
     """
-    place = get_object_or_404(Place.objects.only('geometry'), slug=slug)
+    place = place_by_slug(slug, Place.objects.only('geometry'))
     response = Response(
         {
             'geometry': (
@@ -420,9 +419,7 @@ def revision_list(request, slug):
     """Edit history of a place's article, newest first. A place without
     an article has an empty history rather than a 404 — the History tab
     is shown for stubs too."""
-    place = get_object_or_404(
-        Place.objects.select_related('article'), slug=slug
-    )
+    place = place_by_slug(slug, Place.objects.select_related('article'))
     article = getattr(place, 'article', None)
     if article is None:
         return Response({'revisions': []})
@@ -448,10 +445,11 @@ def revision_list(request, slug):
 
 @api_view(['GET'])
 def revision_detail(request, slug, revision_id):
+    place = place_by_slug(slug)
     revision = get_object_or_404(
         Revision.objects.select_related('author', 'article'),
         id=revision_id,
-        article__place__slug=slug,
+        article__place=place,
     )
     if revision.suppressed is not None and not is_moderator(request.user):
         return Response(status=status.HTTP_404_NOT_FOUND)
@@ -481,9 +479,7 @@ def article_revert(request, slug):
     serializer = RevertSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    place = get_object_or_404(
-        Place.objects.select_related('article'), slug=slug
-    )
+    place = place_by_slug(slug, Place.objects.select_related('article'))
     article = getattr(place, 'article', None)
     if not can_edit_article(request.user, article):
         return Response(
@@ -493,7 +489,7 @@ def article_revert(request, slug):
     old = get_object_or_404(
         Revision,
         id=serializer.validated_data['revision_id'],
-        article__place__slug=slug,
+        article__place=place,
     )
     if article.current_revision_id == old.id:
         return Response(
@@ -534,9 +530,9 @@ def article_delete(request, slug):
     serializer = ArticleDeleteSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    place = get_object_or_404(
+    place = place_by_slug(
+        slug,
         Place.objects.select_related('article__current_revision__author'),
-        slug=slug,
     )
     article = getattr(place, 'article', None)
     if article is None or article.current_revision_id is None:
@@ -568,9 +564,9 @@ def article_restore(request, slug):
     """
     if not is_admin(request.user):
         return Response(status=status.HTTP_403_FORBIDDEN)
-    place = get_object_or_404(
+    place = place_by_slug(
+        slug,
         Place.objects.select_related('article__current_revision__author'),
-        slug=slug,
     )
     article = getattr(place, 'article', None)
     if article is None:
@@ -598,9 +594,7 @@ def article_edit(request, slug):
     blocked = banned_response(request.user)
     if blocked is not None:
         return blocked
-    place = get_object_or_404(
-        Place.objects.select_related('article'), slug=slug
-    )
+    place = place_by_slug(slug, Place.objects.select_related('article'))
     if not can_edit_article(request.user, getattr(place, 'article', None)):
         return Response(
             {'error': 'this article is protected'},
@@ -629,7 +623,7 @@ def article_protection(request, slug):
     serializer = ProtectionSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    place = get_object_or_404(Place, slug=slug)
+    place = place_by_slug(slug)
     article, _ = Article.objects.get_or_create(place=place)
     article.protection_level = serializer.validated_data['protection_level']
     article.save(update_fields=['protection_level'])
@@ -663,7 +657,7 @@ def _thread_json(thread):
 def talk(request, slug):
     """Threaded discussion for a Place. GET is public; POST (new thread
     with its opening post) needs an account."""
-    place = get_object_or_404(Place, slug=slug)
+    place = place_by_slug(slug)
     if request.method == 'GET':
         # Deleted threads drop out of the list; deleted posts stay as
         # tombstones so replies still make sense.

@@ -10,11 +10,13 @@ This document is how to change what's allowed. All of it lives in one file,
 
 ## Why it matters more than it looks
 
-A place, once created, takes a URL slug forever — `/place/ojai` goes to
-whoever resolved it first, and there is no rename or merge tool yet. Authors
-hand-write cross-links as `/place/<slug>`, and the slug is the canonical URL
-in the sitemap. So a business that slips through doesn't just add clutter: it
-can permanently occupy the clean name of a real town.
+A place, once created, takes a URL slug from whoever resolved it first —
+`/place/ojai`. It can be changed after the fact ([`docs/slug-renames.md`](slug-renames.md)),
+but only to a *free* slug, and the rename leaves the old one as a redirect; you
+can't cleanly hand a business's `ojai` to the real town. Authors hand-write
+cross-links as `/place/<slug>`, and the slug is the canonical URL in the
+sitemap. So a business that slips through doesn't just add clutter: it can
+occupy the clean name of a real town, and getting it back is not tidy.
 
 ## The two lists, and why there are two
 

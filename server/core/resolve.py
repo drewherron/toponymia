@@ -15,10 +15,10 @@ from django.contrib.gis.geos import (
 )
 from django.contrib.gis.measure import D
 from django.db.models import Q
-from django.utils.text import slugify
 
 from . import overpass
 from .models import Place
+from .slugs import unique_slug
 
 
 def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
@@ -177,7 +177,7 @@ def _create_from_element(element, qid, name, feature_class, click,
     geometry = simplified(geometry)
 
     return Place.objects.create(
-        slug=_unique_slug(display_name),
+        slug=unique_slug(display_name),
         wikidata_qid=qid,
         osm_type=element['type'],
         osm_id=anchor_id if anchor_id is not None else element['id'],
@@ -373,7 +373,7 @@ def _component_bounds(component):
 
 def _create_name_anchor(name, feature_class, click):
     return Place.objects.create(
-        slug=_unique_slug(name),
+        slug=unique_slug(name),
         anchor_level=Place.AnchorLevel.NAME,
         display_name=name,
         feature_class=feature_class,
@@ -381,13 +381,3 @@ def _create_name_anchor(name, feature_class, click):
         centroid=click,
         label_point=click,
     )
-
-
-def _unique_slug(display_name):
-    base = slugify(display_name)[:100] or 'place'
-    slug = base
-    n = 2
-    while Place.objects.filter(slug=slug).exists():
-        slug = f'{base}-{n}'
-        n += 1
-    return slug

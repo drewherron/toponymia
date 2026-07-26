@@ -1,6 +1,7 @@
 import shutil
 import tempfile
 from datetime import timedelta
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,8 @@ from django.contrib.gis.geos import (
     Polygon,
 )
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -25,6 +28,7 @@ from .models import (
     ModAction,
     Place,
     PlaceName,
+    PlaceSlug,
     Report,
     Revision,
     TalkPost,
@@ -2923,3 +2927,135 @@ class AuditFeedTests(ApiTestCase):
         self.assertEqual(
             self.client.get(reverse('core:mod-audit')).status_code, 403
         )
+
+
+class SlugAliasTests(ApiTestCase):
+    """The slug alias table: creation invariant, alias lookups, the /place
+    301, and the rename_place command (docs/slug-renames.md)."""
+
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place(name='Ojai', slug='ojai-california')
+
+    def _rename(self, *args):
+        call_command('rename_place', *args, stdout=StringIO())
+
+    def test_creation_mints_one_canonical_slug(self):
+        rows = PlaceSlug.objects.filter(place=self.place)
+        self.assertEqual(rows.count(), 1)
+        row = rows.get()
+        self.assertEqual(row.slug, 'ojai-california')
+        self.assertTrue(row.is_canonical)
+
+    def test_unique_slug_skips_aliases(self):
+        # Park 'ojai-2' as an alias of an unrelated place, then a fresh place
+        # named "Ojai" must step over it to 'ojai-3' (not just past Place.slug).
+        other = _make_place(name='Ojai Elsewhere', slug='ojai')
+        PlaceSlug.objects.create(place=other, slug='ojai-2', is_canonical=False)
+        from .slugs import unique_slug
+        self.assertEqual(unique_slug('Ojai'), 'ojai-3')
+
+    def test_api_resolves_alias_to_canonical_payload(self):
+        PlaceSlug.objects.create(
+            place=self.place, slug='ojai-2', is_canonical=False
+        )
+        response = self.client.get(
+            reverse('core:place-detail', args=['ojai-2'])
+        )
+        self.assertEqual(response.status_code, 200)
+        # The payload reports the canonical slug, so the SPA can heal its URL.
+        self.assertEqual(response.json()['place']['slug'], 'ojai-california')
+
+    def test_api_unknown_slug_404s(self):
+        response = self.client.get(
+            reverse('core:place-detail', args=['no-such-place'])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_place_page_301s_alias_to_canonical(self):
+        PlaceSlug.objects.create(
+            place=self.place, slug='ojai-2', is_canonical=False
+        )
+        response = self.client.get('/place/ojai-2')
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response['Location'], '/place/ojai-california')
+
+    def test_rename_to_free_slug_keeps_old_as_alias(self):
+        self._rename('ojai-california', 'ojai')
+        self.place.refresh_from_db()
+        self.assertEqual(self.place.slug, 'ojai')
+        slugs = {
+            (s.slug, s.is_canonical)
+            for s in PlaceSlug.objects.filter(place=self.place)
+        }
+        self.assertEqual(
+            slugs, {('ojai', True), ('ojai-california', False)}
+        )
+        # Old URL still resolves via 301; new one is canonical.
+        self.assertEqual(
+            self.client.get('/place/ojai-california').status_code, 301
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse('core:place-detail', args=['ojai'])
+            ).json()['place']['slug'],
+            'ojai',
+        )
+
+    def test_rename_can_target_place_by_its_alias(self):
+        PlaceSlug.objects.create(
+            place=self.place, slug='ojai-2', is_canonical=False
+        )
+        self._rename('ojai-2', 'ojai')
+        self.place.refresh_from_db()
+        self.assertEqual(self.place.slug, 'ojai')
+
+    def test_rename_to_slug_held_by_another_place_refused(self):
+        other = _make_place(name='Ojai Restaurant', slug='ojai')
+        with self.assertRaises(CommandError):
+            self._rename('ojai-california', 'ojai')
+        # Nothing moved on either side.
+        self.place.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.place.slug, 'ojai-california')
+        self.assertEqual(other.slug, 'ojai')
+
+    def test_rename_to_own_alias_promotes_it(self):
+        PlaceSlug.objects.create(
+            place=self.place, slug='ojai-2', is_canonical=False
+        )
+        self._rename('ojai-california', 'ojai-2')
+        self.place.refresh_from_db()
+        self.assertEqual(self.place.slug, 'ojai-2')
+        # No new row was minted; the alias was flipped, old canonical demoted.
+        self.assertEqual(PlaceSlug.objects.filter(place=self.place).count(), 2)
+        canonical = PlaceSlug.objects.get(place=self.place, is_canonical=True)
+        self.assertEqual(canonical.slug, 'ojai-2')
+
+    def test_rename_to_invalid_slug_refused(self):
+        with self.assertRaises(CommandError):
+            self._rename('ojai-california', 'Not A Slug')
+        self.place.refresh_from_db()
+        self.assertEqual(self.place.slug, 'ojai-california')
+
+    def test_rename_unknown_place_refused(self):
+        with self.assertRaises(CommandError):
+            self._rename('no-such-place', 'whatever')
+
+    def test_rename_dry_run_writes_nothing(self):
+        self._rename('ojai-california', 'ojai', '--dry-run')
+        self.place.refresh_from_db()
+        self.assertEqual(self.place.slug, 'ojai-california')
+        self.assertFalse(
+            PlaceSlug.objects.filter(slug='ojai').exists()
+        )
+
+    def test_sitemap_emits_only_canonical(self):
+        author = User.objects.create_user('ojai-author', password='pw12345!')
+        save_edit(self.place, author, _content(), 'seed')
+        PlaceSlug.objects.create(
+            place=self.place, slug='ojai-2', is_canonical=False
+        )
+        xml = self.client.get('/sitemap.xml').content.decode()
+        self.assertIn('/place/ojai-california', xml)
+        self.assertNotIn('/place/ojai-2', xml)

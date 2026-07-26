@@ -3,8 +3,9 @@
  *
  * A restaurant named OJAI is a *business* name, not a place name — but
  * nothing used to stop one becoming a Place, and the first to claim a name
- * takes the clean slug permanently (there is no rename path). So commercial
- * POIs are kept out of the two surfaces that can mint one: the map's
+ * takes the clean slug (renaming is possible now via the rename_place command,
+ * but leaves the old slug as a 301 alias — better not to mint the bad one). So
+ * commercial POIs are kept out of the two surfaces that can mint one: the map's
  * clickable features, and the search box's geocoder results.
  *
  * Both lists are **allowlists on purpose**. OpenStreetMap gains categories

@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.contrib.gis.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class Place(models.Model):
@@ -48,6 +50,56 @@ class Place(models.Model):
 
     def __str__(self):
         return f'{self.display_name} ({self.anchor_level})'
+
+
+class PlaceSlug(models.Model):
+    """Every URL slug a Place answers to (see docs/slug-renames.md).
+
+    A place has exactly one canonical slug and any number of aliases left behind
+    by renames; an alias 301s to the canonical. This table's unique `slug` index
+    is the *single* enforcement point for global slug uniqueness across canonical
+    and alias alike — `Place.slug` is a denormalized cache of the canonical row,
+    kept in sync only in the two write paths (creation via slugs.mint_place,
+    rename via the rename_place command). Reads never write it.
+    """
+
+    place = models.ForeignKey(
+        Place, on_delete=models.CASCADE, related_name='slugs'
+    )
+    slug = models.SlugField(max_length=120, unique=True)
+    is_canonical = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['place'],
+                condition=models.Q(is_canonical=True),
+                name='one_canonical_slug_per_place',
+            ),
+        ]
+
+    def __str__(self):
+        tag = 'canonical' if self.is_canonical else 'alias'
+        return f'{self.slug} ({tag})'
+
+
+@receiver(post_save, sender=Place)
+def ensure_canonical_slug(sender, instance, created, **kwargs):
+    """Guarantee every new Place has a canonical PlaceSlug mirroring its slug.
+
+    A signal rather than an explicit mint helper so the invariant holds for
+    *every* creation path — resolve, tests, the shell — with no call-site
+    coordination. get_or_create keeps it idempotent; renames update the slug on
+    an existing Place (created=False) and manage their own PlaceSlug rows, so
+    this only ever fires at birth.
+    """
+    if not created:
+        return
+    PlaceSlug.objects.get_or_create(
+        slug=instance.slug,
+        defaults={'place': instance, 'is_canonical': True},
+    )
 
 
 class Article(models.Model):

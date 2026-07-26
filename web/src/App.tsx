@@ -137,7 +137,19 @@ function App() {
     const controller = new AbortController()
     const fly = bootHashRef.current.length < 2
     getPlace(slug, controller.signal)
-      .then(({ place }) => openPlace(place, fly, false))
+      .then(({ place }) => {
+        // A shared link may point at an alias slug; heal the URL to the
+        // canonical in place (replace, not push) so it never lingers in the
+        // back stack and a later Copy link uses one address per place.
+        if (place.slug !== slug) {
+          window.history.replaceState(
+            null,
+            '',
+            `/place/${place.slug}${window.location.hash}`,
+          )
+        }
+        openPlace(place, fly, false)
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           console.error(error)
