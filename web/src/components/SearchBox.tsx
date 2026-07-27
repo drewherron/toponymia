@@ -34,7 +34,7 @@ function SearchBox({
     }
     const controller = new AbortController()
     const timer = setTimeout(() => {
-      // The two halves of search (DESIGN.md §2.3): our articles and the
+      // The two halves of search: our articles and the
       // world at large. Either may fail without blanking the other.
       Promise.allSettled([
         searchArticles(trimmed, controller.signal),

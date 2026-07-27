@@ -1,4 +1,4 @@
-"""Per-endpoint rate limits (DESIGN.md §6). UserRateThrottle keys by user
+"""Per-endpoint rate limits. UserRateThrottle keys by user
 id when authenticated and by client IP otherwise, so a single scope caps
 both logged-in and anonymous callers. Rates live in settings'
 DEFAULT_THROTTLE_RATES under the matching scope name."""

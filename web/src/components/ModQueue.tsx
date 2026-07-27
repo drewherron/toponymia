@@ -59,7 +59,7 @@ function ReportCard({
     !report.target.suppressed &&
     !report.target.is_current
   // A reported *current* revision has no take-down here — reverting it
-  // (from the article's History tab) is the remedy (DESIGN.md M12).
+  // (from the article's History tab) is the remedy.
   const revertHint =
     report.target?.kind === 'revision' &&
     report.target.is_current &&

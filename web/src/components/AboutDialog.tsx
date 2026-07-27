@@ -2,7 +2,7 @@ interface AboutDialogProps {
   onClose: () => void
 }
 
-/** Static about/licensing panel (DESIGN.md §6 licensing). Content is
+/** Static about/licensing panel. Content is
  * CC BY-SA 4.0; software is AGPL-3.0; upstream data keeps its own terms. */
 function AboutDialog({ onClose }: AboutDialogProps) {
   return (

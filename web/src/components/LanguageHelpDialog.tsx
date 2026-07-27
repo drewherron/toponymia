@@ -9,8 +9,8 @@ interface LanguageHelpDialogProps {
 const MAX_ROWS = 200
 
 /** Centered overlay (same chrome as AboutDialog) explaining how to pick
- * "derived from" languages — the formation-vs-transfer rule from
- * DESIGN.md §6 — plus a searchable table of every ISO 639-3 code. */
+ * "derived from" languages — the formation-vs-transfer rule — plus a
+ * searchable table of every ISO 639-3 code. */
 function LanguageHelpDialog({ onClose }: LanguageHelpDialogProps) {
   const [query, setQuery] = useState('')
   const [list, setList] = useState<LanguageEntry[] | null>(null)

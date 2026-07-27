@@ -506,7 +506,7 @@ export async function actOnReport(
   }
 }
 
-// --- Moderation dashboard (DESIGN.md M12) ---------------------------
+// --- Moderation dashboard ---------------------------
 
 /** Users with reports or removed content against them, most-recent first. */
 export async function fetchModUsers(

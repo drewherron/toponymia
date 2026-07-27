@@ -5,7 +5,7 @@ from django.dispatch import receiver
 
 
 class Place(models.Model):
-    """The anchor entity an article attaches to (DESIGN.md §3/§4)."""
+    """The anchor entity an article attaches to."""
 
     class AnchorLevel(models.TextChoices):
         WIKIDATA = 'wikidata'
@@ -103,7 +103,7 @@ def ensure_canonical_slug(sender, instance, created, **kwargs):
 
 
 class Article(models.Model):
-    """The wiki article for a Place (DESIGN.md §4). Content lives in
+    """The wiki article for a Place. Content lives in
     Revision snapshots; this row is the stable identity + pointer."""
 
     class Protection(models.TextChoices):
@@ -124,7 +124,7 @@ class Article(models.Model):
     protection_level = models.CharField(
         max_length=16, choices=Protection.choices, default=Protection.NONE
     )
-    # Soft delete for the whole article (DESIGN.md M13): the place reads as a
+    # Soft delete for the whole article: the place reads as a
     # plain stub to the public while every revision stays untouched. A new
     # write clears the flag (the write IS the restore), so this can never
     # conflict with later content. Distinct from Revision.suppressed, which
@@ -159,7 +159,7 @@ class Revision(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     comment = models.CharField(max_length=255, blank=True)
     content = models.JSONField()
-    # Soft-hide for abuse (DESIGN.md M12): a suppressed revision drops out
+    # Soft-hide for abuse: a suppressed revision drops out
     # of *public* history but stays visible to moderators and preserved in
     # the record. Distinct from revert, which is the content-correctness
     # tool; the current revision can't be suppressed (revert it first).
@@ -180,7 +180,7 @@ class Revision(models.Model):
 
 
 class TalkThread(models.Model):
-    """A discussion topic about a Place (DESIGN.md §4/§6). Attached to the
+    """A discussion topic about a Place. Attached to the
     Place, not the Article, so a stub can be discussed before anyone
     writes it. Author/timestamps of the conversation live on the posts."""
 
@@ -189,7 +189,7 @@ class TalkThread(models.Model):
     )
     title = models.CharField(max_length=255)
     created = models.DateTimeField(auto_now_add=True)
-    # Soft delete (DESIGN.md §6): a removed thread drops out of the list
+    # Soft delete: a removed thread drops out of the list
     # rather than vanishing from the record.
     deleted = models.DateTimeField(null=True, blank=True)
     deleted_by = models.ForeignKey(
@@ -221,7 +221,7 @@ class TalkPost(models.Model):
     body_md = models.TextField()
     created = models.DateTimeField(auto_now_add=True)
     edited = models.DateTimeField(null=True, blank=True)
-    # Soft delete (DESIGN.md §6): the post stays as a tombstone so the
+    # Soft delete: the post stays as a tombstone so the
     # thread reads coherently; body is withheld once deleted.
     deleted = models.DateTimeField(null=True, blank=True)
     deleted_by = models.ForeignKey(
@@ -267,8 +267,7 @@ class PlaceName(models.Model):
 
 
 class Report(models.Model):
-    """A flag on a Revision or a TalkPost for moderator attention
-    (DESIGN.md §4/§6). Exactly one target is set; the reason is the
+    """A flag on a Revision or a TalkPost for moderator attention. Exactly one target is set; the reason is the
     reporter's note. Status drives the mod queue."""
 
     class Status(models.TextChoices):
@@ -355,7 +354,7 @@ class Report(models.Model):
 
 
 class Ban(models.Model):
-    """An account sanction (DESIGN.md M12). A banned user is blocked from
+    """An account sanction. A banned user is blocked from
     every write endpoint until the ban is lifted or expires; reading is
     always allowed. Rows are never deleted — an unban sets `lifted` — so the
     account's sanction history is preserved. `expires` null = permanent.
@@ -403,7 +402,7 @@ class Ban(models.Model):
 
 
 class ModAction(models.Model):
-    """An append-only audit log of moderator actions (DESIGN.md M12) — the
+    """An append-only audit log of moderator actions — the
     backbone of the Moderation dashboard's decision view. One row per
     take-down, restore, ban, unban, or report resolution, linking the acting
     moderator, the affected user, and the specific content where relevant."""

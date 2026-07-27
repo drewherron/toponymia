@@ -1108,7 +1108,7 @@ body,
 }
 
 /* Shown to logged-out users: the exact same link, but inert with a login
-   tooltip (DESIGN.md M12). */
+   tooltip. */
 .report-button-disabled {
   cursor: not-allowed;
 }
@@ -1591,7 +1591,7 @@ body,
   width: 52px;
 }
 
-/* --- Moderation dashboard (DESIGN.md M12): a full-page view that covers
+/* --- Moderation dashboard: a full-page view that covers
    the map, not an overlay dialog. --- */
 .mod-dashboard {
   position: absolute;
@@ -2002,7 +2002,7 @@ body,
   color: #fff;
 }
 
-/* ---- Narrow screens: pane becomes a bottom sheet (DESIGN.md M14) ----
+/* ---- Narrow screens: pane becomes a bottom sheet ----
    Bottom, not top: the header is already fixed top chrome and .search-results
    overflows downward into the map area, so a top pane would fight the search
    dropdown for the same space. Heights come from layout.ts via inline style. */
@@ -2060,8 +2060,7 @@ body,
 
   /* Auth moves into the menu: `alice · Log out` is wider than the logged-out
      trigger and crowds the search box hardest exactly when the affordance
-     matters least. Identity costs one tap to see — the trade DESIGN.md M14
-     records. */
+     matters least. Identity costs one tap to see — a worthwhile trade. */
   .header-menu .auth-control {
     justify-content: center;
     border-top: 1px solid #eee;

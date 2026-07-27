@@ -3,8 +3,8 @@
 `data/iso639_3.json` is generated from the npm `iso-639-3` package (the
 same table the web editor's help dialog shows), with the four special
 placeholder codes (mis/mul/und/zxx) dropped — a blank field already
-means "unknown". Regenerate with the node one-liner in DESIGN.md's
-language-codes milestone note if the standard gains codes.
+means "unknown". Regenerate from the `iso-639-3` package if the standard
+gains codes.
 """
 
 import json

@@ -844,7 +844,7 @@ class RelationGeometryResolveTests(ApiTestCase):
 
 
 class ResolveQidHintTests(ApiTestCase):
-    """The optional `qid` hint (DESIGN.md §3.1).
+    """The optional `qid` hint.
 
     Regression cover for the seeding bot's level-3 anchors: every one of
     Chicago, Beijing, Shenzhen and Chengdu resolved by name and missed,
@@ -2633,7 +2633,7 @@ class SpaTests(TestCase):
 
 
 class ArticleDeleteTests(ApiTestCase):
-    """Admin-only whole-article soft delete (DESIGN.md M13)."""
+    """Admin-only whole-article soft delete."""
 
     def setUp(self):
         super().setUp()
@@ -2676,7 +2676,7 @@ class ArticleDeleteTests(ApiTestCase):
         self.assertEqual(entry.article, self.article)
 
     def test_moderator_cannot_delete_article(self):
-        """Deletion is admin-only — a moderator gets 403 (DESIGN.md M13)."""
+        """Deletion is admin-only — a moderator gets 403."""
         self.client.force_login(self.mod)
         self.assertEqual(self._delete().status_code, 403)
         self.article.refresh_from_db()
@@ -2803,7 +2803,7 @@ class ArticleDeleteTests(ApiTestCase):
         )
 
     def test_write_clears_the_deletion(self):
-        """A new write IS the restore (DESIGN.md M13) — which is why
+        """A new write IS the restore — which is why
         "restore an article someone has since rewritten" can't happen."""
         self._mark_deleted()
         save_edit(self.place, self.author, _content(), 'rewritten')
@@ -2840,7 +2840,7 @@ class ArticleDeleteTests(ApiTestCase):
 
 class RevertAuditTests(ApiTestCase):
     """Revert used to leave no audit trail at all — a rogue mod could blank
-    the wiki through it silently (DESIGN.md M13)."""
+    the wiki through it silently."""
 
     def setUp(self):
         super().setUp()
@@ -2884,7 +2884,7 @@ class RevertAuditTests(ApiTestCase):
 
 
 class AuditFeedTests(ApiTestCase):
-    """The global chronological feed (DESIGN.md M13)."""
+    """The global chronological feed."""
 
     def setUp(self):
         super().setUp()

@@ -1,4 +1,4 @@
-"""The Moderation dashboard API (DESIGN.md M12, Part C) — the actor-centric
+"""The Moderation dashboard API — the actor-centric
 and decision-centric views that complement the content-centric Reports queue.
 All endpoints are moderators-only.
 
@@ -75,7 +75,7 @@ def _report_author_id(report):
 @permission_classes([IsAuthenticated])
 def mod_users(request):
     """Users with any report or removed content against them, most-recently
-    reported first (DESIGN.md M12). The list is small enough to filter live
+    reported first. The list is small enough to filter live
     on the client, so everything is returned at once.
 
     `?all=1` (**superusers only**) widens it to every account, so an admin can
@@ -186,7 +186,7 @@ def _ban_json(ban):
 def mod_user_detail(request, user_id):
     """Everything a moderator needs to judge one account: their content (with
     removed items shown in full), reports against them, ban history, and the
-    audit trail of actions taken (DESIGN.md M12)."""
+    audit trail of actions taken."""
     forbidden = _forbidden(request)
     if forbidden is not None:
         return forbidden
@@ -273,7 +273,7 @@ def mod_user_detail(request, user_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def mod_ban_user(request, user_id):
-    """Ban an account (DESIGN.md M12). Body: reason, expires_days (0/absent =
+    """Ban an account. Body: reason, expires_days (0/absent =
     permanent), remove_content (also soft-remove all their content)."""
     forbidden = _forbidden(request)
     if forbidden is not None:
@@ -372,7 +372,7 @@ def mod_set_role(request, user_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def mod_unban_user(request, user_id):
-    """Lift every active ban on an account (DESIGN.md M12)."""
+    """Lift every active ban on an account."""
     forbidden = _forbidden(request)
     if forbidden is not None:
         return forbidden
@@ -401,7 +401,7 @@ def mod_unban_user(request, user_id):
 @permission_classes([IsAuthenticated])
 def mod_reporters(request):
     """Reporters ranked by dismissed reports — a high dismissed count is the
-    signature of report-button abuse (DESIGN.md M12)."""
+    signature of report-button abuse."""
     forbidden = _forbidden(request)
     if forbidden is not None:
         return forbidden
@@ -429,7 +429,7 @@ def mod_reporters(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def mod_audit(request):
-    """The global chronological audit feed (DESIGN.md M13).
+    """The global chronological audit feed.
 
     The per-user trail in `mod_user_detail` answers "what was done to *this*
     account"; it can't answer "is a moderator quietly working through every

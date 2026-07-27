@@ -60,7 +60,7 @@ def _place_description(place):
 
     A deleted article falls through to the stub copy — the description is
     served to crawlers and link previews, so it must not outlive the
-    content it summarizes (DESIGN.md M13).
+    content it summarizes.
     """
     article = getattr(place, 'article', None)
     if article is not None and article.deleted is not None:

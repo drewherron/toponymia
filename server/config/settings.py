@@ -168,7 +168,7 @@ HEADLESS_CLIENTS = ('browser',)
 
 
 # DRF — simple rate limits on anonymous-facing / expensive endpoints
-# (DESIGN.md §6). UserRateThrottle keys by user id when logged in, client
+#. UserRateThrottle keys by user id when logged in, client
 # IP otherwise, so the per-endpoint scopes below cover both. The default
 # cache (LocMemCache) is per-process — fine for a single-VPS v1; a shared
 # cache (Redis) is the upgrade if we ever run multiple workers.

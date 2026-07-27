@@ -1,4 +1,4 @@
-"""Thin stored Place.geometry to the on-write tolerance (DESIGN.md §3.2).
+"""Thin stored Place.geometry to the on-write tolerance.
 
 Rows resolved before geometry was simplified carry every vertex Overpass
 returned — the Mississippi's course is 18,193 of them, 292 kB. Nothing

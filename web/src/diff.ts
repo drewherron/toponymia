@@ -1,4 +1,4 @@
-/** Revision comparison (DESIGN.md §6): body Markdown is diffed as text
+/** Revision comparison: body Markdown is diffed as text
  * into side-by-side rows, structured fields (names, derivations,
  * see_also) are diffed field-wise. Rendering lives in HistoryTab. */
 

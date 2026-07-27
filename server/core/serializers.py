@@ -1,5 +1,4 @@
-"""Validation of article content — the JSON snapshot stored per Revision
-(DESIGN.md §4). Kept as plain Serializers: content is a document, not a
+"""Validation of article content — the JSON snapshot stored per Revision. Kept as plain Serializers: content is a document, not a
 model row."""
 
 from rest_framework import serializers
@@ -78,7 +77,7 @@ class RevertSerializer(serializers.Serializer):
 
 
 class ArticleDeleteSerializer(serializers.Serializer):
-    """An admin's whole-article deletion (DESIGN.md M13). The reason is
+    """An admin's whole-article deletion. The reason is
     optional but goes straight into the audit log, so it is the only record
     of *why* — write it as if the author will read it."""
 
@@ -101,7 +100,7 @@ class TalkThreadSerializer(TalkPostSerializer):
 
 
 class ReportSerializer(serializers.Serializer):
-    """A flag on a revision or a talk post (DESIGN.md §6)."""
+    """A flag on a revision or a talk post."""
 
     target_type = serializers.ChoiceField(choices=['revision', 'talk_post'])
     target_id = serializers.IntegerField()
@@ -124,14 +123,14 @@ class ReportActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
         choices=['resolve', 'dismiss', 'delete', 'suppress']
     )
-    # Optional moderator note, recorded in the audit log (DESIGN.md M12).
+    # Optional moderator note, recorded in the audit log.
     reason = serializers.CharField(
         max_length=500, allow_blank=True, default=''
     )
 
 
 class ProtectionSerializer(serializers.Serializer):
-    """A moderator setting an article's protection level (DESIGN.md §6)."""
+    """A moderator setting an article's protection level."""
 
     protection_level = serializers.ChoiceField(
         choices=['none', 'registered', 'admin']

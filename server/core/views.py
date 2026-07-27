@@ -73,7 +73,7 @@ def published_places():
 
 
 def can_edit_article(user, article):
-    """Article protection (DESIGN.md §6). Anonymous editing is already
+    """Article protection. Anonymous editing is already
     disallowed everywhere, so `none`/`registered` gate the same set (any
     logged-in user); `admin` restricts edits and reverts to moderators.
     A stub with no Article row yet is unprotected."""
@@ -107,10 +107,10 @@ def me(request):
                 'username': user.username,
                 'is_moderator': is_moderator(user),
                 # Admins get the role controls and the whole-roster view in
-                # the Moderation dashboard (DESIGN.md M12).
+                # the Moderation dashboard.
                 'is_admin': user.is_superuser,
                 # The SPA shows a suspension banner and hides write
-                # affordances when this is set (DESIGN.md M12).
+                # affordances when this is set.
                 'suspended': ban_message(ban) if ban is not None else None,
             }
         }
@@ -193,7 +193,7 @@ def resolve(request):
 def highlights(request):
     """Places with articles in the viewport, as centroid GeoJSON.
 
-    The client recolors basemap labels matching `names` (DESIGN.md §2.2)
+    The client recolors basemap labels matching `names`
     and paints dots at the centroids in all-articles mode. Inclusion is
     tested against cached geometry/bbox too, so a river whose centroid is
     far away still lights its labels inside the viewport.
@@ -255,7 +255,7 @@ def highlights(request):
 
 @api_view(['GET'])
 def search(request):
-    """Find our own articles by any of their names (DESIGN.md §2.3).
+    """Find our own articles by any of their names.
 
     Only places with a published article are returned — the "everything
     else on Earth" half of the search box is the client-side geocoder.
@@ -330,7 +330,7 @@ def place_detail(request, slug):
     )
     article = getattr(place, 'article', None)
     # A deleted article reads as a plain stub to everyone but an admin, who
-    # gets the content back plus the banner and Restore (DESIGN.md M13).
+    # gets the content back plus the banner and Restore.
     hidden = (
         article is not None
         and article.deleted is not None
@@ -406,7 +406,7 @@ def _revision_json(revision, current_id, with_content=False):
         'comment': revision.comment,
         'is_current': revision.id == current_id,
         # Only ever true in responses to moderators — public lists filter
-        # suppressed revisions out entirely (DESIGN.md M12).
+        # suppressed revisions out entirely.
         'suppressed': revision.suppressed is not None,
     }
     if with_content:
@@ -425,12 +425,12 @@ def revision_list(request, slug):
         return Response({'revisions': []})
     # A deleted article is a stub to the public — and that has to include its
     # history, or the content stays readable in the History tab and the
-    # deletion means nothing (DESIGN.md M13).
+    # deletion means nothing.
     if article.deleted is not None and not is_admin(request.user):
         return Response({'revisions': []})
     revisions = article.revisions.select_related('author')
     # Suppressed revisions are hidden from public history but stay visible
-    # to moderators (DESIGN.md M12).
+    # to moderators.
     if not is_moderator(request.user):
         revisions = revisions.filter(suppressed__isnull=True)
     return Response(
@@ -454,7 +454,7 @@ def revision_detail(request, slug, revision_id):
     if revision.suppressed is not None and not is_moderator(request.user):
         return Response(status=status.HTTP_404_NOT_FOUND)
     # Same reason as revision_list: a deleted article's snapshots must not be
-    # readable by slug+id either (DESIGN.md M13).
+    # readable by slug+id either.
     if revision.article.deleted is not None and not is_admin(request.user):
         return Response(status=status.HTTP_404_NOT_FOUND)
     return Response(
@@ -472,7 +472,7 @@ def revision_detail(request, slug, revision_id):
 @permission_classes([IsAuthenticated])
 @throttle_classes([WriteThrottle])
 def article_revert(request, slug):
-    """Revert = a new revision copying an old snapshot (DESIGN.md §6)."""
+    """Revert = a new revision copying an old snapshot."""
     blocked = banned_response(request.user)
     if blocked is not None:
         return blocked
@@ -504,7 +504,7 @@ def article_revert(request, slug):
     # Revert is a content tool anyone may use, but in a moderator's hands it
     # is also the most destructive one available and used to leave no trace
     # at all — a rogue mod could blank the wiki through this path and the
-    # audit log would be empty (DESIGN.md M13).
+    # audit log would be empty.
     if is_moderator(request.user):
         log_action(
             request.user, ModAction.Action.REVERT_ARTICLE,
@@ -518,7 +518,7 @@ def article_revert(request, slug):
 @permission_classes([IsAuthenticated])
 @throttle_classes([WriteThrottle])
 def article_delete(request, slug):
-    """Soft-delete a whole article (admin only, DESIGN.md M13).
+    """Soft-delete a whole article (admin only).
 
     "This article shouldn't exist" — distinct from revert (content is wrong)
     and from suppression (one revision is abusive). Every revision stays in
@@ -615,7 +615,7 @@ def article_edit(request, slug):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def article_protection(request, slug):
-    """Set an article's protection level — moderators only (DESIGN.md §6).
+    """Set an article's protection level — moderators only.
     Creates the Article row if the place is still a stub, so a place can
     be locked down pre-emptively."""
     if not is_moderator(request.user):
@@ -739,7 +739,7 @@ def talk_post_edit(request, post_id):
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def talk_post_delete(request, post_id):
-    """Soft-delete a post: its own author or a moderator (DESIGN.md §6)."""
+    """Soft-delete a post: its own author or a moderator."""
     post = get_object_or_404(
         TalkPost.objects.select_related('author'), id=post_id
     )
@@ -754,7 +754,7 @@ def talk_post_delete(request, post_id):
         post.deleted_by = request.user
         post.save(update_fields=['deleted', 'deleted_by'])
         # A moderator taking down someone else's post is an audited action;
-        # authors tidying their own posts are not (DESIGN.md M12).
+        # authors tidying their own posts are not.
         if not is_own:
             log_action(
                 request.user, ModAction.Action.DELETE_POST,
@@ -766,7 +766,7 @@ def talk_post_delete(request, post_id):
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def talk_thread_delete(request, thread_id):
-    """Soft-delete a whole thread — moderators only (DESIGN.md §6)."""
+    """Soft-delete a whole thread — moderators only."""
     if not is_moderator(request.user):
         return Response(status=status.HTTP_403_FORBIDDEN)
     thread = get_object_or_404(TalkThread, id=thread_id)
@@ -904,7 +904,7 @@ def mod_report_action(request, report_id):
     action = serializer.validated_data['action']
     reason = serializer.validated_data.get('reason', '')
     # Whose content the report targets — recorded on every audit row so the
-    # dashboard's problem-user view can aggregate by author (DESIGN.md M12).
+    # dashboard's problem-user view can aggregate by author.
     post = report.talk_post
     revision = report.revision
     target_user = post.author if post is not None else revision.author
@@ -969,7 +969,7 @@ def mod_report_action(request, report_id):
 @permission_classes([IsAuthenticated])
 def mod_revision_restore(request, revision_id):
     """Un-suppress a revision — the inverse of a queue `suppress` (moderators
-    only, DESIGN.md M12)."""
+    only)."""
     if not is_moderator(request.user):
         return Response(status=status.HTTP_403_FORBIDDEN)
     revision = get_object_or_404(
@@ -990,7 +990,7 @@ def mod_revision_restore(request, revision_id):
 @permission_classes([IsAuthenticated])
 def mod_talk_post_restore(request, post_id):
     """Restore a soft-deleted talk post — the inverse of a queue `delete`
-    (moderators only, DESIGN.md M12)."""
+    (moderators only)."""
     if not is_moderator(request.user):
         return Response(status=status.HTTP_403_FORBIDDEN)
     post = get_object_or_404(

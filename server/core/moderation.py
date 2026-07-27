@@ -1,4 +1,4 @@
-"""Shared moderation helpers (DESIGN.md M12): active-ban lookup, the
+"""Shared moderation helpers: active-ban lookup, the
 banned-user response, and the audit-log writer. Kept out of views.py so the
 mod queue, the write endpoints, and the Moderation dashboard all use one
 implementation."""
@@ -14,19 +14,19 @@ from .models import ModAction
 def is_moderator(user):
     """A moderator can act on the mod queue and delete others' content.
     Mapped to Django's staff flag (admins are superusers) — no custom user
-    model needed for v1 (DESIGN.md §4 roles user/mod/admin)."""
+    model needed for v1 (roles user/mod/admin)."""
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
 def is_admin(user):
     """An admin (Django superuser) additionally holds the destructive-ish
     grants a moderator doesn't: role changes, the whole-user roster, and
-    article deletion (DESIGN.md M13)."""
+    article deletion."""
     return user.is_authenticated and user.is_superuser
 
 
 def can_ban(actor, target):
-    """Ban authority (DESIGN.md M12): any moderator may ban a regular user;
+    """Ban authority: any moderator may ban a regular user;
     nobody may ban a superuser; only a superuser may ban another moderator
     (a staff account). You can't ban yourself."""
     if actor.id == target.id:
@@ -79,7 +79,7 @@ def ban_message(ban):
 
 def banned_response(user):
     """A 403 with the suspension notice if the user is banned, else None —
-    call at the top of a write action so reads stay open (DESIGN.md M12)."""
+    call at the top of a write action so reads stay open."""
     ban = active_ban(user)
     if ban is None:
         return None

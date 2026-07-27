@@ -214,7 +214,7 @@ function RolePanel({
 
 /** The inverse of a removal, next to the removed thing itself. M12 built
  *  both restore endpoints and then never gave either one a button, so until
- *  now a removal could only be undone from a shell (DESIGN.md M13). */
+ *  now a removal could only be undone from a shell. */
 function RestoreButton({
   onRestore,
   onDone,

@@ -1,4 +1,4 @@
-"""Re-snap label points onto cached geometry (DESIGN.md §3.1).
+"""Re-snap label points onto cached geometry.
 
 Existing rows took their label point from the creating click, which for a
 long feature sits wherever the first resolver happened to touch it — a

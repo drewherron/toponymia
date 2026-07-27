@@ -228,7 +228,7 @@ export type ReportTarget = RevisionReportTarget | TalkPostReportTarget
 
 export type ReportAction = 'resolve' | 'dismiss' | 'delete' | 'suppress'
 
-// --- Moderation dashboard (DESIGN.md M12) ---------------------------
+// --- Moderation dashboard ---------------------------
 
 export type UserRole = 'user' | 'moderator' | 'admin'
 

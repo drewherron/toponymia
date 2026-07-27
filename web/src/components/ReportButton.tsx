@@ -5,7 +5,7 @@ import { REPORT_CATEGORIES } from '../types'
 import type { ReportCategory } from '../types'
 
 /** Inline "report" affordance: reveals a reason box and files a flag on
- * a revision or a talk post for moderator attention (DESIGN.md §6). */
+ * a revision or a talk post for moderator attention. */
 function ReportButton({
   targetType,
   targetId,

@@ -1,6 +1,6 @@
 """Server-side click resolution: name+point -> anchored Place.
 
-Ladder (DESIGN.md §3.1): cached Place -> Overpass around-query ->
+Ladder: cached Place -> Overpass around-query ->
 wikidata QID (level 1) -> OSM element (level 2) -> name+location (level 3).
 """
 

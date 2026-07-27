@@ -72,7 +72,7 @@ const RAW_NAME_MATCH: ExpressionSpecification = ['coalesce', ['get', 'name'], ''
  * English name, and tests membership against the article token set.
  * Gating on class is what stops the city "Mexico" article from lighting
  * the country "Mexico" label — they share a name but not a `feature_class`
- * (DESIGN §2.2). `classExpr` is the label feature's class: `['get','class']`
+ *. `classExpr` is the label feature's class: `['get','class']`
  * for the mixed-class place layer, a constant kind for fixed-kind layers.
  */
 export function tokenMatches(

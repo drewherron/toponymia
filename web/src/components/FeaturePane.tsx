@@ -259,7 +259,7 @@ function ProtectionControl({
   )
 }
 
-/** Admin-only whole-article deletion (DESIGN.md M13). Deliberately not an
+/** Admin-only whole-article deletion. Deliberately not an
  *  icon button next to Close: this is the one action in the pane that takes
  *  the whole article off the map, so it wants a reason and a confirm. */
 function DeleteControl({

@@ -205,7 +205,7 @@ function spatialColor(originalColor: unknown): ExpressionSpecification {
 interface LabelLayer {
   id: string
   originalColor: unknown
-  /** Class part of this layer's highlight tokens (DESIGN §2.2). */
+  /** Class part of this layer's highlight tokens. */
   classExpr: ExpressionSpecification | string
   /** `place`-layer labels are recolored by feature-state, set from a
    *  spatial match (tier 2), not the name|class token expression — so two
@@ -328,7 +328,7 @@ function MapView({
   }
 
   /**
-   * Tier 2 (DESIGN §2.2): decide which *place*-layer labels are articles by
+   * Tier 2: decide which *place*-layer labels are articles by
    * position, not just name+class — so Columbia SC stays dark while the
    * "Columbia" name on Washington D.C. lights only D.C.'s own label. For
    * each rendered place label, match its name|class token to an article and
@@ -476,7 +476,7 @@ function MapView({
         collectionRef.current = collection
         // `name|class` tokens: an article lights a label only when both
         // agree, so the country "Mexico" stays dark next to the city's
-        // "Mexico" article (DESIGN §2.2).
+        // "Mexico" article.
         const tokens = new Set<string>()
         for (const feature of collection.features) {
           const props = feature.properties as {

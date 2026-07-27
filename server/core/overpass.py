@@ -24,7 +24,7 @@ import requests
 # cannot distinguish from "no such feature here", so it would silently
 # create bogus level-3 name anchors for most of the planet.
 #
-# Real redundancy means self-hosting Overpass; see DESIGN.md's "Later".
+# Real redundancy means self-hosting Overpass, a later concern.
 OVERPASS_URLS = [
     'https://overpass-api.de/api/interpreter',
 ]
@@ -132,8 +132,9 @@ def fetch_by_qid(qid):
     while the unfiltered query answers in ~1.4 s because the wikidata tag
     is indexed.
 
-    The trust model this changes: §3.1's "a stale hint costs a query, not
-    a resolution" now holds only for a QID **OSM doesn't carry at all**. A
+    The trust model this changes: the principle that "a stale hint costs a
+    query, not a resolution" now holds only for a QID **OSM doesn't carry
+    at all**. A
     QID that exists but isn't the caller's entity resolves confidently to
     the wrong place instead of falling through. Accepted because in both
     real callers the QID is authoritative rather than a guess — topobot
@@ -245,7 +246,7 @@ def _call(query, timeout_s=TIMEOUT_S):
 
 
 def choose_element(elements):
-    """Pick the best anchor candidate per the ladder in DESIGN.md §3.
+    """Pick the best anchor candidate per the resolution ladder.
 
     Elements carrying a wikidata QID win (they anchor at level 1), then
     relations over ways over nodes ("prefer the relation that ways belong
