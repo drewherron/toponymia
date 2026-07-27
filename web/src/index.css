@@ -512,6 +512,17 @@ body,
   opacity: 0.6;
 }
 
+.auth-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #444;
+  line-height: 1.4;
+}
+
+.auth-code {
+  letter-spacing: 0.15em;
+}
+
 .auth-error {
   color: #a12c00;
   font-size: 0.85rem;

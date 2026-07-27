@@ -617,8 +617,23 @@ export async function restoreRevision(revisionId: number): Promise<void> {
   }
 }
 
-/** django-allauth headless browser API. Errors carry
- * { errors: [{ message, param }] } — surfaced as a readable string. */
+/** django-allauth headless errors carry { errors: [{ message, param }] };
+ *  surface them as one readable string, falling back to the status code. */
+async function allauthErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = await response.json()
+    if (Array.isArray(body.errors) && body.errors.length > 0) {
+      return body.errors
+        .map((e: { message: string }) => e.message)
+        .join(' ')
+    }
+  } catch {
+    // non-JSON error body; fall through to the status code
+  }
+  return `${response.status}`
+}
+
+/** django-allauth headless browser API for calls whose only success is 2xx. */
 async function allauth(
   method: string,
   path: string,
@@ -630,18 +645,7 @@ async function allauth(
     body: payload ? JSON.stringify(payload) : undefined,
   })
   if (!response.ok) {
-    let detail = `${response.status}`
-    try {
-      const body = await response.json()
-      if (Array.isArray(body.errors) && body.errors.length > 0) {
-        detail = body.errors
-          .map((e: { message: string }) => e.message)
-          .join(' ')
-      }
-    } catch {
-      // non-JSON error body; keep the status code
-    }
-    throw new Error(detail)
+    throw new Error(await allauthErrorMessage(response))
   }
 }
 
@@ -649,8 +653,32 @@ export function login(username: string, password: string): Promise<void> {
   return allauth('POST', '/auth/login', { username, password })
 }
 
-export function signup(username: string, password: string): Promise<void> {
-  return allauth('POST', '/auth/signup', { username, password })
+/** Signup requires an email. With mandatory verification allauth answers 401
+ *  with a pending verify-email flow — expected, not an error: the caller then
+ *  collects the emailed code and calls verifyEmail. A 200 means the session is
+ *  already authenticated (verification disabled). */
+export async function signup(
+  username: string,
+  email: string,
+  password: string,
+): Promise<{ verificationRequired: boolean }> {
+  const response = await fetch('/_allauth/browser/v1/auth/signup', {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ username, email, password }),
+  })
+  if (response.status === 401) {
+    return { verificationRequired: true }
+  }
+  if (!response.ok) {
+    throw new Error(await allauthErrorMessage(response))
+  }
+  return { verificationRequired: false }
+}
+
+/** Submit the emailed verification code; success authenticates the session. */
+export function verifyEmail(code: string): Promise<void> {
+  return allauth('POST', '/auth/email/verify', { key: code })
 }
 
 export async function logout(): Promise<void> {
