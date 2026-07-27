@@ -180,11 +180,37 @@ const EMPTY_COLLECTION: FeatureCollection = {
   features: [],
 }
 
+// The OpenMapTiles vector source (see the style's `sources`). `place`
+// labels carry stable OSM-derived feature ids there, so feature-state
+// keyed by id survives tile reloads — the basis of the tier-2 highlight.
+const OMT_SOURCE = 'openmaptiles'
+const SPATIAL_SOURCE_LAYER = 'place'
+// A rendered label counts as an article's own only if it sits within this
+// of the article's label_point (~5.5 km). Far enough to absorb a city
+// node vs its P625 centre, tight enough to reject a same-named city in
+// another state (Columbia SC vs DC, the Franklins — all ≥300 km apart).
+const SPATIAL_MATCH_DEG = 0.05
+
+/** Recolor expression for a `place`-layer label: amber iff feature-state
+ *  marks it an article (set by the spatial reconciler). */
+function spatialColor(originalColor: unknown): ExpressionSpecification {
+  return [
+    'case',
+    ['boolean', ['feature-state', 'article'], false],
+    LABEL_COLOR,
+    originalColor,
+  ] as ExpressionSpecification
+}
+
 interface LabelLayer {
   id: string
   originalColor: unknown
   /** Class part of this layer's highlight tokens (DESIGN §2.2). */
   classExpr: ExpressionSpecification | string
+  /** `place`-layer labels are recolored by feature-state, set from a
+   *  spatial match (tier 2), not the name|class token expression — so two
+   *  same-named cities can be told apart. Everything else uses tokens. */
+  spatial: boolean
 }
 
 interface MapViewProps {
@@ -244,6 +270,9 @@ function MapView({
   const articleTokensRef = useRef<string[]>([])
   const collectionRef = useRef<FeatureCollection>(EMPTY_COLLECTION)
   const hiddenDotsRef = useRef('')
+  // Place-layer feature ids we've marked amber via feature-state (tier 2),
+  // so the reconciler knows what to clear when a label stops matching.
+  const litPlaceIdsRef = useRef<Set<string | number>>(new Set())
   const focusAbortRef = useRef<AbortController | null>(null)
   // Slug of the place currently drawing its course — set only once
   // geometry is actually on the map, so a city (which has none) keeps its
@@ -285,13 +314,95 @@ function MapView({
   const applyLabelColors = (map: maplibregl.Map) => {
     const tokens = articleTokensRef.current
     const lang = propsRef.current.labelLanguage
-    for (const { id, originalColor, classExpr } of labelLayersRef.current) {
+    for (const { id, originalColor, classExpr, spatial } of labelLayersRef.current) {
+      // Spatial (place-layer) labels are colored by feature-state, set once
+      // at load and driven by reconcilePlaceHighlights — skip them here.
+      if (spatial) continue
       map.setPaintProperty(id, 'text-color', [
         'case',
         tokenMatches(lang, classExpr, tokens),
         LABEL_COLOR,
         originalColor,
       ])
+    }
+  }
+
+  /**
+   * Tier 2 (DESIGN §2.2): decide which *place*-layer labels are articles by
+   * position, not just name+class — so Columbia SC stays dark while the
+   * "Columbia" name on Washington D.C. lights only D.C.'s own label. For
+   * each rendered place label, match its name|class token to an article and
+   * require the label to sit within SPATIAL_MATCH_DEG of that article's
+   * label_point; mark the hits amber via feature-state (which persists
+   * across tile reloads, keyed by the tile's stable OSM feature id).
+   */
+  const reconcilePlaceHighlights = (map: maplibregl.Map) => {
+    const spatialLayers = labelLayersRef.current
+      .filter((layer) => layer.spatial)
+      .map((layer) => layer.id)
+    if (spatialLayers.length === 0) return
+    // token → the label_points of the articles bearing it.
+    const tokenPoints = new Map<string, [number, number][]>()
+    for (const feature of collectionRef.current.features) {
+      const props = feature.properties as {
+        names?: string[]
+        feature_class?: string
+      } | null
+      if (feature.geometry?.type !== 'Point') continue
+      const point = feature.geometry.coordinates as [number, number]
+      const cls = props?.feature_class ?? ''
+      for (const name of props?.names ?? []) {
+        const token = `${name}|${cls}`
+        const points = tokenPoints.get(token)
+        if (points) points.push(point)
+        else tokenPoints.set(token, [point])
+      }
+    }
+    const keys = [
+      ...new Set([...nameKeys(propsRef.current.labelLanguage), ...nameKeys('en')]),
+    ]
+    const near = (a: [number, number], b: [number, number]) =>
+      Math.abs(a[0] - b[0]) <= SPATIAL_MATCH_DEG &&
+      Math.abs(a[1] - b[1]) <= SPATIAL_MATCH_DEG
+    const matched = new Set<string | number>()
+    const rendered = new Set<string | number>()
+    for (const feature of map.queryRenderedFeatures({ layers: spatialLayers })) {
+      const id = feature.id
+      if (id == null || feature.geometry?.type !== 'Point') continue
+      rendered.add(id)
+      const at = feature.geometry.coordinates as [number, number]
+      const kind = kindOf(feature)
+      const props = feature.properties ?? {}
+      for (const key of keys) {
+        const value = props[key]
+        if (typeof value !== 'string' || !value) continue
+        const points = tokenPoints.get(`${value}|${kind}`)
+        if (points?.some((point) => near(point, at))) {
+          matched.add(id)
+          break
+        }
+      }
+    }
+    const lit = litPlaceIdsRef.current
+    for (const id of matched) {
+      if (lit.has(id)) continue
+      map.setFeatureState(
+        { source: OMT_SOURCE, sourceLayer: SPATIAL_SOURCE_LAYER, id },
+        { article: true },
+      )
+      lit.add(id)
+    }
+    // Clear a previously-lit label only once it's actually on screen and no
+    // longer matching — off-screen ids keep their state (harmless) and are
+    // re-checked when they render again, so panning away doesn't flicker.
+    for (const id of rendered) {
+      if (lit.has(id) && !matched.has(id)) {
+        map.setFeatureState(
+          { source: OMT_SOURCE, sourceLayer: SPATIAL_SOURCE_LAYER, id },
+          { article: false },
+        )
+        lit.delete(id)
+      }
     }
   }
 
@@ -549,11 +660,19 @@ function MapView({
           'source-layer' in layer && typeof layer['source-layer'] === 'string'
             ? layer['source-layer']
             : ''
+        const originalColor = layer.paint?.['text-color'] ?? '#333'
+        const spatial = sourceLayer === SPATIAL_SOURCE_LAYER
         labelLayers.push({
           id: layer.id,
-          originalColor: layer.paint?.['text-color'] ?? '#333',
+          originalColor,
           classExpr: labelClassExpr(sourceLayer),
+          spatial,
         })
+        // Spatial layers are colored by feature-state (tier 2); set that
+        // wrapper once here, then reconcilePlaceHighlights toggles the state.
+        if (spatial) {
+          map.setPaintProperty(layer.id, 'text-color', spatialColor(originalColor))
+        }
         // Chosen-language labels (replace the style's latin\nnonlatin stack)
         map.setLayoutProperty(
           layer.id,
@@ -613,7 +732,9 @@ function MapView({
       pendingFly = null
     })
     map.on('idle', () => {
-      if (readyRef.current) updateDotFilter(map)
+      if (!readyRef.current) return
+      reconcilePlaceHighlights(map)
+      updateDotFilter(map)
     })
     map.on('moveend', () => {
       // Our fly has landed; from here any move is the user's, and the
