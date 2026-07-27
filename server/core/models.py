@@ -267,8 +267,9 @@ class PlaceName(models.Model):
 
 
 class Report(models.Model):
-    """A flag on a Revision or a TalkPost for moderator attention. Exactly one target is set; the reason is the
-    reporter's note. Status drives the mod queue."""
+    """A flag on a Revision or a TalkPost for moderator attention. Exactly one
+    target is set; the reason is the reporter's note. Status drives the mod
+    queue."""
 
     class Status(models.TextChoices):
         OPEN = 'open'

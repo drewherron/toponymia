@@ -1,5 +1,5 @@
-"""Validation of article content — the JSON snapshot stored per Revision. Kept as plain Serializers: content is a document, not a
-model row."""
+"""Validation of article content — the JSON snapshot stored per Revision. Kept
+as plain Serializers: content is a document, not a model row."""
 
 from rest_framework import serializers
 
