@@ -24,8 +24,8 @@ import type {
   ResolvedPlace,
 } from '../types'
 import { poiClassFilter } from '../poi'
-import { toCandidates } from './features'
-import { nameField, nameKeys, nameMatch } from './labels'
+import { kindOf, labelClassExpr, toCandidates } from './features'
+import { nameField, nameKeys, tokenMatches } from './labels'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 const CLICK_TOLERANCE_PX = 6
@@ -171,11 +171,6 @@ function homeCamera(
 // RTL text first appears in view). Without it RTL names render backward.
 maplibregl.setRTLTextPlugin(rtlTextUrl, true).catch(console.error)
 
-const RAW_NAME_MATCH: ExpressionSpecification = [
-  'coalesce',
-  ['get', 'name'],
-  '',
-]
 // Darker amber for label text (readability at small sizes), brighter for dots.
 const LABEL_COLOR = '#b45309'
 const DOT_COLOR = '#d97706'
@@ -188,6 +183,8 @@ const EMPTY_COLLECTION: FeatureCollection = {
 interface LabelLayer {
   id: string
   originalColor: unknown
+  /** Class part of this layer's highlight tokens (DESIGN §2.2). */
+  classExpr: ExpressionSpecification | string
 }
 
 interface MapViewProps {
@@ -244,7 +241,7 @@ function MapView({
     sheetDetent,
   })
   const labelLayersRef = useRef<LabelLayer[]>([])
-  const articleNamesRef = useRef<string[]>([])
+  const articleTokensRef = useRef<string[]>([])
   const collectionRef = useRef<FeatureCollection>(EMPTY_COLLECTION)
   const hiddenDotsRef = useRef('')
   const focusAbortRef = useRef<AbortController | null>(null)
@@ -279,24 +276,19 @@ function MapView({
     sheetDetent,
   ])
 
-  /** Wrap every label layer's text color: article names go amber.
-   *  Matches the displayed name, the raw `name`, and the English name
-   *  (article names are English by construction), so places light up
-   *  whatever the label language. */
+  /** Wrap every label layer's text color: article labels go amber.
+   *  Matches `name|class` tokens against the displayed name, the raw
+   *  `name`, and the English name (article names are English by
+   *  construction), so places light up whatever the label language —
+   *  while the class gate keeps a same-named feature of another kind
+   *  (the country "Mexico" vs the city's article) dark. */
   const applyLabelColors = (map: maplibregl.Map) => {
-    const names = articleNamesRef.current
+    const tokens = articleTokensRef.current
     const lang = propsRef.current.labelLanguage
-    const matches: ExpressionSpecification[] = [
-      ['in', nameMatch(lang), ['literal', names]],
-      ['in', RAW_NAME_MATCH, ['literal', names]],
-    ]
-    if (lang !== 'en') {
-      matches.push(['in', nameMatch('en'), ['literal', names]])
-    }
-    for (const { id, originalColor } of labelLayersRef.current) {
+    for (const { id, originalColor, classExpr } of labelLayersRef.current) {
       map.setPaintProperty(id, 'text-color', [
         'case',
-        ['any', ...matches],
+        tokenMatches(lang, classExpr, tokens),
         LABEL_COLOR,
         originalColor,
       ])
@@ -312,15 +304,21 @@ function MapView({
    */
   const updateDotFilter = (map: maplibregl.Map) => {
     const layerIds = labelLayersRef.current.map((layer) => layer.id)
-    const renderedNames = new Set<string>()
+    // `name|class` tokens, same gate as the recolor: a dot hands off to a
+    // label only when a same-*kind* label is actually drawn, so the
+    // country "Mexico" label no longer hides the city's dot.
+    const renderedTokens = new Set<string>()
     const keys = [
       ...new Set([...nameKeys(propsRef.current.labelLanguage), ...nameKeys('en')]),
     ]
     for (const feature of map.queryRenderedFeatures({ layers: layerIds })) {
+      const kind = kindOf(feature)
       const props = feature.properties ?? {}
       for (const key of keys) {
         const value = props[key]
-        if (typeof value === 'string' && value) renderedNames.add(value)
+        if (typeof value === 'string' && value) {
+          renderedTokens.add(`${value}|${kind}`)
+        }
       }
     }
     const hidden: string[] = []
@@ -328,9 +326,11 @@ function MapView({
       const props = feature.properties as {
         slug?: string
         names?: string[]
+        feature_class?: string
       } | null
       if (!props?.slug) continue
-      if ((props.names ?? []).some((name) => renderedNames.has(name))) {
+      const cls = props.feature_class ?? ''
+      if ((props.names ?? []).some((name) => renderedTokens.has(`${name}|${cls}`))) {
         hidden.push(props.slug)
       }
     }
@@ -363,12 +363,19 @@ function MapView({
     )
       .then((collection) => {
         collectionRef.current = collection
-        const names = new Set<string>()
+        // `name|class` tokens: an article lights a label only when both
+        // agree, so the country "Mexico" stays dark next to the city's
+        // "Mexico" article (DESIGN §2.2).
+        const tokens = new Set<string>()
         for (const feature of collection.features) {
-          const list = (feature.properties as { names?: string[] })?.names
-          for (const name of list ?? []) names.add(name)
+          const props = feature.properties as {
+            names?: string[]
+            feature_class?: string
+          } | null
+          const cls = props?.feature_class ?? ''
+          for (const name of props?.names ?? []) tokens.add(`${name}|${cls}`)
         }
-        articleNamesRef.current = [...names]
+        articleTokensRef.current = [...tokens]
         const source = map.getSource('highlights') as
           | maplibregl.GeoJSONSource
           | undefined
@@ -538,9 +545,14 @@ function MapView({
         if (!textField || !JSON.stringify(textField).includes('"name"')) {
           continue
         }
+        const sourceLayer =
+          'source-layer' in layer && typeof layer['source-layer'] === 'string'
+            ? layer['source-layer']
+            : ''
         labelLayers.push({
           id: layer.id,
           originalColor: layer.paint?.['text-color'] ?? '#333',
+          classExpr: labelClassExpr(sourceLayer),
         })
         // Chosen-language labels (replace the style's latin\nnonlatin stack)
         map.setLayoutProperty(

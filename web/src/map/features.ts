@@ -1,4 +1,4 @@
-import type { MapGeoJSONFeature } from 'maplibre-gl'
+import type { ExpressionSpecification, MapGeoJSONFeature } from 'maplibre-gl'
 import type { FeatureCandidate } from '../types'
 import { displayNameOf } from './labels'
 
@@ -12,11 +12,27 @@ const KIND_BY_SOURCE_LAYER: Record<string, string> = {
   poi: 'poi',
 }
 
-function kindOf(feature: MapGeoJSONFeature): string {
+export function kindOf(feature: MapGeoJSONFeature): string {
   const sourceLayer = feature.sourceLayer ?? ''
   if (sourceLayer === 'place' || sourceLayer === 'park') {
     const cls = feature.properties?.class
     if (typeof cls === 'string' && cls) return cls
+  }
+  return KIND_BY_SOURCE_LAYER[sourceLayer] ?? sourceLayer
+}
+
+/**
+ * The class part of a label's highlight token, matched against a Place's
+ * stored `feature_class` (which is exactly what `kindOf` reported at
+ * resolve time). The `place`/`park` layers mix classes on one layer
+ * (city vs country vs state), so read each feature's own `class`; every
+ * other layer carries a single fixed kind, so return it as a constant.
+ */
+export function labelClassExpr(
+  sourceLayer: string,
+): ExpressionSpecification | string {
+  if (sourceLayer === 'place' || sourceLayer === 'park') {
+    return ['coalesce', ['get', 'class'], '']
   }
   return KIND_BY_SOURCE_LAYER[sourceLayer] ?? sourceLayer
 }

@@ -61,6 +61,37 @@ export function nameMatch(lang: string): ExpressionSpecification {
   return ['coalesce', ...gets, '']
 }
 
+/** The raw OSM `name`, matched alongside the display ladders so an article
+ *  named for the underlying tag lights up even when the label shows an
+ *  exonym. */
+const RAW_NAME_MATCH: ExpressionSpecification = ['coalesce', ['get', 'name'], '']
+
+/**
+ * Does this label belong to an article? Builds `name|class` tokens from
+ * the display-language name, the raw `name`, and (when relabeled) the
+ * English name, and tests membership against the article token set.
+ * Gating on class is what stops the city "Mexico" article from lighting
+ * the country "Mexico" label — they share a name but not a `feature_class`
+ * (DESIGN §2.2). `classExpr` is the label feature's class: `['get','class']`
+ * for the mixed-class place layer, a constant kind for fixed-kind layers.
+ */
+export function tokenMatches(
+  lang: string,
+  classExpr: ExpressionSpecification | string,
+  tokens: string[],
+): ExpressionSpecification {
+  const needles = [nameMatch(lang), RAW_NAME_MATCH]
+  if (lang !== 'en') needles.push(nameMatch('en'))
+  const tests = needles.map(
+    (needle): ExpressionSpecification => [
+      'in',
+      ['concat', needle, '|', classExpr],
+      ['literal', tokens],
+    ],
+  )
+  return ['any', ...tests]
+}
+
 /** What the map label shows for these feature properties in `lang`. */
 export function displayNameOf(
   props: Record<string, unknown>,
