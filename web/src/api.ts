@@ -649,8 +649,14 @@ async function allauth(
   }
 }
 
-export function login(username: string, password: string): Promise<void> {
-  return allauth('POST', '/auth/login', { username, password })
+/** One login field accepts a username or an email address, but allauth wants
+ *  exactly one of its credential keys posted (sending both is an error), so
+ *  the caller's single value has to be routed to one of them. "@" is the test:
+ *  usernames exclude it (core/validators.py) precisely so this can't be
+ *  ambiguous. */
+export function login(identifier: string, password: string): Promise<void> {
+  const key = identifier.includes('@') ? 'email' : 'username'
+  return allauth('POST', '/auth/login', { [key]: identifier, password })
 }
 
 /** Signup requires an email. With mandatory verification allauth answers 401

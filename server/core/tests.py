@@ -1547,6 +1547,13 @@ class AuthApiTests(ApiTestCase):
             'newuser',
         )
 
+    # The 11 signups below have to land inside the limit's own 60s window, and
+    # a real PBKDF2 hash per signup costs seconds under load — enough that this
+    # used to pass only on an idle box. A fast hasher makes it about the rate
+    # limit rather than about the machine.
+    @override_settings(
+        PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher']
+    )
     def test_signup_is_rate_limited(self):
         # signup is capped at 10/min/IP; the test client shares one REMOTE_ADDR,
         # so the 11th distinct signup in a minute is throttled (429).
@@ -1565,6 +1572,39 @@ class AuthApiTests(ApiTestCase):
         # first ten accepted (pending verification), eleventh throttled
         self.assertNotIn(429, statuses[:10])
         self.assertEqual(statuses[10], 429)
+
+    def test_login_by_email(self):
+        # One field takes either identifier; the SPA posts 'email' when the
+        # value contains an "@", so both keys have to authenticate.
+        user = User.objects.create_user('drew', password='sturdy-passphrase-9')
+        EmailAddress.objects.create(
+            user=user, email='drew@example.com', verified=True, primary=True
+        )
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/login',
+            {'email': 'drew@example.com', 'password': 'sturdy-passphrase-9'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse('core:me')).json()['user']['username'],
+            'drew',
+        )
+
+    def test_signup_rejects_at_sign_in_username(self):
+        # "@" is what tells the SPA to post the email key, so a username may
+        # not contain one — otherwise it could never be posted as a username.
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {
+                'username': 'dr@ew',
+                'email': 'atsign@example.com',
+                'password': 'sturdy-passphrase-9',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='dr@ew').exists())
 
     def test_headless_login_logout(self):
         user = User.objects.create_user('drew', password='sturdy-passphrase-9')

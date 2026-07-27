@@ -164,7 +164,17 @@ AUTHENTICATION_BACKENDS = [
 # Verification is by short code (not a link): allauth emails a code and the
 # headless signup flow stays pending until the SPA posts it back, so there is
 # no email-link route to catch and the user never leaves the signup form.
-ACCOUNT_LOGIN_METHODS = {'username'}
+# Log in with either identifier, from one field. Email is what people
+# actually remember, so this removes "I forgot my username" as a way to lose
+# access — but username keeps working, which is the point: with no
+# account-settings page yet there is no way to change your address, so email
+# must not be the *only* key to the account. The username is the public
+# identity regardless (bylines, talk, history), so signup collects both.
+# allauth wants exactly one of its credential keys posted, so the SPA picks by
+# looking for an "@" — see ACCOUNT_USERNAME_VALIDATORS below, which is what
+# makes that test unambiguous.
+ACCOUNT_LOGIN_METHODS = {'username', 'email'}
+ACCOUNT_USERNAME_VALIDATORS = 'core.validators.username_validators'
 ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*']
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = True

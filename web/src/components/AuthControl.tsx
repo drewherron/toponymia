@@ -223,7 +223,11 @@ function AuthControl({
             </button>
           </div>
           <label>
-            Username
+            {/* Signing up this is strictly the username (it becomes the public
+                byline); logging in it is either identifier, and api.ts routes
+                it to the right credential key. autocomplete="username" is
+                right for both — it is the browser's login-identifier hint. */}
+            {mode === 'login' ? 'Username or email' : 'Username'}
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
