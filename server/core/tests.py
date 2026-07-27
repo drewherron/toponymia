@@ -1,3 +1,4 @@
+import re
 import shutil
 import tempfile
 from datetime import timedelta
@@ -6,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import requests
+from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.contrib.gis.geos import (
     LineString,
@@ -13,6 +15,7 @@ from django.contrib.gis.geos import (
     Point,
     Polygon,
 )
+from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -1491,10 +1494,51 @@ class AuthApiTests(ApiTestCase):
             'drew',
         )
 
-    def test_headless_signup_and_session(self):
+    def test_signup_requires_email(self):
         response = self.client.post(
             '/_allauth/browser/v1/auth/signup',
             {'username': 'newuser', 'password': 'sturdy-passphrase-9'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='newuser').exists())
+
+    def test_signup_is_unverified_and_pending(self):
+        # With mandatory verification the account is created but the session
+        # stays anonymous until the emailed code is confirmed, and a
+        # verification email goes out.
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {
+                'username': 'newuser',
+                'email': 'newuser@example.com',
+                'password': 'sturdy-passphrase-9',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertTrue(User.objects.filter(username='newuser').exists())
+        self.assertIsNone(
+            self.client.get(reverse('core:me')).json()['user']
+        )
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_signup_verify_by_code_authenticates(self):
+        self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {
+                'username': 'newuser',
+                'email': 'newuser@example.com',
+                'password': 'sturdy-passphrase-9',
+            },
+            content_type='application/json',
+        )
+        code = re.search(
+            r'\b([A-Z0-9]{4}-[A-Z0-9]{4})\b', mail.outbox[0].body
+        ).group(1)
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/email/verify',
+            {'key': code},
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 200)
@@ -1504,7 +1548,10 @@ class AuthApiTests(ApiTestCase):
         )
 
     def test_headless_login_logout(self):
-        User.objects.create_user('drew', password='sturdy-passphrase-9')
+        user = User.objects.create_user('drew', password='sturdy-passphrase-9')
+        EmailAddress.objects.create(
+            user=user, email='drew@example.com', verified=True, primary=True
+        )
         response = self.client.post(
             '/_allauth/browser/v1/auth/login',
             {'username': 'drew', 'password': 'sturdy-passphrase-9'},

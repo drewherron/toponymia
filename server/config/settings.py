@@ -152,19 +152,44 @@ USE_TZ = True
 
 
 # Authentication — django-allauth in headless-only mode: the React SPA
-# talks JSON to /_allauth/browser/v1/* using the session cookie. No email
-# sending in v1, so verification is off and email is optional.
+# talks JSON to /_allauth/browser/v1/* using the session cookie.
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
+# Email is required and must be verified before an account is usable — the
+# anti-spam floor, since re-registration is otherwise free and instant.
+# Verification is by short code (not a link): allauth emails a code and the
+# headless signup flow stays pending until the SPA posts it back, so there is
+# no email-link route to catch and the user never leaves the signup form.
 ACCOUNT_LOGIN_METHODS = {'username'}
-ACCOUNT_SIGNUP_FIELDS = ['username*', 'email', 'password1*']
-ACCOUNT_EMAIL_VERIFICATION = 'none'
+ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*']
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = True
+ACCOUNT_UNIQUE_EMAIL = True
 HEADLESS_ONLY = True
 HEADLESS_CLIENTS = ('browser',)
+
+
+# Email — verification codes now, password reset later. Dev defaults to the
+# console backend so signup works with no SMTP configured (the code prints to
+# the runserver console); production points DJANGO_EMAIL_BACKEND at SMTP and
+# fills host/credentials from the environment. Plain SMTP, no transactional
+# API key — keeps to the project's keyless rule.
+EMAIL_BACKEND = os.environ.get(
+    'DJANGO_EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
+EMAIL_HOST = os.environ.get('DJANGO_EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('DJANGO_EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('DJANGO_EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('DJANGO_EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('DJANGO_EMAIL_USE_TLS', '1') == '1'
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DJANGO_DEFAULT_FROM_EMAIL', 'Toponymia <noreply@toponymia.org>'
+)
 
 
 # DRF — simple rate limits on anonymous-facing / expensive endpoints
