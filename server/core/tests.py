@@ -1585,6 +1585,88 @@ class AuthApiTests(ApiTestCase):
         )
 
 
+class PasswordResetTests(ApiTestCase):
+    """Reset is by emailed code, like signup verification — see settings."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            'drew', password='sturdy-passphrase-9'
+        )
+        EmailAddress.objects.create(
+            user=self.user, email='drew@example.com', verified=True, primary=True
+        )
+
+    def request_reset(self, email='drew@example.com'):
+        return self.client.post(
+            '/_allauth/browser/v1/auth/password/request',
+            {'email': email},
+            content_type='application/json',
+        )
+
+    def emailed_code(self):
+        return re.search(
+            r'\b([A-Z0-9]{4}-[A-Z0-9]{4})\b', mail.outbox[0].body
+        ).group(1)
+
+    def test_reset_by_code_changes_the_password(self):
+        # 401 is the expected answer: the code is out but the session is still
+        # anonymous, exactly like the signup flow.
+        self.assertEqual(self.request_reset().status_code, 401)
+        self.assertEqual(len(mail.outbox), 1)
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/password/reset',
+            {'key': self.emailed_code(), 'password': 'brand-new-passphrase-4'},
+            content_type='application/json',
+        )
+        # Still 401 — ACCOUNT_LOGIN_ON_PASSWORD_RESET is off, so the reset
+        # lands without authenticating; the user logs in again afterwards.
+        self.assertEqual(response.status_code, 401)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.check_password('sturdy-passphrase-9'))
+        self.assertTrue(self.user.check_password('brand-new-passphrase-4'))
+        self.assertEqual(
+            self.client.post(
+                '/_allauth/browser/v1/auth/login',
+                {'username': 'drew', 'password': 'brand-new-passphrase-4'},
+                content_type='application/json',
+            ).status_code,
+            200,
+        )
+
+    def test_unknown_email_is_indistinguishable(self):
+        # Enumeration resistance: an address with no account must answer the
+        # same as one with, or the endpoint becomes an account oracle.
+        known = self.request_reset()
+        mail.outbox.clear()
+        unknown = self.request_reset('nobody@example.com')
+        self.assertEqual(unknown.status_code, known.status_code)
+        self.assertFalse(
+            User.objects.filter(email='nobody@example.com').exists()
+        )
+
+    def test_wrong_code_is_rejected(self):
+        self.request_reset()
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/password/reset',
+            {'key': 'AAAA-BBBB', 'password': 'brand-new-passphrase-4'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('sturdy-passphrase-9'))
+
+    def test_reset_without_a_request_conflicts(self):
+        # The pending flow lives in the session, so a code can only be spent in
+        # the browser that asked for it — 409, not 400.
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/password/reset',
+            {'key': 'AAAA-BBBB', 'password': 'brand-new-passphrase-4'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 409)
+
+
 class SearchApiTests(ApiTestCase):
     def setUp(self):
         super().setUp()

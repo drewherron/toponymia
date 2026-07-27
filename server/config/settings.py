@@ -172,8 +172,27 @@ ACCOUNT_UNIQUE_EMAIL = True
 HEADLESS_ONLY = True
 HEADLESS_CLIENTS = ('browser',)
 
+# Password reset by code, for the same reason signup verification is: no
+# email-link route to catch, so the whole flow stays inside the auth form and
+# needs no SPA route of its own. Login stays username-only while there is no
+# account-settings page — losing access to your email must cost you the reset
+# path, not the account. allauth's 3-minute default is far too tight for an
+# email round trip; 15 minutes is still short enough to bound a leaked code.
+ACCOUNT_PASSWORD_RESET_BY_CODE_ENABLED = True
+ACCOUNT_PASSWORD_RESET_BY_CODE_TIMEOUT = 15 * 60
 
-# Email — verification codes now, password reset later. Dev defaults to the
+# Required by the enumeration-resistant reset path, and *only* by it: a reset
+# requested for an address with no account still sends mail ("someone asked to
+# reset a password here; you have no account") so the response can't be told
+# apart from the real one, and that mail links to signup. HEADLESS_ONLY raises
+# ImproperlyConfigured rather than defaulting, so without this the request 500s
+# — on typo'd addresses only, which is exactly the case no one tests by hand.
+# Signup is a header popover, not a route, so the site root is the honest
+# target; relative URLs are made absolute against the request.
+HEADLESS_FRONTEND_URLS = {'account_signup': '/'}
+
+
+# Email — verification and password-reset codes. Dev defaults to the
 # console backend so signup works with no SMTP configured (the code prints to
 # the runserver console); production points DJANGO_EMAIL_BACKEND at SMTP and
 # fills host/credentials from the environment. Plain SMTP, no transactional

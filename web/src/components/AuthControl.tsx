@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { fetchMe, login, logout, signup, verifyEmail } from '../api'
+import {
+  fetchMe,
+  login,
+  logout,
+  requestPasswordReset,
+  resetPassword,
+  signup,
+  verifyEmail,
+} from '../api'
 import type { User } from '../types'
 
 interface AuthControlProps {
@@ -23,25 +31,33 @@ function AuthControl({
 }: AuthControlProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   // Signup is two steps under mandatory verification: the form, then the code
-  // allauth emailed. 'verify' is only ever reached from a signup.
-  const [step, setStep] = useState<'form' | 'verify'>('form')
+  // allauth emailed. 'verify' is only ever reached from a signup. Password
+  // reset is the same shape from the other direction — 'forgot' asks for the
+  // address, 'reset' takes the emailed code plus the new password — which is
+  // why reset is by code and not by link: no step here needs a page of its own.
+  const [step, setStep] = useState<'form' | 'verify' | 'forgot' | 'reset'>(
+    'form',
+  )
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const switchMode = (next: 'login' | 'signup') => {
     setMode(next)
     setStep('form')
     setError(null)
+    setNotice(null)
   }
 
   const finish = (me: User | null) => {
     onUserChange(me)
     onOpenChange(false)
     setStep('form')
+    setNotice(null)
     setUsername('')
     setEmail('')
     setPassword('')
@@ -58,9 +74,27 @@ function AuthControl({
     event.preventDefault()
     setBusy(true)
     setError(null)
+    setNotice(null)
     const done = () => fetchMe().then(finish)
     let work: Promise<void>
-    if (step === 'verify') {
+    if (step === 'forgot') {
+      // Never branch on whether the address exists — allauth answers the same
+      // either way on purpose, and saying "no such account" would undo it.
+      work = requestPasswordReset(email).then(() => {
+        setStep('reset')
+        setPassword('')
+      })
+    } else if (step === 'reset') {
+      // The reset leaves the session anonymous, so hand back to the login tab
+      // rather than calling fetchMe — there is no one logged in yet.
+      work = resetPassword(code, password).then(() => {
+        setStep('form')
+        setMode('login')
+        setPassword('')
+        setCode('')
+        setNotice('Password updated. Log in with your new password.')
+      })
+    } else if (step === 'verify') {
       work = verifyEmail(code).then(done)
     } else if (mode === 'signup') {
       work = signup(username, email, password).then((result) => {
@@ -92,6 +126,12 @@ function AuthControl({
   }
 
   const verifyStep = step === 'verify'
+  const submitLabel = {
+    verify: 'Verify',
+    forgot: 'Send code',
+    reset: 'Set password',
+    form: mode === 'login' ? 'Log in' : 'Create account',
+  }[step]
 
   const form = (
     <form
@@ -112,6 +152,54 @@ function AuthControl({
               onChange={(e) => setCode(e.target.value)}
               autoComplete="one-time-code"
               autoFocus
+              required
+            />
+          </label>
+        </>
+      ) : step === 'forgot' ? (
+        <>
+          {/* Reset is keyed by email even though login is by username, so ask
+              for the address explicitly — the field above it wanted a name. */}
+          <p className="auth-note">
+            Enter the email address for your account and we'll send you a reset
+            code.
+          </p>
+          <label>
+            Email
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              autoFocus
+              required
+            />
+          </label>
+        </>
+      ) : step === 'reset' ? (
+        <>
+          <p className="auth-note">
+            If <strong>{email}</strong> has an account, a reset code is on its
+            way. Enter it below with your new password.
+          </p>
+          <label>
+            Reset code
+            <input
+              className="auth-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoComplete="one-time-code"
+              autoFocus
+              required
+            />
+          </label>
+          <label>
+            New password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
               required
             />
           </label>
@@ -169,14 +257,33 @@ function AuthControl({
           </label>
         </>
       )}
+      {notice && <p className="auth-notice">{notice}</p>}
       {error && <p className="auth-error">{error}</p>}
       <button type="submit" disabled={busy}>
-        {verifyStep
-          ? 'Verify'
-          : mode === 'login'
-            ? 'Log in'
-            : 'Create account'}
+        {submitLabel}
       </button>
+      {step === 'form' && mode === 'login' && (
+        <button
+          type="button"
+          className="auth-alt"
+          onClick={() => {
+            setStep('forgot')
+            setError(null)
+            setNotice(null)
+          }}
+        >
+          Forgot password?
+        </button>
+      )}
+      {(step === 'forgot' || step === 'reset') && (
+        <button
+          type="button"
+          className="auth-alt"
+          onClick={() => switchMode('login')}
+        >
+          Back to log in
+        </button>
+      )}
     </form>
   )
 

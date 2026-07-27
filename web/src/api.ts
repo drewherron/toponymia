@@ -681,6 +681,41 @@ export function verifyEmail(code: string): Promise<void> {
   return allauth('POST', '/auth/email/verify', { key: code })
 }
 
+/** Ask for a password-reset code. Like signup, allauth answers 401 with a
+ *  pending flow — expected, not an error. Deliberately enumeration-resistant:
+ *  an address with no account gets this same response (and its own "someone
+ *  asked to reset a password you don't have" mail), so the caller must never
+ *  report back whether the address was found. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const response = await fetch(
+    '/_allauth/browser/v1/auth/password/request',
+    { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ email }) },
+  )
+  if (response.status === 401) {
+    return
+  }
+  if (!response.ok) {
+    throw new Error(await allauthErrorMessage(response))
+  }
+}
+
+/** Submit the emailed code with the new password. 401 is *success* here: the
+ *  reset lands but ACCOUNT_LOGIN_ON_PASSWORD_RESET is off, so the session is
+ *  still anonymous and the user logs in again with the new password. A wrong
+ *  code is a 400; a 409 means no reset is pending in this session — the flow
+ *  is session-bound, so the code only works in the browser that asked for it. */
+export async function resetPassword(
+  code: string,
+  password: string,
+): Promise<void> {
+  await allauth('POST', '/auth/password/reset', {
+    key: code,
+    password,
+  }).catch((error: Error) => {
+    if (error.message !== '401') throw error
+  })
+}
+
 export async function logout(): Promise<void> {
   // allauth answers 401 ("session gone") on logout — that is success.
   await allauth('DELETE', '/auth/session').catch((error: Error) => {

@@ -528,6 +528,26 @@ body,
   font-size: 0.85rem;
 }
 
+.auth-notice {
+  margin: 0;
+  color: #1f5c37;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+/* Quiet secondary action under the submit button ("Forgot password?", and the
+   way back out of it). Not .auth-link — that one is sized as a header pill. */
+.auth-alt {
+  align-self: center;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.85rem;
+  color: #1f4f7a;
+  cursor: pointer;
+}
+
 /* Article view */
 
 .article-write-button {
