@@ -1547,6 +1547,25 @@ class AuthApiTests(ApiTestCase):
             'newuser',
         )
 
+    def test_signup_is_rate_limited(self):
+        # signup is capped at 10/min/IP; the test client shares one REMOTE_ADDR,
+        # so the 11th distinct signup in a minute is throttled (429).
+        statuses = []
+        for i in range(11):
+            response = self.client.post(
+                '/_allauth/browser/v1/auth/signup',
+                {
+                    'username': f'spammer{i}',
+                    'email': f'spammer{i}@example.com',
+                    'password': 'sturdy-passphrase-9',
+                },
+                content_type='application/json',
+            )
+            statuses.append(response.status_code)
+        # first ten accepted (pending verification), eleventh throttled
+        self.assertNotIn(429, statuses[:10])
+        self.assertEqual(statuses[10], 429)
+
     def test_headless_login_logout(self):
         user = User.objects.create_user('drew', password='sturdy-passphrase-9')
         EmailAddress.objects.create(

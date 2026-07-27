@@ -192,6 +192,31 @@ DEFAULT_FROM_EMAIL = os.environ.get(
 )
 
 
+# Signup rate limit — the anti-spam floor alongside mandatory verification.
+# allauth's limits are transient and cache-keyed by IP, so *no IP is stored*
+# and there is no privacy-policy burden. Its generous defaults already cover
+# login, password reset, and code confirmation; we only tighten signup
+# (default 20/min/IP) to 10/min/IP — enough to hobble scripted
+# mass-registration from one address, generous enough never to bother a real
+# user (even a shared campus/office NAT). One rate only: allauth keys the
+# limit on action+scope with no duration in the key, so two same-scope rates
+# (e.g. a second '/h/ip') would share one bucket and miscount — its own
+# defaults only ever combine *different* scopes (ip + key).
+ACCOUNT_RATE_LIMITS = {
+    'signup': '10/m/ip',
+}
+
+# Behind the M11 reverse proxy every request's REMOTE_ADDR is the proxy's own
+# IP, which would collapse all users into a single rate-limit bucket. allauth
+# recovers the real client IP from X-Forwarded-For by *counting* trusted hops
+# (not by trusting the header, which a client can spoof to rotate IPs), so set
+# this to the number of proxies in front of Django in production. 0 in dev
+# means REMOTE_ADDR is used directly.
+ALLAUTH_TRUSTED_PROXY_COUNT = int(
+    os.environ.get('DJANGO_TRUSTED_PROXY_COUNT', '0')
+)
+
+
 # DRF — simple rate limits on anonymous-facing / expensive endpoints
 #. UserRateThrottle keys by user id when logged in, client
 # IP otherwise, so the per-endpoint scopes below cover both. The default
