@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   fetchMe,
@@ -45,6 +45,22 @@ function AuthControl({
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Click-off to close. The ☰-menu overlay has its own backdrop, but the
+  // header-bar dropdown had no dismiss but re-clicking "Log in" — easy to miss
+  // once the panel is covering things. mousedown (not click) so a press that
+  // starts outside closes before any inner button steals the click.
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        onOpenChange(false)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [open, onOpenChange])
 
   const switchMode = (next: 'login' | 'signup') => {
     setMode(next)
@@ -292,7 +308,7 @@ function AuthControl({
   )
 
   return (
-    <div className="auth-control">
+    <div className="auth-control" ref={rootRef}>
       {/* "/ Sign up" would only repeat the form's own tabs — the button just
           has to open the door. Matches the stub's "Log in to write this
           article" CTA. */}
