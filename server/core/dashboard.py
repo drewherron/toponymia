@@ -25,9 +25,11 @@ from rest_framework.response import Response
 from .models import Ban, ModAction, Report, Revision, TalkPost
 from .moderation import (
     active_ban,
+    block_user_emails,
     can_ban,
     can_set_role,
     is_moderator,
+    lift_user_email_blocks,
     log_action,
 )
 from .views import _revision_excerpt
@@ -295,6 +297,11 @@ def mod_ban_user(request, user_id):
     ban = Ban.objects.create(
         user=target, created_by=request.user, reason=reason, expires=expires,
     )
+    # Block the account's address(es) from opening a fresh account, for as long
+    # as the ban itself lasts — the durable half of the sanction.
+    block_user_emails(
+        target, request.user, reason=reason, expires=expires,
+    )
     removed = 0
     if request.data.get('remove_content'):
         removed = _remove_all_content(target, request.user)
@@ -391,6 +398,8 @@ def mod_unban_user(request, user_id):
     ).filter(Q(expires__isnull=True) | Q(expires__gt=now)).update(
         lifted=now, lifted_by=request.user
     )
+    # Reopen re-registration for the account's address(es) alongside the ban.
+    lift_user_email_blocks(target, request.user)
     log_action(
         request.user, ModAction.Action.UNBAN_USER, target_user=target,
     )

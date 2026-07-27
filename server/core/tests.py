@@ -28,6 +28,7 @@ from .articles import save_edit
 from .models import (
     Article,
     Ban,
+    BannedEmail,
     ModAction,
     Place,
     PlaceName,
@@ -1623,6 +1624,111 @@ class AuthApiTests(ApiTestCase):
         self.assertIsNone(
             self.client.get(reverse('core:me')).json()['user']
         )
+
+
+class BannedEmailTests(ApiTestCase):
+    """A ban records the account's email in the registration blocklist so the
+    same address can't open a fresh account — even after the account is gone."""
+
+    SIGNUP = '/_allauth/browser/v1/auth/signup'
+
+    def setUp(self):
+        super().setUp()
+        self.mod = User.objects.create_user(
+            'mira', password='pw12345!', is_staff=True
+        )
+        self.target = User.objects.create_user(
+            'spammer', password='pw12345!', email='spammer@example.com'
+        )
+        EmailAddress.objects.create(
+            user=self.target, email='spammer@example.com',
+            verified=True, primary=True,
+        )
+
+    def _ban(self, **body):
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-ban-user', args=[self.target.id]),
+            body, content_type='application/json',
+        )
+        self.client.logout()
+        return response
+
+    def _signup(self, email, username='fresh'):
+        return self.client.post(
+            self.SIGNUP,
+            {
+                'username': username,
+                'email': email,
+                'password': 'sturdy-passphrase-9',
+            },
+            content_type='application/json',
+        )
+
+    def test_ban_records_account_email(self):
+        self._ban(reason='spam')
+        block = BannedEmail.objects.get(email='spammer@example.com')
+        self.assertTrue(block.is_active())
+        self.assertEqual(block.banned_user_id, self.target.id)
+        self.assertEqual(block.reason, 'spam')
+
+    def test_blocked_email_cannot_register(self):
+        # The durable case: the offending account is gone, but the block holds.
+        self._ban(reason='spam')
+        self.target.delete()
+        response = self._signup('spammer@example.com')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='fresh').exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_matching_is_case_insensitive(self):
+        self._ban(reason='spam')
+        self.target.delete()
+        self.assertEqual(
+            self._signup('Spammer@Example.com').status_code, 400
+        )
+
+    def test_unblocked_email_still_registers(self):
+        self._ban(reason='spam')
+        response = self._signup('someone-else@example.com')
+        # Signup succeeds but stays pending verification (anonymous, 401).
+        self.assertEqual(response.status_code, 401)
+        self.assertTrue(User.objects.filter(username='fresh').exists())
+
+    def test_unban_reopens_registration(self):
+        self._ban(reason='spam')
+        self.client.force_login(self.mod)
+        self.client.post(reverse('core:mod-unban-user', args=[self.target.id]))
+        self.client.logout()
+        block = BannedEmail.objects.get(email='spammer@example.com')
+        self.assertIsNotNone(block.lifted)
+        self.assertFalse(block.is_active())
+        self.target.delete()
+        self.assertEqual(self._signup('spammer@example.com').status_code, 401)
+
+    def test_temporary_ban_lapses_the_email_block(self):
+        self._ban(reason='spam', expires_days=7)
+        block = BannedEmail.objects.get(email='spammer@example.com')
+        self.assertIsNotNone(block.expires)
+        # Fast-forward past expiry: the block goes inactive with the ban.
+        block.expires = timezone.now() - timedelta(days=1)
+        block.save(update_fields=['expires'])
+        self.target.delete()
+        self.assertEqual(self._signup('spammer@example.com').status_code, 401)
+
+    def test_block_does_not_leak_via_password_reset(self):
+        # clean_email is shared with the reset flow; the block must not fire
+        # there, or a banned address becomes distinguishable (enumeration).
+        self._ban(reason='spam')
+        self.target.delete()
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/password/request',
+            {'email': 'spammer@example.com'},
+            content_type='application/json',
+        )
+        # The uniform anonymous answer (see PasswordResetTests) — not the 400
+        # the signup block raises, which would make the address distinguishable.
+        self.assertEqual(response.status_code, 401)
 
 
 class PasswordResetTests(ApiTestCase):

@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
-from .models import ModAction
+from .models import BannedEmail, ModAction
 
 
 def is_moderator(user):
@@ -63,6 +63,69 @@ def active_ban(user):
         .filter(Q(expires__isnull=True) | Q(expires__gt=now))
         .order_by('-created')
         .first()
+    )
+
+
+def active_email_ban(email):
+    """The currently-effective registration block for `email`, if any: not
+    lifted and not expired, matched case-insensitively. Returns the most recent
+    such row, else None. The single lookup the signup adapter and the sync
+    helpers below all share."""
+    if not email:
+        return None
+    now = timezone.now()
+    return (
+        BannedEmail.objects.filter(email__iexact=email.strip())
+        .filter(lifted__isnull=True)
+        .filter(Q(expires__isnull=True) | Q(expires__gt=now))
+        .order_by('-created')
+        .first()
+    )
+
+
+def _user_emails(user):
+    """Every address tied to an account — its allauth EmailAddress rows plus the
+    User.email field — lowercased and de-duplicated. Verification is mandatory,
+    so in practice each of these is a confirmed address the user controls."""
+    from allauth.account.models import EmailAddress
+
+    emails = {
+        email.lower()
+        for email in EmailAddress.objects.filter(user=user).values_list(
+            'email', flat=True
+        )
+        if email
+    }
+    if user.email:
+        emails.add(user.email.lower())
+    return emails
+
+
+def block_user_emails(user, actor, *, reason='', expires=None):
+    """Snapshot a banned account's addresses into the registration blocklist,
+    mirroring the ban's own expiry. Idempotent per address: an address that
+    already has an active block is left untouched rather than duplicated."""
+    for email in _user_emails(user):
+        if active_email_ban(email) is not None:
+            continue
+        BannedEmail.objects.create(
+            email=email,
+            banned_user=user,
+            created_by=actor,
+            reason=reason,
+            expires=expires,
+        )
+
+
+def lift_user_email_blocks(user, actor):
+    """Lift every active registration block on a user's addresses — the inverse
+    of block_user_emails, run when an account is unbanned so re-registration
+    reopens with the account."""
+    now = timezone.now()
+    BannedEmail.objects.filter(
+        email__in=list(_user_emails(user)), lifted__isnull=True
+    ).filter(Q(expires__isnull=True) | Q(expires__gt=now)).update(
+        lifted=now, lifted_by=actor
     )
 
 

@@ -401,6 +401,72 @@ class Ban(models.Model):
         return f'ban on {self.user_id} ({"active" if self.is_active() else "inactive"})'
 
 
+class BannedEmail(models.Model):
+    """A registration blocklist entry. When an account is banned its email
+    address(es) are snapshotted here so the same address can't be used to open
+    a fresh account — the custom account adapter refuses a signup whose email
+    has an active row. Together with allauth's unique-email rule, this is what
+    makes an account ban outlive the single login it was placed on.
+
+    Keyed by the email *string*, deliberately not a FK to the user or the Ban:
+    `Ban.user` is CASCADE, so a deleted account takes its bans with it, and the
+    whole point of a durable email ban is that it must stand even then. So
+    enforcement matches on `email`; `banned_user` is provenance only (SET_NULL)
+    and never consulted to decide whether a block applies.
+
+    Mirrors Ban's lifecycle: `expires` null = permanent, so a time-limited ban
+    lapses the email block with it; an explicit un-block sets `lifted`; rows are
+    never deleted, preserving the history. No IP fields (IP-ban deferred; see
+    Ban)."""
+
+    # Stored lowercased by the write helpers; matched case-insensitively.
+    email = models.EmailField(db_index=True)
+    reason = models.CharField(max_length=500, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    # Provenance only — see the class docstring. SET_NULL, never CASCADE: the
+    # block outlives the account it came from.
+    banned_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    # Null = permanent; a time-limited entry lapses on its own, matching the ban.
+    expires = models.DateTimeField(null=True, blank=True)
+    # An explicit un-block; keeps the row for the audit trail.
+    lifted = models.DateTimeField(null=True, blank=True)
+    lifted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created', '-id']
+
+    def is_active(self, now=None):
+        from django.utils import timezone
+
+        now = now or timezone.now()
+        if self.lifted is not None:
+            return False
+        return self.expires is None or self.expires > now
+
+    def __str__(self):
+        state = 'active' if self.is_active() else 'inactive'
+        return f'email ban on {self.email} ({state})'
+
+
 class ModAction(models.Model):
     """An append-only audit log of moderator actions — the
     backbone of the Moderation dashboard's decision view. One row per

@@ -173,6 +173,10 @@ AUTHENTICATION_BACKENDS = [
 # allauth wants exactly one of its credential keys posted, so the SPA picks by
 # looking for an "@" — see ACCOUNT_USERNAME_VALIDATORS below, which is what
 # makes that test unambiguous.
+# Custom adapter enforces the registration blocklist: a banned account's email
+# addresses are recorded in BannedEmail, and this refuses a signup that reuses
+# one (see core/adapter.py, core.moderation.block_user_emails).
+ACCOUNT_ADAPTER = 'core.adapter.AccountAdapter'
 ACCOUNT_LOGIN_METHODS = {'username', 'email'}
 ACCOUNT_USERNAME_VALIDATORS = 'core.validators.username_validators'
 ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*']
