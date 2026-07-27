@@ -1,0 +1,11 @@
+{
+  "name": "Toponymia",
+  "short_name": "Toponymia",
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ],
+  "theme_color": "#b45309",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}
