@@ -4,6 +4,7 @@ import { saveArticle } from '../api'
 import { loadLanguages, normalizeCode } from '../languages'
 import type { ArticleContent, ArticleData, NameEntry } from '../types'
 import LanguageHelpDialog from './LanguageHelpDialog'
+import MarkdownHelpDialog from './MarkdownHelpDialog'
 
 interface ArticleEditorProps {
   slug: string
@@ -78,6 +79,7 @@ function ArticleEditor({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [mdHelpOpen, setMdHelpOpen] = useState(false)
 
   const updateName = (index: number, patch: Partial<NameDraft>) => {
     setNames((prev) =>
@@ -199,7 +201,21 @@ function ArticleEditor({
             />
           </label>
           <label>
-            Etymology (Markdown)
+            <span className="label-with-help">
+              Etymology (Markdown)
+              <button
+                type="button"
+                className="lang-help-button"
+                aria-label="Markdown formatting help"
+                onClick={(e) => {
+                  // keep the label from focusing the textarea
+                  e.preventDefault()
+                  setMdHelpOpen(true)
+                }}
+              >
+                ?
+              </button>
+            </span>
             <textarea
               value={draft.etymology}
               onChange={(e) =>
@@ -255,6 +271,9 @@ function ArticleEditor({
       </label>
 
       {helpOpen && <LanguageHelpDialog onClose={() => setHelpOpen(false)} />}
+      {mdHelpOpen && (
+        <MarkdownHelpDialog onClose={() => setMdHelpOpen(false)} />
+      )}
       {error && <p className="article-editor-error">{error}</p>}
       <div className="article-editor-actions">
         <button type="submit" disabled={busy}>
