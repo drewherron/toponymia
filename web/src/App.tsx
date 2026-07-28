@@ -88,6 +88,10 @@ function App() {
   // True while a fly-to the selected place's home view is in flight, so the
   // recenter button stays hidden until the camera lands (cleared on moveend).
   const pendingHomeRef = useRef(false)
+  // A slug set here asks the next selection change to show that place's focus
+  // highlight instead of tearing one down — how "Random article" gets the same
+  // course "zoom to place" draws, without arming it for deep links or search.
+  const pendingFocusRef = useRef<string | null>(null)
   const mapApiRef = useRef<MapApi | null>(null)
   // Captured at first render: MapLibre (hash: true) writes its own
   // #zoom/lat/lng into the URL as soon as the map mounts, so by effect
@@ -226,19 +230,25 @@ function App() {
     if (selectedPlaceRef.current) {
       pendingHomeRef.current = true
       setOffView(false)
-      // Only here, not on the other flyToPlace paths (deep links, search
-      // hits): the highlight answers the question this button asks, and
-      // arriving somewhere isn't the same as asking where it reaches.
+      // Here and on "Random article", but not on deep links or search hits:
+      // the highlight answers "where does this reach?", which recentering and
+      // a context-free random landing both raise but a deliberate search or a
+      // shared link don't.
       mapApiRef.current?.showFocusGeometry(selectedPlaceRef.current.slug)
       mapApiRef.current?.flyToPlace(selectedPlaceRef.current)
     }
   }, [])
 
-  // The highlight belongs to one press of "zoom to place" on one place, so
-  // anything that swaps or drops the selection ends it: closing the pane,
-  // following an in-article link, back/forward, a delete.
+  // The highlight belongs to one place, so a selection change ends it: closing
+  // the pane, following an in-article link, back/forward, a delete. The one
+  // exception is a change that itself asks for a highlight — "Random article"
+  // opens a new place and wants its course drawn (showFocusGeometry clears any
+  // prior one first, so there's no leak).
   useEffect(() => {
-    mapApiRef.current?.clearFocusGeometry()
+    const focusSlug = pendingFocusRef.current
+    pendingFocusRef.current = null
+    if (focusSlug) mapApiRef.current?.showFocusGeometry(focusSlug)
+    else mapApiRef.current?.clearFocusGeometry()
   }, [selected])
 
   // Fires on every map settle: the fly (if any) has landed, so clear the
@@ -313,7 +323,12 @@ function App() {
   const handleRandom = useCallback(() => {
     fetchRandomArticle()
       .then((place) => {
-        if (place) openPlace(place, true)
+        if (!place) return
+        // Draw the course on arrival, like "zoom to place": a random landing
+        // has no context, so "how far does this reach?" is exactly the question
+        // it raises. Line features light up; cities keep only the amber label.
+        pendingFocusRef.current = place.slug
+        openPlace(place, true)
       })
       .catch(console.error)
   }, [openPlace])
