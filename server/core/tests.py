@@ -2881,6 +2881,39 @@ class ThrottleApiTests(ApiTestCase):
                 break
         self.assertTrue(seen_429, 'report endpoint never throttled')
 
+    def test_thread_creation_throttles_after_limit(self):
+        # 'talk' scope is 40/min and covers new threads, not just replies.
+        place = _make_place()
+        user = User.objects.create_user('drew', password='pw12345!')
+        self.client.force_login(user)
+        seen_429 = False
+        for i in range(60):
+            response = self.client.post(
+                reverse('core:talk', args=[place.slug]),
+                {'title': f'Topic {i}', 'body_md': 'Sources?'},
+                content_type='application/json',
+            )
+            if response.status_code == 429:
+                seen_429 = True
+                break
+        self.assertTrue(seen_429, 'thread creation never throttled')
+
+    def test_reading_threads_is_not_billed_to_the_write_bucket(self):
+        # The list and the create share a URL; reads must not exhaust the
+        # 40/min talk budget (they answer to the anon/user rates instead).
+        place = _make_place()
+        url = reverse('core:talk', args=[place.slug])
+        for _ in range(60):
+            self.assertEqual(self.client.get(url).status_code, 200)
+        user = User.objects.create_user('drew', password='pw12345!')
+        self.client.force_login(user)
+        response = self.client.post(
+            url,
+            {'title': 'Still allowed', 'body_md': 'Sources?'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+
 
 SPA_INDEX_FIXTURE = (
     '<!doctype html><html><head><meta charset="UTF-8" />'

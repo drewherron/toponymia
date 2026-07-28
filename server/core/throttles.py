@@ -3,6 +3,7 @@ id when authenticated and by client IP otherwise, so a single scope caps
 both logged-in and anonymous callers. Rates live in settings'
 DEFAULT_THROTTLE_RATES under the matching scope name."""
 
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.throttling import UserRateThrottle
 
 
@@ -23,3 +24,18 @@ class ReportThrottle(UserRateThrottle):
 class TalkThrottle(UserRateThrottle):
     # New threads, replies, and post edits.
     scope = 'talk'
+
+
+class TalkWriteThrottle(TalkThrottle):
+    """TalkThrottle for a view that also serves public reads.
+
+    The thread list and thread creation share one URL, so throttling it
+    wholesale would bill every anonymous read of a discussion to the same
+    40/min write bucket. Safe methods pass straight through and are left to
+    the default anon/user rates; only the POST counts.
+    """
+
+    def allow_request(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        return super().allow_request(request, view)

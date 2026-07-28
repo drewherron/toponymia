@@ -15,6 +15,7 @@ from rest_framework.decorators import (
 )
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 from . import resolve as resolution
 from .articles import save_edit
@@ -51,6 +52,7 @@ from .throttles import (
     ReportThrottle,
     ResolveThrottle,
     TalkThrottle,
+    TalkWriteThrottle,
     WriteThrottle,
 )
 
@@ -654,6 +656,12 @@ def _thread_json(thread):
 
 
 @api_view(['GET', 'POST'])
+# The default anon/user rates are listed explicitly because @throttle_classes
+# replaces them rather than adding to them — dropping them here would leave
+# the public thread list with no limit at all. TalkWriteThrottle puts thread
+# creation in the same 40/min bucket as replies and post edits while letting
+# reads past.
+@throttle_classes([AnonRateThrottle, UserRateThrottle, TalkWriteThrottle])
 def talk(request, slug):
     """Threaded discussion for a Place. GET is public; POST (new thread
     with its opening post) needs an account."""
