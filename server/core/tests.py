@@ -49,6 +49,11 @@ from .overpass import (
     radius_for_click,
 )
 from .resolve import representative_point, simplified
+from .serializers import (
+    MAX_MARKDOWN,
+    MAX_NAMES,
+    MAX_REFERENCES,
+)
 
 
 class ApiTestCase(TestCase):
@@ -1117,6 +1122,66 @@ class ArticleApiTests(ApiTestCase):
         ).json()
         self.assertEqual(body['article']['author'], 'drew')
         self.assertIn('Founded', body['article']['content']['body_md'])
+
+    def test_oversized_etymology_rejected(self):
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['etymology_md'] = 'x' * (MAX_MARKDOWN + 1)
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_etymology_at_the_limit_accepted(self):
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['etymology_md'] = 'x' * MAX_MARKDOWN
+        self.assertEqual(self._put(content=content).status_code, 200)
+
+    def test_too_many_names_rejected(self):
+        self.client.force_login(self.user)
+        content = _content(
+            names=[
+                {'name': f'Alias {i}', 'language': 'eng'}
+                for i in range(MAX_NAMES + 1)
+            ]
+        )
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_too_many_references_rejected(self):
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['references'] = [
+            f'ref {i}' for i in range(MAX_REFERENCES + 1)
+        ]
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_revert_ignores_limits_on_historical_content(self):
+        # Revisions written before these caps existed (or by a future looser
+        # schema) must stay revertable — revert copies the old snapshot
+        # through verbatim rather than revalidating it.
+        self.client.force_login(self.user)
+        self._put()
+        oversized = _content()
+        oversized['names'][0]['etymology_md'] = 'x' * (MAX_MARKDOWN + 500)
+        old = Revision.objects.create(
+            article=Article.objects.get(place=self.place),
+            author=self.user,
+            comment='legacy',
+            content=oversized,
+        )
+        self._put(comment='second')
+        response = self.client.post(
+            reverse('core:article-revert', args=[self.place.slug]),
+            {'revision_id': old.id},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        restored = response.json()['article']['content']['names'][0]
+        self.assertEqual(len(restored['etymology_md']), MAX_MARKDOWN + 500)
 
 
 class RevisionApiTests(ApiTestCase):

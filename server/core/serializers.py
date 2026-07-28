@@ -5,6 +5,20 @@ from rest_framework import serializers
 
 from .languages import normalize_code
 
+# Size ceilings for a stored snapshot. Every revision is kept forever and the
+# write throttle allows 40 edits/min, so unbounded fields are a storage-growth
+# lever for any verified account — these are the backstop. Set well above
+# anything a real article needs (the longest etymologies run a few thousand
+# characters) and enforced only on *new* edits: revert copies an old snapshot
+# straight through save_edit without revalidating, so pre-existing revisions
+# stay revertable whatever their size.
+MAX_MARKDOWN = 10_000       # one etymology (or a legacy body)
+MAX_NAMES = 20              # names on one article
+MAX_REFERENCES = 30         # references on one name
+MAX_FROM_LANGUAGES = 10     # source languages on one name
+MAX_DERIVATIONS = 50
+MAX_SEE_ALSO = 50
+
 
 class LanguageCodeField(serializers.CharField):
     """An ISO 639-3 code; 639-1 two-letter input is normalized (fr -> fra)."""
@@ -28,14 +42,17 @@ class NameSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     language = LanguageCodeField(allow_blank=True, default='')
     from_languages = serializers.ListField(
-        child=LanguageCodeField(), default=list
+        child=LanguageCodeField(), default=list,
+        max_length=MAX_FROM_LANGUAGES,
     )
     is_endonym = serializers.BooleanField(default=False)
     etymology_md = serializers.CharField(
-        allow_blank=True, trim_whitespace=False, default=''
+        allow_blank=True, trim_whitespace=False, default='',
+        max_length=MAX_MARKDOWN,
     )
     references = serializers.ListField(
-        child=serializers.CharField(max_length=1000), default=list
+        child=serializers.CharField(max_length=1000), default=list,
+        max_length=MAX_REFERENCES,
     )
 
 
@@ -50,12 +67,16 @@ class ContentSerializer(serializers.Serializer):
     # name's etymology), but kept in the snapshot schema so pre-removal
     # revisions render and revert unchanged.
     body_md = serializers.CharField(
-        allow_blank=True, trim_whitespace=False, default=''
+        allow_blank=True, trim_whitespace=False, default='',
+        max_length=MAX_MARKDOWN,
     )
-    names = NameSerializer(many=True, default=list)
-    derivations = DerivationSerializer(many=True, default=list)
+    names = NameSerializer(many=True, default=list, max_length=MAX_NAMES)
+    derivations = DerivationSerializer(
+        many=True, default=list, max_length=MAX_DERIVATIONS
+    )
     see_also = serializers.ListField(
-        child=serializers.CharField(max_length=255), default=list
+        child=serializers.CharField(max_length=255), default=list,
+        max_length=MAX_SEE_ALSO,
     )
 
     def validate(self, data):

@@ -270,6 +270,14 @@ REST_FRAMEWORK = {
     },
 }
 
+# Request-body ceiling, stated explicitly rather than inherited. This is the
+# outer backstop behind core.serializers' per-field limits: a fully maxed-out
+# article snapshot (20 names x 10k etymology + 30 references each, plus
+# derivations and see_also) is roughly 900 kB of text, so 2.5 MB leaves room
+# for JSON escaping and multi-byte UTF-8 while still bounding what an
+# oversized request can force the server to buffer and parse.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
