@@ -1,4 +1,5 @@
 import json
+from math import isfinite
 
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.geos import Polygon
@@ -216,6 +217,18 @@ def highlights(request):
     except ValueError:
         return Response(
             {'error': 'expected bbox=minLng,minLat,maxLng,maxLat'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    # float() also accepts 'nan' and 'inf'. NaN in particular slips past
+    # every range guard below (all comparisons against it are False) and
+    # reaches GEOS, which raises on the degenerate ring — a 500 from a
+    # query string. Reject non-finite values up front.
+    if not all(
+        isfinite(value)
+        for value in (min_lng, min_lat, max_lng, max_lat)
+    ):
+        return Response(
+            {'error': 'bbox values must be finite numbers'},
             status=status.HTTP_400_BAD_REQUEST,
         )
     min_lat, max_lat = max(min_lat, -90.0), min(max_lat, 90.0)

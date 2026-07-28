@@ -1398,6 +1398,19 @@ class HighlightApiTests(ApiTestCase):
         for bbox in ('', '1,2,3', '1,2,3,x'):
             self.assertEqual(self._get(bbox).status_code, 400)
 
+    def test_rejects_non_finite_bbox(self):
+        # float() parses these; NaN then defeats every range check (all
+        # comparisons against it are False) and used to reach GEOS as a
+        # degenerate ring, 500ing the endpoint.
+        for bbox in (
+            'nan,nan,nan,nan',
+            '9,nan,11,51',
+            'inf,49,11,51',
+            '9,49,11,-inf',
+        ):
+            with self.subTest(bbox=bbox):
+                self.assertEqual(self._get(bbox).status_code, 400)
+
     def test_place_without_article_excluded(self):
         _make_place()
         body = self._get().json()
