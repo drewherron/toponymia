@@ -32,7 +32,7 @@ from .moderation import (
     lift_user_email_blocks,
     log_action,
 )
-from .serializers import BanSerializer
+from .serializers import BanSerializer, RoleSerializer
 from .views import _revision_excerpt
 
 User = get_user_model()
@@ -356,13 +356,10 @@ def mod_set_role(request, user_id):
                       'their own'},
             status=status.HTTP_403_FORBIDDEN,
         )
-    role = request.data.get('role')
-    if role not in ('user', 'moderator'):
-        return Response(
-            {'error': "role must be 'user' or 'moderator'"},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    promote = role == 'moderator'
+    serializer = RoleSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    promote = serializer.validated_data['role'] == 'moderator'
     if target.is_staff != promote:
         target.is_staff = promote
         target.save(update_fields=['is_staff'])
@@ -371,7 +368,7 @@ def mod_set_role(request, user_id):
             ModAction.Action.PROMOTE_MOD if promote
             else ModAction.Action.DEMOTE_MOD,
             target_user=target,
-            reason=(request.data.get('reason') or '')[:500],
+            reason=serializer.validated_data['reason'] or '',
         )
     return Response({'id': target.id, 'role': _user_role(target)})
 

@@ -2809,6 +2809,44 @@ class DashboardApiTests(ApiTestCase):
         self.client.force_login(self.admin)
         self.assertEqual(self._set_role(self.author, 'wizard').status_code, 400)
 
+    def test_role_change_rejects_malformed_reason(self):
+        # The audit note used to be sliced with [:500], which raises on a
+        # JSON object.
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('core:mod-set-role', args=[self.author.id]),
+            {'role': 'moderator', 'reason': {'a': 1}},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.author.refresh_from_db()
+        self.assertFalse(self.author.is_staff)
+
+    def test_role_change_accepts_a_null_reason(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('core:mod-set-role', args=[self.author.id]),
+            {'role': 'moderator', 'reason': None},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            ModAction.objects.get(
+                action=ModAction.Action.PROMOTE_MOD
+            ).reason,
+            '',
+        )
+
+    def test_role_change_by_non_admin_is_forbidden_before_validation(self):
+        # Authorization must be decided before the body is parsed, so a
+        # moderator poking at the endpoint learns nothing from the response.
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-set-role', args=[self.author.id]),
+            {'role': 'nonsense'}, content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_repeat_promotion_does_not_duplicate_audit_rows(self):
         self.client.force_login(self.admin)
         self._set_role(self.author, 'moderator')
