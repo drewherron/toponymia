@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -294,21 +295,28 @@ def mod_ban_user(request, user_id):
     days = serializer.validated_data['expires_days'] or 0
     expires = timezone.now() + timedelta(days=days) if days > 0 else None
 
-    ban = Ban.objects.create(
-        user=target, created_by=request.user, reason=reason, expires=expires,
-    )
-    # Block the account's address(es) from opening a fresh account, for as long
-    # as the ban itself lasts — the durable half of the sanction.
-    block_user_emails(
-        target, request.user, reason=reason, expires=expires,
-    )
-    removed = 0
-    if serializer.validated_data['remove_content']:
-        removed = _remove_all_content(target, request.user)
-    log_action(
-        request.user, ModAction.Action.BAN_USER,
-        target_user=target, reason=reason,
-    )
+    # One transaction: a ban whose email blocklist didn't get written is a
+    # ban the target can walk around by re-registering, which is exactly the
+    # thing BannedEmail exists to prevent. The audit row belongs inside too —
+    # a sanction that half-applied and logged as done is worse than one that
+    # failed outright.
+    with transaction.atomic():
+        ban = Ban.objects.create(
+            user=target, created_by=request.user, reason=reason,
+            expires=expires,
+        )
+        # Block the account's address(es) from opening a fresh account, for
+        # as long as the ban itself lasts — the durable half of the sanction.
+        block_user_emails(
+            target, request.user, reason=reason, expires=expires,
+        )
+        removed = 0
+        if serializer.validated_data['remove_content']:
+            removed = _remove_all_content(target, request.user)
+        log_action(
+            request.user, ModAction.Action.BAN_USER,
+            target_user=target, reason=reason,
+        )
     return Response(
         {'ban': _ban_json(ban), 'removed_content': removed},
         status=status.HTTP_201_CREATED,
@@ -390,16 +398,20 @@ def mod_unban_user(request, user_id):
     if ban is None:
         return Response({'ok': True, 'lifted': False})
     now = timezone.now()
-    target.bans.filter(
-        lifted__isnull=True
-    ).filter(Q(expires__isnull=True) | Q(expires__gt=now)).update(
-        lifted=now, lifted_by=request.user
-    )
-    # Reopen re-registration for the account's address(es) alongside the ban.
-    lift_user_email_blocks(target, request.user)
-    log_action(
-        request.user, ModAction.Action.UNBAN_USER, target_user=target,
-    )
+    # Atomic for the same reason the ban is: lifting the ban without lifting
+    # the email blocks leaves an account that is un-banned but still can't
+    # re-register, which reads as the unban silently not working.
+    with transaction.atomic():
+        target.bans.filter(
+            lifted__isnull=True
+        ).filter(Q(expires__isnull=True) | Q(expires__gt=now)).update(
+            lifted=now, lifted_by=request.user
+        )
+        # Reopen re-registration for the account's address(es) with the ban.
+        lift_user_email_blocks(target, request.user)
+        log_action(
+            request.user, ModAction.Action.UNBAN_USER, target_user=target,
+        )
     return Response({'ok': True, 'lifted': True})
 
 

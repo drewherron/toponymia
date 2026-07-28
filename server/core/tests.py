@@ -2707,6 +2707,42 @@ class DashboardApiTests(ApiTestCase):
         self.assertIsNone(ban.expires)
         self.assertEqual(ban.reason, '')
 
+    def test_failed_ban_rolls_back_completely(self):
+        # A ban whose email blocklist didn't get written is one the target
+        # can walk around by re-registering, so nothing may survive a
+        # partial failure — not the Ban row, not the audit entry.
+        self.client.force_login(self.mod)
+        with patch(
+            'core.dashboard.block_user_emails', side_effect=RuntimeError('db')
+        ):
+            with self.assertRaises(RuntimeError):
+                self.client.post(
+                    reverse('core:mod-ban-user', args=[self.author.id]),
+                    {'reason': 'spam'}, content_type='application/json',
+                )
+        self.assertFalse(Ban.objects.filter(user=self.author).exists())
+        self.assertFalse(
+            ModAction.objects.filter(
+                action=ModAction.Action.BAN_USER
+            ).exists()
+        )
+
+    def test_failed_unban_rolls_back_completely(self):
+        ban = Ban.objects.create(user=self.author, created_by=self.mod)
+        self.client.force_login(self.mod)
+        with patch(
+            'core.dashboard.lift_user_email_blocks',
+            side_effect=RuntimeError('db'),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.client.post(
+                    reverse('core:mod-unban-user', args=[self.author.id]),
+                    {}, content_type='application/json',
+                )
+        ban.refresh_from_db()
+        self.assertIsNone(ban.lifted)
+        self.assertTrue(ban.is_active())
+
     def test_mod_cannot_ban_moderator(self):
         other_mod = User.objects.create_user(
             'mira2', password='pw12345!', is_staff=True
