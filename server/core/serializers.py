@@ -4,6 +4,7 @@ as plain Serializers: content is a document, not a model row."""
 from rest_framework import serializers
 
 from .languages import normalize_code
+from .models import ModAction
 
 # Size ceilings for a stored snapshot. Every revision is kept forever and the
 # write throttle allows 40 edits/min, so unbounded fields are a storage-growth
@@ -181,6 +182,23 @@ class RoleSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=['user', 'moderator'])
     reason = serializers.CharField(
         max_length=500, allow_blank=True, allow_null=True, default=''
+    )
+
+
+class AuditFilterSerializer(serializers.Serializer):
+    """Query-string filters for the global audit feed. All optional — the
+    unfiltered feed is the default view.
+
+    `actor` and `target` are user ids that go straight into a queryset
+    filter, where a non-numeric value raises ValueError rather than
+    returning nothing: a 500 from a hand-typed URL. Validating them here
+    turns that into a 400.
+    """
+
+    actor = serializers.IntegerField(required=False)
+    target = serializers.IntegerField(required=False)
+    action = serializers.ChoiceField(
+        choices=ModAction.Action.choices, required=False
     )
 
 

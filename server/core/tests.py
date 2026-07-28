@@ -3427,6 +3427,38 @@ class AuditFeedTests(ApiTestCase):
             self.client.get(reverse('core:mod-audit')).status_code, 403
         )
 
+    def test_feed_rejects_non_numeric_ids(self):
+        # A non-numeric id reached the queryset and raised ValueError, so a
+        # hand-typed URL 500'd. Note '1 OR 1=1' is not an injection risk —
+        # the ORM parameterizes — it just took the same crashing path.
+        self.client.force_login(self.mod)
+        for params in (
+            {'actor': 'abc'},
+            {'target': 'abc'},
+            {'actor': '1 OR 1=1'},
+        ):
+            with self.subTest(params=params):
+                response = self.client.get(
+                    reverse('core:mod-audit'), params
+                )
+                self.assertEqual(response.status_code, 400)
+
+    def test_feed_rejects_unknown_action(self):
+        self.client.force_login(self.mod)
+        response = self.client.get(
+            reverse('core:mod-audit'), {'action': 'wizardry'}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_feed_ignores_blank_filters(self):
+        # '?actor=' has always meant "no filter" and must keep meaning it.
+        self.client.force_login(self.mod)
+        rows = self.client.get(
+            reverse('core:mod-audit'),
+            {'actor': '', 'target': '', 'action': ''},
+        ).json()['actions']
+        self.assertEqual(len(rows), 2)
+
 
 class SlugAliasTests(ApiTestCase):
     """The slug alias table: creation invariant, alias lookups, the /place

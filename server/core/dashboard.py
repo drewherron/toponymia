@@ -32,7 +32,7 @@ from .moderation import (
     lift_user_email_blocks,
     log_action,
 )
-from .serializers import BanSerializer, RoleSerializer
+from .serializers import AuditFilterSerializer, BanSerializer, RoleSerializer
 from .views import _revision_excerpt
 
 User = get_user_model()
@@ -446,18 +446,28 @@ def mod_audit(request):
     forbidden = _forbidden(request)
     if forbidden is not None:
         return forbidden
+    # Blank params are dropped rather than rejected: `?actor=` has always
+    # meant "no filter", and the serializer would read it as a bad integer.
+    serializer = AuditFilterSerializer(
+        data={
+            key: value
+            for key, value in request.query_params.items()
+            if value != ''
+        }
+    )
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    filters = serializer.validated_data
+
     rows = ModAction.objects.select_related(
         'actor', 'target_user', 'article__place', 'revision', 'talk_post',
     )
-    actor = request.query_params.get('actor')
-    if actor:
-        rows = rows.filter(actor_id=actor)
-    target = request.query_params.get('target')
-    if target:
-        rows = rows.filter(target_user_id=target)
-    action = request.query_params.get('action')
-    if action:
-        rows = rows.filter(action=action)
+    if 'actor' in filters:
+        rows = rows.filter(actor_id=filters['actor'])
+    if 'target' in filters:
+        rows = rows.filter(target_user_id=filters['target'])
+    if 'action' in filters:
+        rows = rows.filter(action=filters['action'])
     # Model Meta.ordering is already ['-created', '-id'].
     rows = rows[:AUDIT_PAGE]
     return Response({'actions': [{
