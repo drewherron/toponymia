@@ -1916,6 +1916,15 @@ class SearchApiTests(ApiTestCase):
     def test_no_match(self):
         self.assertEqual(self._get('zanzibar')['results'], [])
 
+    def test_overlong_query_is_truncated(self):
+        # A huge q must not become a huge ILIKE against every PlaceName. The
+        # place below is named with 200 a's, so an untruncated 5000-char
+        # query cannot match it and a truncated one must.
+        long_named = _make_place(name='a' * 200, slug='long-named')
+        _publish(long_named, self.user)
+        results = self._get('a' * 5000)['results']
+        self.assertEqual([r['slug'] for r in results], ['long-named'])
+
     def test_prefix_matches_rank_first(self):
         west = _make_place(name='West Paris', slug='west-paris')
         _publish(west, self.user)

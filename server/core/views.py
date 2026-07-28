@@ -59,6 +59,14 @@ from .throttles import (
 MAX_HIGHLIGHTS = 500
 MAX_SEARCH_RESULTS = 8
 MAX_REPORTS = 100
+# Longest search term we'll run. Every query becomes an unanchored ILIKE
+# against display_name and every PlaceName, so length is paid for per row —
+# and the endpoint is anonymous. Comfortably past the longest real toponym
+# (Taumatawhakatangihangakoauauotamateaturipukakapikimaungahoronukupokaiwhen
+# uakitanatahu, 85 characters). Over-long input is truncated rather than
+# rejected: nothing is named this much, so it degrades to "no results"
+# instead of erroring on someone who pasted junk into the search box.
+MAX_SEARCH_QUERY = 120
 
 
 def published_places():
@@ -265,7 +273,7 @@ def search(request):
     French exonym finds the place too; `matched_name` says which alias
     hit when the display name itself didn't.
     """
-    query = request.query_params.get('q', '').strip()
+    query = request.query_params.get('q', '').strip()[:MAX_SEARCH_QUERY]
     if len(query) < 2:
         return Response({'results': []})
     places = (
