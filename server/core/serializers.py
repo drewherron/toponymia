@@ -19,6 +19,9 @@ MAX_FROM_LANGUAGES = 10     # source languages on one name
 MAX_DERIVATIONS = 50
 MAX_SEE_ALSO = 50
 
+# Longest finite account ban, in days. See BanSerializer.expires_days.
+MAX_BAN_DAYS = 3650
+
 
 class LanguageCodeField(serializers.CharField):
     """An ISO 639-3 code; 639-1 two-letter input is normalized (fr -> fra)."""
@@ -147,6 +150,37 @@ class ReportActionSerializer(serializers.Serializer):
     # Optional moderator note, recorded in the audit log.
     reason = serializers.CharField(
         max_length=500, allow_blank=True, default=''
+    )
+
+
+class BanSerializer(serializers.Serializer):
+    """A moderator's account ban.
+
+    Nulls are tolerated where the hand-rolled parsing this replaced tolerated
+    them (it coerced with `or`), so an older client sending an explicit null
+    still means "permanent" / "no reason" rather than a 400.
+    """
+
+    reason = serializers.CharField(
+        max_length=500, allow_blank=True, allow_null=True, default=''
+    )
+    # 0 or null = permanent, which is the `expires=None` path. The ceiling
+    # exists because timezone.now() + timedelta(days=...) raises OverflowError
+    # well before it reaches datetime.max — an unbounded value here was a 500
+    # from the request body. Ten years is indistinguishable from permanent for
+    # any real sanction, and permanent has its own spelling anyway.
+    expires_days = serializers.IntegerField(
+        min_value=0, max_value=MAX_BAN_DAYS, allow_null=True, default=0
+    )
+    remove_content = serializers.BooleanField(default=False)
+
+
+class RoleSerializer(serializers.Serializer):
+    """A superuser promoting a user to moderator or demoting one back."""
+
+    role = serializers.ChoiceField(choices=['user', 'moderator'])
+    reason = serializers.CharField(
+        max_length=500, allow_blank=True, allow_null=True, default=''
     )
 
 

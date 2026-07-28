@@ -50,6 +50,7 @@ from .overpass import (
 )
 from .resolve import representative_point, simplified
 from .serializers import (
+    MAX_BAN_DAYS,
     MAX_MARKDOWN,
     MAX_NAMES,
     MAX_REFERENCES,
@@ -2659,6 +2660,52 @@ class DashboardApiTests(ApiTestCase):
         self.assertEqual(response.json()['removed_content'], 1)
         post.refresh_from_db()
         self.assertIsNotNone(post.deleted)
+
+    def test_ban_rejects_malformed_body(self):
+        # These all used to reach the model layer and 500: a JSON object
+        # sliced with [:500] raises KeyError, and a huge day count overflows
+        # timedelta.
+        self.client.force_login(self.mod)
+        for body in (
+            {'reason': {'a': 1}},
+            {'reason': ['x']},
+            {'expires_days': 10 ** 9},
+            {'expires_days': MAX_BAN_DAYS + 1},
+            {'expires_days': -1},
+            {'expires_days': 'abc'},
+            {'remove_content': {'a': 1}},
+        ):
+            with self.subTest(body=body):
+                response = self.client.post(
+                    reverse('core:mod-ban-user', args=[self.author.id]),
+                    body, content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+        self.assertFalse(Ban.objects.filter(user=self.author).exists())
+
+    def test_ban_accepts_the_longest_allowed_duration(self):
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-ban-user', args=[self.author.id]),
+            {'reason': 'x', 'expires_days': MAX_BAN_DAYS},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNotNone(Ban.objects.get(user=self.author).expires)
+
+    def test_ban_treats_explicit_nulls_as_permanent(self):
+        # The hand-rolled parsing this replaced coerced with `or`, so a client
+        # sending nulls must not start getting 400s.
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-ban-user', args=[self.author.id]),
+            {'reason': None, 'expires_days': None},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        ban = Ban.objects.get(user=self.author)
+        self.assertIsNone(ban.expires)
+        self.assertEqual(ban.reason, '')
 
     def test_mod_cannot_ban_moderator(self):
         other_mod = User.objects.create_user(

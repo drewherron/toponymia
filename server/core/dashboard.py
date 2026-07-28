@@ -32,6 +32,7 @@ from .moderation import (
     lift_user_email_blocks,
     log_action,
 )
+from .serializers import BanSerializer
 from .views import _revision_excerpt
 
 User = get_user_model()
@@ -286,12 +287,11 @@ def mod_ban_user(request, user_id):
             {'error': 'you do not have authority to ban this account'},
             status=status.HTTP_403_FORBIDDEN,
         )
-    reason = (request.data.get('reason') or '')[:500]
-    days = request.data.get('expires_days') or 0
-    try:
-        days = int(days)
-    except (TypeError, ValueError):
-        days = 0
+    serializer = BanSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    reason = serializer.validated_data['reason'] or ''
+    days = serializer.validated_data['expires_days'] or 0
     expires = timezone.now() + timedelta(days=days) if days > 0 else None
 
     ban = Ban.objects.create(
@@ -303,7 +303,7 @@ def mod_ban_user(request, user_id):
         target, request.user, reason=reason, expires=expires,
     )
     removed = 0
-    if request.data.get('remove_content'):
+    if serializer.validated_data['remove_content']:
         removed = _remove_all_content(target, request.user)
     log_action(
         request.user, ModAction.Action.BAN_USER,
