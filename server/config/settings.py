@@ -33,7 +33,17 @@ SECRET_KEY = os.environ.get(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
+#
+# This defaults to OFF so that a forgotten variable in production fails safe:
+# an unset DJANGO_DEBUG gives a hardened server, not tracebacks-with-settings
+# on every error page. It also keeps the SECRET_KEY guard below live, since
+# that guard only runs when DEBUG is off — with a permissive default, one
+# forgotten variable disabled both protections at once.
+#
+# Development doesn't need to set anything: manage.py (the dev entry point)
+# defaults it to '1'. gunicorn imports config.wsgi and never runs manage.py,
+# so production keeps the safe default unless it opts in explicitly.
+DEBUG = os.environ.get('DJANGO_DEBUG', '0') == '1'
 
 ALLOWED_HOSTS = [
     h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h
@@ -303,7 +313,8 @@ WHITENOISE_IMMUTABLE_FILE_TEST = immutable_file_test
 if not DEBUG:
     if SECRET_KEY.startswith('django-insecure-'):
         raise ImproperlyConfigured(
-            'DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=0'
+            'DJANGO_SECRET_KEY must be set when DEBUG is off. '
+            '(DEBUG is off by default; set DJANGO_DEBUG=1 for development.)'
         )
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE = True

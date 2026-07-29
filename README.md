@@ -145,11 +145,18 @@ DJANGO_DEBUG=0 DJANGO_SECRET_KEY=... DJANGO_ALLOWED_HOSTS=... \
   .venv/bin/gunicorn config.wsgi:application
 ```
 
-With `DJANGO_DEBUG=0`, Django serves the built SPA (WhiteNoise for
-assets), turns on secure cookies, and expects TLS +
-`X-Forwarded-Proto` from a reverse proxy. See
-`server/config/settings.py` for the full environment-variable
-contract.
+**`DEBUG` is off by default**, so a deployment that forgets a variable
+gets a hardened server rather than tracebacks on every error page —
+and, because the `SECRET_KEY` check runs only when `DEBUG` is off, a
+misconfigured deploy fails loudly at startup instead of serving. The
+development commands above need no setup: `manage.py` turns `DEBUG`
+back on, and gunicorn (which imports `config.wsgi`) never goes through
+it.
+
+With `DEBUG` off, Django serves the built SPA (WhiteNoise for assets),
+turns on secure cookies, and expects TLS + `X-Forwarded-Proto` from a
+reverse proxy. See `server/config/settings.py` for the full
+environment-variable contract.
 
 ## License
 
