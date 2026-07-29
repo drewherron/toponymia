@@ -159,6 +159,17 @@ export interface RevisionDetail extends RevisionSummary {
   content: ArticleContent
 }
 
+/** One page of edit history. The server caps how many revisions a single
+ *  response carries, so a long-running edit war stays reachable without ever
+ *  being assembled in one response. */
+export interface RevisionPage {
+  revisions: RevisionSummary[]
+  /** Total revisions visible to this viewer, across all pages. */
+  total: number
+  offset: number
+  has_more: boolean
+}
+
 export interface TalkPost {
   id: number
   author: string
@@ -174,6 +185,14 @@ export interface TalkThread {
   title: string
   created: string
   posts: TalkPost[]
+  /** The server caps posts per thread; true means later replies aren't here. */
+  posts_truncated: boolean
+}
+
+/** The threads shown for one place, and whether the cap hid any. */
+export interface TalkPage {
+  threads: TalkThread[]
+  has_more: boolean
 }
 
 /** One row in the moderator queue: a report with its target's context. */

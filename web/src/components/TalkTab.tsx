@@ -213,6 +213,11 @@ function ThreadView({
           onChanged={handlePostChanged}
         />
       ))}
+      {thread.posts_truncated && (
+        <p className="talk-truncated">
+          This thread is unusually long; only the earliest posts are shown.
+        </p>
+      )}
       {replying ? (
         <form className="talk-form" onSubmit={submit}>
           <textarea
@@ -249,6 +254,7 @@ function ThreadView({
 
 function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
   const [threads, setThreads] = useState<TalkThread[] | null>(null)
+  const [moreThreads, setMoreThreads] = useState(false)
   const [error, setError] = useState(false)
   const [composing, setComposing] = useState(false)
   const [title, setTitle] = useState('')
@@ -259,7 +265,10 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
     const controller = new AbortController()
     setError(false)
     getTalk(slug, controller.signal)
-      .then(setThreads)
+      .then((page) => {
+        setThreads(page.threads)
+        setMoreThreads(page.has_more)
+      })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) {
           console.error(err)
@@ -324,6 +333,11 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
           onDeleted={handleThreadDeleted}
         />
       ))}
+      {moreThreads && (
+        <p className="talk-truncated">
+          This place has more discussions than are shown here.
+        </p>
+      )}
       {composing ? (
         <form className="talk-form talk-new-thread" onSubmit={submitThread}>
           <label>

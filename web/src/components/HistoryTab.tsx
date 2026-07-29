@@ -137,6 +137,7 @@ function HistoryTab({
   onWideChange,
 }: HistoryTabProps) {
   const [revisions, setRevisions] = useState<RevisionSummary[] | null>(null)
+  const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState(false)
   const [mode, setMode] = useState<Mode>({ type: 'list' })
   const [fromId, setFromId] = useState<number | null>(null)
@@ -147,12 +148,15 @@ function HistoryTab({
   useEffect(() => {
     const controller = new AbortController()
     setError(false)
-    listRevisions(slug, controller.signal)
-      .then((list) => {
-        setRevisions(list)
+    // A reload starts from the top: after a revert the newest page is the one
+    // that changed, and any older pages the user had expanded are still older.
+    listRevisions(slug, 0, controller.signal)
+      .then((page) => {
+        setRevisions(page.revisions)
+        setHasMore(page.has_more)
         // sensible default: compare the latest change
-        setToId(list[0]?.id ?? null)
-        setFromId(list[1]?.id ?? null)
+        setToId(page.revisions[0]?.id ?? null)
+        setFromId(page.revisions[1]?.id ?? null)
       })
       .catch((err: unknown) => {
         if (!controller.signal.aborted) {
@@ -162,6 +166,18 @@ function HistoryTab({
       })
     return () => controller.abort()
   }, [slug, reloads])
+
+  const loadOlder = useCallback(() => {
+    if (revisions === null) return
+    setBusy(true)
+    listRevisions(slug, revisions.length)
+      .then((page) => {
+        setRevisions((current) => [...(current ?? []), ...page.revisions])
+        setHasMore(page.has_more)
+      })
+      .catch(console.error)
+      .finally(() => setBusy(false))
+  }, [slug, revisions])
 
   useEffect(() => {
     onWideChange(mode.type === 'diff')
@@ -345,6 +361,16 @@ function HistoryTab({
           </li>
         ))}
       </ol>
+      {hasMore && (
+        <button
+          type="button"
+          className="history-more"
+          disabled={busy}
+          onClick={loadOlder}
+        >
+          Load older revisions
+        </button>
+      )}
     </div>
   )
 }

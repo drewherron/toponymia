@@ -3,7 +3,7 @@ from math import isfinite
 
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.geos import Polygon
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Prefetch, Q, Value, When
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -60,6 +60,18 @@ from .throttles import (
 MAX_HIGHLIGHTS = 500
 MAX_SEARCH_RESULTS = 8
 MAX_REPORTS = 100
+# Revision history and talk are both unbounded in the data model: a
+# vandal-and-revert war produces hundreds of revisions in an afternoon, and
+# nothing caps threads per place or posts per thread. Both endpoints are
+# public, so the whole response used to be built in memory on demand.
+#
+# History is paginated rather than merely capped — dropping old revisions
+# would make them unreachable, and a wiki's history has to stay complete.
+# Talk is capped per request with an explicit `has_more`, since threads read
+# oldest-first and a page boundary is the natural place to stop.
+MAX_REVISIONS_PER_PAGE = 100
+MAX_TALK_THREADS = 50
+MAX_TALK_POSTS = 200
 # Longest search term we'll run. Every query becomes an unanchored ILIKE
 # against display_name and every PlaceName, so length is paid for per row —
 # and the endpoint is anonymous. Comfortably past the longest real toponym
@@ -437,6 +449,11 @@ def _revision_json(revision, current_id, with_content=False):
     return data
 
 
+# Same shape as a populated page, so the client has one contract to code
+# against whether or not the place has an article.
+_EMPTY_HISTORY = {'revisions': [], 'total': 0, 'offset': 0, 'has_more': False}
+
+
 @api_view(['GET'])
 def revision_list(request, slug):
     """Edit history of a place's article, newest first. A place without
@@ -445,23 +462,38 @@ def revision_list(request, slug):
     place = place_by_slug(slug, Place.objects.select_related('article'))
     article = getattr(place, 'article', None)
     if article is None:
-        return Response({'revisions': []})
+        return Response(_EMPTY_HISTORY)
     # A deleted article is a stub to the public — and that has to include its
     # history, or the content stays readable in the History tab and the
     # deletion means nothing.
     if article.deleted is not None and not is_admin(request.user):
-        return Response({'revisions': []})
+        return Response(_EMPTY_HISTORY)
     revisions = article.revisions.select_related('author')
     # Suppressed revisions are hidden from public history but stay visible
     # to moderators.
     if not is_moderator(request.user):
         revisions = revisions.filter(suppressed__isnull=True)
+
+    total = revisions.count()
+    try:
+        offset = int(request.query_params.get('offset', 0))
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, min(offset, total))
+    # One extra row tells us whether another page exists without a second
+    # COUNT, and is discarded before serializing.
+    window = list(revisions[offset : offset + MAX_REVISIONS_PER_PAGE + 1])
+    has_more = len(window) > MAX_REVISIONS_PER_PAGE
+    window = window[:MAX_REVISIONS_PER_PAGE]
     return Response(
         {
             'revisions': [
                 _revision_json(revision, article.current_revision_id)
-                for revision in revisions
-            ]
+                for revision in window
+            ],
+            'total': total,
+            'offset': offset,
+            'has_more': has_more,
         }
     )
 
@@ -668,11 +700,24 @@ def _post_json(post):
 
 
 def _thread_json(thread):
+    # `post_window` is the capped prefetch (MAX_TALK_POSTS + 1) set up in
+    # `talk`, not the whole thread — the bound is enforced in SQL, so an
+    # enormous thread never lands in memory. A thread past the cap is
+    # truncated rather than hidden: the opening posts carry the discussion,
+    # and `posts_truncated` tells the client to say so.
+    # A thread built by POST (below) has no prefetch, so fall back to the same
+    # bounded query rather than an unbounded `posts.all()`.
+    posts = getattr(thread, 'post_window', None)
+    if posts is None:
+        posts = list(
+            thread.posts.select_related('author')[: MAX_TALK_POSTS + 1]
+        )
     return {
         'id': thread.id,
         'title': thread.title,
         'created': thread.created.isoformat(),
-        'posts': [_post_json(post) for post in thread.posts.all()],
+        'posts': [_post_json(post) for post in posts[:MAX_TALK_POSTS]],
+        'posts_truncated': len(posts) > MAX_TALK_POSTS,
     }
 
 
@@ -692,9 +737,31 @@ def talk(request, slug):
         # tombstones so replies still make sense.
         threads = place.talk_threads.filter(
             deleted__isnull=True
-        ).prefetch_related('posts__author')
+        ).prefetch_related(
+            Prefetch(
+                'posts',
+                # One past the cap so _thread_json can tell "exactly full"
+                # from "truncated" without a per-thread COUNT. Django turns
+                # the slice into a ROW_NUMBER() window partitioned by thread,
+                # so this is one query bounded per thread, not per place.
+                # `to_attr` is required: writing a sliced queryset back into
+                # the normal prefetch cache re-filters it, which slicing
+                # forbids.
+                queryset=TalkPost.objects.select_related('author')[
+                    : MAX_TALK_POSTS + 1
+                ],
+                to_attr='post_window',
+            )
+        )
+        window = list(threads[: MAX_TALK_THREADS + 1])
+        has_more = len(window) > MAX_TALK_THREADS
         return Response(
-            {'threads': [_thread_json(thread) for thread in threads]}
+            {
+                'threads': [
+                    _thread_json(thread) for thread in window[:MAX_TALK_THREADS]
+                ],
+                'has_more': has_more,
+            }
         )
 
     if not request.user.is_authenticated:

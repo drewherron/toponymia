@@ -17,8 +17,9 @@ import type {
   ResolvedPlace,
   ResolveResponse,
   RevisionDetail,
-  RevisionSummary,
+  RevisionPage,
   SearchResult,
+  TalkPage,
   TalkPost,
   TalkThread,
   User,
@@ -282,16 +283,21 @@ export async function saveArticle(
   return body.article
 }
 
+/** History is paginated: the server caps a page, and `has_more` says whether
+ *  older revisions remain. Pass the number already loaded as `offset`. */
 export async function listRevisions(
   slug: string,
+  offset = 0,
   signal?: AbortSignal,
-): Promise<RevisionSummary[]> {
-  const response = await fetch(`/api/places/${slug}/revisions/`, { signal })
+): Promise<RevisionPage> {
+  const query = offset ? `?offset=${offset}` : ''
+  const response = await fetch(`/api/places/${slug}/revisions/${query}`, {
+    signal,
+  })
   if (!response.ok) {
     throw new Error(`revisions fetch failed: ${response.status}`)
   }
-  const body = await response.json()
-  return body.revisions
+  return await response.json()
 }
 
 export async function getRevision(
@@ -372,16 +378,17 @@ export async function revertArticle(
   return body.article
 }
 
+/** The server caps how many threads one response carries; `has_more` means
+ *  the place has more discussion than is shown. */
 export async function getTalk(
   slug: string,
   signal?: AbortSignal,
-): Promise<TalkThread[]> {
+): Promise<TalkPage> {
   const response = await fetch(`/api/places/${slug}/talk/`, { signal })
   if (!response.ok) {
     throw new Error(`talk fetch failed: ${response.status}`)
   }
-  const body = await response.json()
-  return body.threads
+  return await response.json()
 }
 
 export async function createTalkThread(

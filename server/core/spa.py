@@ -10,7 +10,12 @@ import re
 from pathlib import Path
 
 from django.conf import settings
-from django.http import Http404, HttpResponse, HttpResponsePermanentRedirect
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponsePermanentRedirect,
+    StreamingHttpResponse,
+)
 from django.utils.html import escape
 
 from .models import Place
@@ -162,33 +167,41 @@ def fallback(request):
     )
 
 
-def sitemap(request):
+# The sitemap spec caps a single file at 50,000 URLs. We're a long way from
+# that, but the cap is what keeps this one file valid rather than silently
+# over-long; crossing it means moving to the sitemap-index format, not raising
+# the number.
+MAX_SITEMAP_URLS = 50_000
+
+
+def _sitemap_chunks(request):
+    """Yield the sitemap a URL at a time. Streaming with `.iterator()` keeps
+    both the whole XML string and the whole result set out of memory, so this
+    stays flat as the wiki grows instead of scaling with published places."""
+    yield (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    )
+    yield f'<url><loc>{escape(request.build_absolute_uri("/"))}</loc></url>'
     places = (
         published_places()
         .select_related('article__current_revision')
-        .order_by('slug')
+        .order_by('slug')[: MAX_SITEMAP_URLS - 1]
     )
-    entries = [(request.build_absolute_uri('/'), None)]
-    entries += [
-        (
-            request.build_absolute_uri(f'/place/{p.slug}'),
-            p.article.current_revision.created,
+    for place in places.iterator():
+        loc = escape(request.build_absolute_uri(f'/place/{place.slug}'))
+        lastmod = place.article.current_revision.created
+        yield (
+            f'<url><loc>{loc}</loc>'
+            f'<lastmod>{lastmod.date().isoformat()}</lastmod></url>'
         )
-        for p in places
-    ]
-    urls = []
-    for loc, lastmod in entries:
-        lastmod_xml = (
-            f'<lastmod>{lastmod.date().isoformat()}</lastmod>' if lastmod else ''
-        )
-        urls.append(f'<url><loc>{escape(loc)}</loc>{lastmod_xml}</url>')
-    body = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-        + ''.join(urls)
-        + '</urlset>'
+    yield '</urlset>'
+
+
+def sitemap(request):
+    return StreamingHttpResponse(
+        _sitemap_chunks(request), content_type='application/xml'
     )
-    return HttpResponse(body, content_type='application/xml')
 
 
 def robots(request):

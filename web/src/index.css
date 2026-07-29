@@ -294,6 +294,7 @@ body,
 .article-editor-actions button,
 .article-delete-actions button,
 .revision-revert,
+.history-more,
 .diff-back,
 .revision-banner-actions button,
 .talk-form-actions button,
@@ -1075,6 +1076,17 @@ body,
   opacity: 0.5;
 }
 
+/* Only rendered when the server says older revisions remain. */
+.history-more {
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  margin-top: 12px;
+}
+
+.history-more:disabled {
+  opacity: 0.5;
+}
+
 .revision-list {
   list-style: none;
   padding: 0;
@@ -1281,6 +1293,14 @@ body,
 .talk-thread h3 {
   font-size: 1.05rem;
   margin-bottom: 8px;
+}
+
+/* Shown when a response cap hid posts or threads — quiet, but never silent. */
+.talk-truncated {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--text-muted);
+  margin-bottom: 10px;
 }
 
 .talk-post {

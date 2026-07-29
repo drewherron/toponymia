@@ -19,11 +19,13 @@ from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from . import dashboard, overpass
+from . import dashboard, overpass, views
 from .articles import save_edit
 from .models import (
     Article,
@@ -116,6 +118,11 @@ def _component_way(osm_id, coords, name='Mill Creek', qid=None):
         },
         'geometry': [{'lat': lat, 'lon': lon} for lon, lat in coords],
     }
+
+
+def _sitemap_xml(response):
+    """The sitemap streams, so it has `streaming_content` and no `.content`."""
+    return b''.join(response.streaming_content).decode()
 
 
 class HealthTests(TestCase):
@@ -3153,7 +3160,7 @@ class SpaTests(TestCase):
         response = self.client.get('/sitemap.xml')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/xml')
-        xml = response.content.decode()
+        xml = _sitemap_xml(response)
         self.assertIn('<loc>http://testserver/</loc>', xml)
         self.assertIn('<loc>http://testserver/place/testville</loc>', xml)
         self.assertIn('<lastmod>', xml)
@@ -3623,6 +3630,133 @@ class SlugAliasTests(ApiTestCase):
         PlaceSlug.objects.create(
             place=self.place, slug='ojai-2', is_canonical=False
         )
-        xml = self.client.get('/sitemap.xml').content.decode()
+        xml = _sitemap_xml(self.client.get('/sitemap.xml'))
         self.assertIn('/place/ojai-california', xml)
         self.assertNotIn('/place/ojai-2', xml)
+
+
+class ReadEndpointBoundsTests(ApiTestCase):
+    """The public read paths are capped so one heavily-edited article or one
+    runaway thread can't build an unbounded response in memory. History
+    paginates (old revisions must stay reachable); talk truncates."""
+
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+
+    def _revisions(self, count):
+        for i in range(count):
+            save_edit(self.place, self.user, _content(), f'edit {i}')
+
+    def test_history_page_is_capped_and_reports_more(self):
+        self._revisions(views.MAX_REVISIONS_PER_PAGE + 5)
+        url = reverse('core:revision-list', args=[self.place.slug])
+        body = self.client.get(url).json()
+        self.assertEqual(
+            len(body['revisions']), views.MAX_REVISIONS_PER_PAGE
+        )
+        self.assertEqual(body['total'], views.MAX_REVISIONS_PER_PAGE + 5)
+        self.assertTrue(body['has_more'])
+
+    def test_history_offset_reaches_the_oldest_revisions(self):
+        total = views.MAX_REVISIONS_PER_PAGE + 5
+        self._revisions(total)
+        url = reverse('core:revision-list', args=[self.place.slug])
+        first = self.client.get(url).json()
+        rest = self.client.get(
+            url, {'offset': views.MAX_REVISIONS_PER_PAGE}
+        ).json()
+        self.assertEqual(len(rest['revisions']), 5)
+        self.assertFalse(rest['has_more'])
+        # No overlap and nothing skipped: the two pages are the whole history.
+        ids = [r['id'] for r in first['revisions'] + rest['revisions']]
+        self.assertEqual(len(set(ids)), total)
+
+    def test_history_junk_offset_falls_back_to_first_page(self):
+        self._revisions(3)
+        url = reverse('core:revision-list', args=[self.place.slug])
+        for bad in ['abc', '-5', '']:
+            body = self.client.get(url, {'offset': bad}).json()
+            self.assertEqual(body['offset'], 0)
+            self.assertEqual(len(body['revisions']), 3)
+
+    def test_history_offset_past_the_end_is_empty_not_an_error(self):
+        self._revisions(3)
+        url = reverse('core:revision-list', args=[self.place.slug])
+        response = self.client.get(url, {'offset': 999})
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['revisions'], [])
+        self.assertFalse(body['has_more'])
+
+    def test_stub_history_has_the_same_shape_as_a_real_page(self):
+        url = reverse('core:revision-list', args=[self.place.slug])
+        body = self.client.get(url).json()
+        self.assertEqual(
+            body,
+            {'revisions': [], 'total': 0, 'offset': 0, 'has_more': False},
+        )
+
+    def test_talk_thread_list_is_capped(self):
+        for i in range(views.MAX_TALK_THREADS + 3):
+            TalkThread.objects.create(place=self.place, title=f't{i}')
+        body = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()
+        self.assertEqual(len(body['threads']), views.MAX_TALK_THREADS)
+        self.assertTrue(body['has_more'])
+
+    def test_long_thread_is_truncated_and_says_so(self):
+        thread = TalkThread.objects.create(place=self.place, title='t')
+        for i in range(views.MAX_TALK_POSTS + 2):
+            TalkPost.objects.create(
+                thread=thread, author=self.user, body_md=f'post {i}'
+            )
+        body = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()
+        row = body['threads'][0]
+        self.assertEqual(len(row['posts']), views.MAX_TALK_POSTS)
+        self.assertTrue(row['posts_truncated'])
+
+    def test_talk_post_fetch_is_bounded_in_sql_not_python(self):
+        """The per-thread cap has to be enforced by the query, or a huge
+        thread still lands in memory before being sliced. Django compiles the
+        sliced Prefetch into a ROW_NUMBER() window, so the posts query returns
+        at most the cap per thread — check the SQL, since a Python-side slice
+        would pass every other assertion in this class."""
+        thread = TalkThread.objects.create(place=self.place, title='t')
+        for i in range(views.MAX_TALK_POSTS + 2):
+            TalkPost.objects.create(
+                thread=thread, author=self.user, body_md=f'post {i}'
+            )
+        with CaptureQueriesContext(connection) as captured:
+            self.client.get(reverse('core:talk', args=[self.place.slug]))
+        post_queries = [
+            q['sql'] for q in captured.captured_queries
+            if 'core_talkpost' in q['sql']
+        ]
+        self.assertEqual(len(post_queries), 1)
+        self.assertIn('ROW_NUMBER', post_queries[0].upper())
+
+    def test_short_thread_is_not_marked_truncated(self):
+        thread = TalkThread.objects.create(place=self.place, title='t')
+        TalkPost.objects.create(
+            thread=thread, author=self.user, body_md='only post'
+        )
+        body = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()
+        row = body['threads'][0]
+        self.assertEqual(len(row['posts']), 1)
+        self.assertFalse(row['posts_truncated'])
+
+    def test_sitemap_streams(self):
+        save_edit(self.place, self.user, _content(), 'seed')
+        response = self.client.get('/sitemap.xml')
+        self.assertTrue(response.streaming)
+        xml = _sitemap_xml(response)
+        self.assertTrue(xml.startswith('<?xml'))
+        self.assertTrue(xml.endswith('</urlset>'))
+        self.assertIn(f'/place/{self.place.slug}', xml)
