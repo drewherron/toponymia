@@ -34,6 +34,153 @@ body,
   overflow: hidden;
 }
 
+/* ---- Shared recipes ------------------------------------------------
+   The controls below were each written with the section that introduced
+   them, so the same button was spelled out a dozen times. Grouped here
+   so a control changes in one place; every member rule further down
+   keeps only what makes it different (size, spacing, colour).
+
+   These come first in the file deliberately: the members are all single
+   classes, so the per-component rules that follow win on equal
+   specificity and can still override anything here. */
+
+/* Header pills — the round-cornered controls in the top bar. */
+.random-button,
+.lang-select,
+.articles-toggle,
+.header-menu-button,
+.mod-queue-button,
+.moderation-button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-radius: 16px;
+  background: #fff;
+  color: #444;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.random-button:hover,
+.lang-select:hover,
+.articles-toggle:hover {
+  background: #f4f7fa;
+}
+
+/* Secondary buttons — white fill, hairline border. */
+.name-editor-remove,
+.article-editor-add,
+.article-editor-actions button,
+.article-delete-actions button,
+.revision-revert,
+.diff-back,
+.revision-banner-actions button,
+.talk-form-actions button,
+.talk-reply-button,
+.talk-new-button,
+.report-form button,
+.mod-report-actions button,
+.article-restore-button,
+.mod-role-button,
+.mod-restore-button {
+  font: inherit;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+/* Primary buttons — filled with the house blue, no border box. */
+.auth-form button[type='submit'],
+.article-write-button,
+.history-compare {
+  font: inherit;
+  border: none;
+  border-radius: 4px;
+  background: #1f4f7a;
+  color: #fff;
+  cursor: pointer;
+}
+
+/* Secondary buttons promoted to primary: they keep the border box, so
+   the fill has to travel to the border colour too. */
+.article-editor-actions button[type='submit'],
+.talk-form-actions button[type='submit'],
+.talk-new-button {
+  background: #1f4f7a;
+  border-color: #1f4f7a;
+  color: #fff;
+}
+
+/* Text fields. */
+.auth-form input,
+.article-editor input,
+.article-editor textarea,
+.talk-form textarea,
+.talk-form input,
+.report-form input,
+.protection-control select,
+.article-delete-reason,
+.lang-help-search,
+.mod-filter,
+.mod-ban-reason {
+  font: inherit;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+/* Panels floating over the map. */
+.search-results,
+.feature-picker,
+.auth-form {
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+/* Modal dialogs — the mod queue and the about/help dialogs share their
+   whole chrome; only width and padding differ. */
+.mod-queue-backdrop,
+.about-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 16px;
+  z-index: 50;
+}
+
+.mod-queue,
+.about-dialog {
+  background: #fff;
+  border-radius: 8px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+
+.mod-queue-header,
+.about-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 12px;
+}
+
+.mod-queue-close,
+.about-close {
+  font-size: 1.4rem;
+  line-height: 1;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #666;
+}
+
 /* Header (logo · search · random · account) */
 
 .app-header {
@@ -61,37 +208,8 @@ body,
   text-decoration: none;
 }
 
-.random-button {
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 6px 12px;
-  border: 1px solid #ccc;
-  border-radius: 16px;
-  background: #fff;
-  color: #444;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.random-button:hover {
-  background: #f4f7fa;
-}
-
-/* Header pill matching .random-button. */
 .lang-select {
-  font: inherit;
-  font-size: 0.85rem;
   padding: 6px 10px;
-  border: 1px solid #ccc;
-  border-radius: 16px;
-  background: #fff;
-  color: #444;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.lang-select:hover {
-  background: #f4f7fa;
 }
 
 .search-box {
@@ -124,9 +242,6 @@ body,
   left: 0;
   right: 0;
   min-width: 300px;
-  background: #fff;
-  border-radius: 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   overflow: hidden;
   z-index: 50;
 }
@@ -204,9 +319,6 @@ body,
   flex-direction: column;
   min-width: 180px;
   max-width: 280px;
-  background: #fff;
-  border-radius: 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   overflow: hidden;
   z-index: 10;
 }
@@ -391,23 +503,8 @@ body,
 
 /* Articles-only filter toggle (bottom-left corner) */
 
-/* Header pill matching .random-button; active = amber (highlights on). */
-.articles-toggle {
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 6px 12px;
-  border: 1px solid #ccc;
-  border-radius: 16px;
-  background: #fff;
-  color: #444;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.articles-toggle:hover {
-  background: #f4f7fa;
-}
-
+/* Active = amber (highlights on); the resting pill comes from the shared
+   header-pill recipe. */
 .articles-toggle.active {
   background: #d97706;
   border-color: #d97706;
@@ -457,9 +554,6 @@ body,
   flex-direction: column;
   gap: 10px;
   width: 240px;
-  background: #fff;
-  border-radius: 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   padding: 14px;
 }
 
@@ -492,20 +586,11 @@ body,
 }
 
 .auth-form input {
-  font: inherit;
   padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
 }
 
 .auth-form button[type='submit'] {
-  font: inherit;
   padding: 8px;
-  border: none;
-  border-radius: 4px;
-  background: #1f4f7a;
-  color: #fff;
-  cursor: pointer;
 }
 
 .auth-form button[type='submit']:disabled {
@@ -551,14 +636,8 @@ body,
 /* Article view */
 
 .article-write-button {
-  font: inherit;
   font-size: 0.9rem;
   padding: 7px 14px;
-  border: none;
-  border-radius: 4px;
-  background: #1f4f7a;
-  color: #fff;
-  cursor: pointer;
   margin-bottom: 14px;
 }
 
@@ -653,10 +732,7 @@ body,
 
 .article-editor input,
 .article-editor textarea {
-  font: inherit;
   padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
 }
 
 .article-editor textarea {
@@ -699,13 +775,8 @@ body,
 .name-editor-remove,
 .article-editor-add {
   align-self: flex-start;
-  font: inherit;
   font-size: 0.85rem;
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 4px;
   padding: 5px 10px;
-  cursor: pointer;
 }
 
 .article-editor-error {
@@ -718,18 +789,7 @@ body,
 }
 
 .article-editor-actions button {
-  font: inherit;
   padding: 8px 16px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-  background: #fff;
-  cursor: pointer;
-}
-
-.article-editor-actions button[type='submit'] {
-  background: #1f4f7a;
-  border-color: #1f4f7a;
-  color: #fff;
 }
 
 .article-editor-actions button:disabled {
@@ -782,14 +842,8 @@ body,
 /* History tab */
 
 .history-compare {
-  font: inherit;
   font-size: 0.85rem;
   padding: 6px 12px;
-  border: none;
-  border-radius: 4px;
-  background: #1f4f7a;
-  color: #fff;
-  cursor: pointer;
   margin-bottom: 12px;
 }
 
@@ -848,13 +902,8 @@ body,
 
 .revision-revert,
 .diff-back {
-  font: inherit;
   font-size: 0.8rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #fff;
   padding: 2px 8px;
-  cursor: pointer;
   margin-left: 6px;
 }
 
@@ -882,13 +931,8 @@ body,
 }
 
 .revision-banner-actions button {
-  font: inherit;
   font-size: 0.8rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #fff;
   padding: 3px 10px;
-  cursor: pointer;
   margin-right: 6px;
 }
 
@@ -1054,11 +1098,8 @@ body,
 .talk-form textarea,
 .talk-form input {
   width: 100%;
-  font: inherit;
   font-size: 0.9rem;
   padding: 7px 9px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
   margin: 4px 0 8px;
 }
 
@@ -1069,20 +1110,9 @@ body,
 }
 
 .talk-form-actions button {
-  font: inherit;
   font-size: 0.85rem;
   padding: 6px 12px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-  background: #fff;
-  cursor: pointer;
   margin-right: 6px;
-}
-
-.talk-form-actions button[type='submit'] {
-  background: #1f4f7a;
-  border-color: #1f4f7a;
-  color: #fff;
 }
 
 .talk-form-actions button:disabled {
@@ -1091,34 +1121,18 @@ body,
 
 .talk-reply-button,
 .talk-new-button {
-  font: inherit;
   font-size: 0.85rem;
   padding: 6px 12px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
-}
-
-.talk-new-button {
-  background: #1f4f7a;
-  border-color: #1f4f7a;
-  color: #fff;
 }
 
 /* --- Moderation: report affordances, tombstones, mod queue --------- */
 
+/* Header pills, but amber: moderation tools read as a distinct mode. */
 .mod-queue-button,
 .moderation-button {
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 6px 12px;
-  border: 1px solid #c98a1a;
-  border-radius: 16px;
+  border-color: #c98a1a;
   background: #fff7ec;
   color: #92500a;
-  cursor: pointer;
-  white-space: nowrap;
 }
 
 .mod-queue-button:hover,
@@ -1161,21 +1175,13 @@ body,
 .report-form input {
   flex: 1;
   min-width: 0;
-  font: inherit;
   font-size: 0.85rem;
   padding: 5px 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
 }
 
 .report-form button {
-  font: inherit;
   font-size: 0.8rem;
   padding: 4px 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
 }
 
 .talk-post-delete,
@@ -1197,48 +1203,15 @@ body,
   font-size: 0.9rem;
 }
 
-/* Moderator queue overlay */
-.mod-queue-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 60px 16px;
-  z-index: 50;
-}
-
+/* Moderator queue overlay (chrome from the shared dialog recipe) */
 .mod-queue {
-  background: #fff;
-  border-radius: 8px;
   width: min(680px, 100%);
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
   padding: 18px 22px 24px;
-}
-
-.mod-queue-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 12px;
 }
 
 .mod-queue-header h2 {
   font-size: 1.15rem;
   margin: 0;
-}
-
-.mod-queue-close {
-  font-size: 1.4rem;
-  line-height: 1;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: #666;
 }
 
 .mod-report-list {
@@ -1319,13 +1292,8 @@ body,
 }
 
 .mod-report-actions button {
-  font: inherit;
   font-size: 0.83rem;
   padding: 5px 12px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
 }
 
 .mod-report-actions button:disabled {
@@ -1359,11 +1327,8 @@ body,
 }
 
 .protection-control select {
-  font: inherit;
   font-size: 0.82rem;
   padding: 4px 6px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
 }
 
 /* --- Article deletion (admin only) -------------------------------- */
@@ -1396,12 +1361,9 @@ body,
 }
 
 .article-delete-reason {
-  font: inherit;
   font-size: 0.82rem;
   width: 100%;
   padding: 5px 7px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
 }
 
 .article-delete-actions {
@@ -1411,22 +1373,15 @@ body,
 }
 
 .article-delete-actions button {
-  font: inherit;
   font-size: 0.82rem;
   padding: 5px 12px;
-  border-radius: 4px;
-  cursor: pointer;
 }
 
+/* Confirm is the destructive one; cancel keeps the shared secondary look. */
 .article-delete-actions button:first-child {
   border: none;
   background: #b91c1c;
   color: #fff;
-}
-
-.article-delete-actions button:last-child {
-  border: 1px solid #ccc;
-  background: #fff;
 }
 
 .article-deleted-banner {
@@ -1440,14 +1395,10 @@ body,
 }
 
 .article-restore-button {
-  font: inherit;
   font-size: 0.8rem;
   margin-top: 8px;
   padding: 4px 12px;
-  border: 1px solid #c9c1b4;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
+  border-color: #c9c1b4;
 }
 
 /* --- About / licensing dialog ------------------------------------- */
@@ -1470,49 +1421,17 @@ body,
   color: #1f4f7a;
 }
 
-.about-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 60px 16px;
-  z-index: 50;
-}
-
+/* Chrome comes from the shared dialog recipe. */
 .about-dialog {
-  background: #fff;
-  border-radius: 8px;
   width: min(660px, 100%);
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
   padding: 18px 24px 26px;
   line-height: 1.55;
   color: #333;
 }
 
-.about-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 12px;
-}
-
 .about-header h2 {
   font-size: 1.2rem;
   margin: 0;
-}
-
-.about-close {
-  font-size: 1.4rem;
-  line-height: 1;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: #666;
 }
 
 .about-dialog h3 {
@@ -1583,21 +1502,32 @@ body,
   color: #1f4f7a;
 }
 
-.lang-help-dialog code {
+.lang-help-dialog code,
+.markdown-help-dialog code {
   background: #f4f4f4;
   border-radius: 3px;
   padding: 0 3px;
   font-size: 0.85em;
 }
 
+.lang-help-table,
+.markdown-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.lang-help-table td,
+.markdown-help-table td {
+  border-top: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+
 .lang-help-search {
   width: 100%;
   box-sizing: border-box;
-  font: inherit;
   font-size: 0.9rem;
   padding: 6px 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
   margin-bottom: 8px;
 }
 
@@ -1606,33 +1536,12 @@ body,
   font-size: 0.85rem;
 }
 
-.lang-help-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
 .lang-help-table td {
   padding: 3px 10px 3px 0;
-  border-top: 1px solid #f0f0f0;
-  vertical-align: top;
 }
 
 .lang-help-table td:first-child {
   width: 52px;
-}
-
-.markdown-help-dialog code {
-  background: #f4f4f4;
-  border-radius: 3px;
-  padding: 0 3px;
-  font-size: 0.85em;
-}
-
-.markdown-help-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
 }
 
 .markdown-help-table th {
@@ -1645,8 +1554,6 @@ body,
 
 .markdown-help-table td {
   padding: 4px 10px 4px 0;
-  border-top: 1px solid #f0f0f0;
-  vertical-align: top;
 }
 
 .markdown-help-note {
@@ -1723,9 +1630,7 @@ body,
 
 .mod-filter,
 .mod-ban-reason {
-  font: inherit;
   padding: 6px 8px;
-  border: 1px solid #ccc;
   border-radius: 5px;
   width: 100%;
 }
@@ -1940,30 +1845,21 @@ body,
 
 .mod-role-button {
   padding: 5px 12px;
-  border: 1px solid #c9c1b4;
+  border-color: #c9c1b4;
   border-radius: 6px;
-  background: #fff;
-  font: inherit;
-  cursor: pointer;
-}
-
-.mod-role-button:hover:not(:disabled) {
-  background: #f3efe7;
 }
 
 /* Sits inline beside a removed/suppressed row's tag, so the inverse of a
    removal is always within reach of the removal itself. */
 .mod-restore-button {
   padding: 1px 8px;
-  border: 1px solid #c9c1b4;
-  border-radius: 4px;
-  background: #fff;
-  font: inherit;
+  border-color: #c9c1b4;
   font-size: 0.75rem;
-  cursor: pointer;
 }
 
-.mod-restore-button:hover:not(:disabled) {
+.mod-role-button:hover:not(:disabled),
+.mod-restore-button:hover:not(:disabled),
+.mod-sort:hover {
   background: #f3efe7;
 }
 
@@ -2037,10 +1933,6 @@ body,
   cursor: pointer;
 }
 
-.mod-sort:hover {
-  background: #f3efe7;
-}
-
 .mod-sort-arrow {
   font-size: 9px;
   color: #8a8378;
@@ -2073,15 +1965,9 @@ body,
 
 .header-menu-button {
   display: none;
-  font: inherit;
   font-size: 1.1rem;
   line-height: 1;
   padding: 6px 10px;
-  border: 1px solid #ccc;
-  border-radius: 16px;
-  background: #fff;
-  color: #444;
-  cursor: pointer;
 }
 
 /* Header first (900): the bar runs out of room long before the pane does, and
