@@ -7,6 +7,7 @@ import FeaturePicker from './components/FeaturePicker'
 import ModerationDashboard from './components/ModerationDashboard'
 import ModQueue from './components/ModQueue'
 import SearchBox from './components/SearchBox'
+import ThemeToggle from './components/ThemeToggle'
 import {
   HEADER_MENU_QUERY,
   NARROW_QUERY,
@@ -19,6 +20,7 @@ import {
   storeLabelLanguage,
 } from './map/labels'
 import MapView from './map/MapView'
+import { applyTheme, storedTheme, storeTheme, type Theme } from './theme'
 import type {
   ClickContext,
   FeatureCandidate,
@@ -70,6 +72,7 @@ function App() {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
+  const [theme, setTheme] = useState<Theme>(storedTheme)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
   // Two independent breakpoints: the header collapses first (900), the pane
   // becomes a sheet later (768).
@@ -97,6 +100,13 @@ function App() {
   // #zoom/lat/lng into the URL as soon as the map mounts, so by effect
   // time location.hash no longer says whether the *link* carried one.
   const bootHashRef = useRef(window.location.hash)
+
+  // index.html has already set data-theme from storage before this bundle
+  // parsed, so on first render this is a no-op; it exists to carry later
+  // toggles through to the attribute the stylesheet keys off.
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -407,6 +417,14 @@ function App() {
           {moderationOpen ? 'Return to map' : 'Moderation'}
         </button>
       )}
+      <ThemeToggle
+        theme={theme}
+        onToggle={() => {
+          const next = theme === 'dark' ? 'light' : 'dark'
+          storeTheme(next)
+          setTheme(next)
+        }}
+      />
       <button
         type="button"
         className="about-button"

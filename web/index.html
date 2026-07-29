@@ -9,6 +9,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Toponymia</title>
     <!--seo-->
+    <script>
+      // Runs before the bundle and before first paint, so a returning
+      // dark-mode reader never sees a white flash. Light is the default:
+      // only an explicit stored choice turns this on. Kept in sync with
+      // src/theme.ts, which owns the same key.
+      try {
+        if (localStorage.getItem('toponymia:theme') === 'dark') {
+          document.documentElement.dataset.theme = 'dark'
+        }
+      } catch (e) {
+        /* private mode with storage disabled: stay light */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

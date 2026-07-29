@@ -28,6 +28,12 @@
    group. */
 
 :root {
+  /* Tells the browser to draw its own chrome — scrollbars, the <select>
+     popup, form control defaults — to match. The pane and dialogs are
+     scroll containers, so a light scrollbar on a dark pane is the most
+     visible thing a token layer alone would miss. */
+  color-scheme: light;
+
   /* Surfaces */
   --surface: #fff;
   --surface-subtle: #f5f5f5; /* was #f0f0f0/#f4f4f4/#f5f5f5/#f7f7f7/#fafafa */
@@ -48,8 +54,12 @@
   --border-light: #ddd;
   --border-hairline: #eee; /* was #eee + #e3e3e3 + #f0f0f0 */
 
-  /* House blue */
+  /* House blue. --accent is the text/border blue, --accent-fill the one
+     behind white button text. Identical here; they part ways in dark,
+     where a blue readable on a dark background is far too pale to sit
+     under white text. */
   --accent: #1f4f7a;
+  --accent-fill: #1f4f7a;
   --accent-bg: #e6eef7;
   --on-accent: #fff;
 
@@ -113,6 +123,112 @@
   --shadow: rgba(0, 0, 0, 0.25);
   --shadow-soft: rgba(0, 0, 0, 0.2);
   --backdrop: rgba(0, 0, 0, 0.35);
+}
+
+/* ---- Dark theme ----------------------------------------------------
+   Opt-in only: set by the header toggle, never by prefers-color-scheme.
+   Nothing below is a new rule — it is the same palette above with every
+   role re-pointed, which is the whole reason for the token layer.
+
+   Two roles invert rather than darken. --on-accent stays white because
+   --accent-fill stays a mid blue; and the surface ramp runs the other
+   way, so --surface-subtle is *lighter* than --surface here while being
+   darker than it in light mode. That is correct: "subtle" means "a step
+   away from the panel", not "closer to white".
+
+   The basemap is deliberately untouched, so the map keeps its light
+   cartography under dark chrome. */
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --surface: #1c1f23;
+  --surface-subtle: #24282d;
+  --surface-muted: #2f343a;
+  --surface-hover: #253340;
+
+  /* Text ramp, lightest to darkest — the inverse of the light ramp */
+  --text: #e4e1dd;
+  --text-strong: #f2efec;
+  --text-body: #d0ccc7;
+  --text-muted: #aeaaa4;
+  --text-faint: #8b8781;
+  --text-dim: #6f6b66;
+  --text-warn: #d99a5c;
+
+  /* Borders */
+  --border: #3f454c;
+  --border-light: #363c43;
+  --border-hairline: #2c3137;
+
+  /* House blue */
+  --accent: #7ab3e8;
+  --accent-fill: #2f6ea8;
+  --accent-bg: #1d3448;
+  --on-accent: #fff;
+
+  /* Amber. Lightened well past the map's highlight colour: the tie to
+     the basemap loses to legibility, since the map is not darkening. */
+  --amber: #e09a4a;
+  --amber-strong: #e8b06a;
+  --amber-text: #f0c07a;
+  --amber-solid: #c2710a;
+  --amber-solid-hover: #a85f06;
+  --amber-bg: #3d2f14;
+  --amber-surface: #2e2415;
+  --amber-surface-hover: #3a2d18;
+  --amber-tint: #2a2413;
+  --amber-tint-soft: #241f12;
+  --amber-chip-bg: #3d3218;
+  --amber-border: #7a5a1e;
+  --amber-border-soft: #4a3a20;
+  --amber-underline: rgba(224, 154, 74, 0.4);
+
+  /* Success */
+  --ok-text: #7cc98d;
+  --ok-bg: #1d3524;
+  --ok-chip-bg: #24492e;
+
+  /* Danger */
+  --danger: #e06060;
+  --danger-link: #e87070;
+  --danger-text: #f0a0a0;
+  --danger-bg: #33201f;
+  --danger-chip-bg: #4a2725;
+  --danger-border: #6b3a38;
+
+  /* Diff */
+  --diff-add-bg: #1c2e20;
+  --diff-del-bg: #32211f;
+  --diff-del-strike: #e08080;
+
+  /* Moderation dashboard — still a step off the app's neutral, so the
+     full-page mod view keeps reading as a different place. */
+  --warm-bg: #212328;
+  --warm-border: #3a3f46;
+  --warm-border-strong: #4d535b;
+  --warm-hover: #2b3037;
+  --warm-hairline: #32373d;
+  --warm-text: #8f8b85;
+  --warm-text-strong: #b5b0a9;
+
+  /* Role badges */
+  --role-mod-text: #8ab4f8;
+  --role-mod-bg: #1e3050;
+  --role-admin-text: #c4a7f5;
+  --role-admin-bg: #2e2447;
+
+  /* One-offs */
+  --donate: #4a5a80;
+  --donate-hover: #5a6c96;
+  --grip: #4a5058;
+  --grip-hover: #5f666f;
+
+  /* Depth — shadows have to work harder against a dark surface. */
+  --shadow: rgba(0, 0, 0, 0.6);
+  --shadow-soft: rgba(0, 0, 0, 0.5);
+  --backdrop: rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -202,7 +318,7 @@ body,
   font: inherit;
   border: none;
   border-radius: 4px;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent);
   cursor: pointer;
 }
@@ -212,8 +328,8 @@ body,
 .article-editor-actions button[type='submit'],
 .talk-form-actions button[type='submit'],
 .talk-new-button {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
   color: var(--on-accent);
 }
 
@@ -677,7 +793,7 @@ body,
 }
 
 .auth-tabs button.active {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 
@@ -1516,13 +1632,33 @@ body,
   color: var(--text-body);
   cursor: pointer;
   white-space: nowrap;
-  /* Starts the right-aligned cluster: About sits just left of the
-     login/account control. */
-  margin-left: auto;
 }
 
 .about-button:hover {
   color: var(--accent);
+}
+
+/* Starts the right-aligned cluster — theme · About · account. The auto
+   margin lives here rather than on .about-button because the toggle is
+   now the leftmost of the three; leaving it on About would strand the
+   toggle back with the moderation tools. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-body);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.theme-toggle:hover {
+  color: var(--accent);
+  background: var(--surface-hover);
 }
 
 /* Chrome comes from the shared dialog recipe. */
@@ -2062,6 +2198,31 @@ body,
   color: var(--on-accent);
 }
 
+/* ---- Map navigation buttons in dark -------------------------------
+   Vendor chrome from maplibre-gl.css: a white control group whose +/−
+   and compass glyphs are data-URI SVGs with dark strokes baked in, so
+   they cannot be recoloured by a token. The group itself takes the
+   surface colour normally; the glyphs have to be inverted wholesale.
+
+   The attribution bar is left alone on purpose — it sits over the
+   basemap, which stays light in both themes. */
+
+:root[data-theme='dark'] .maplibregl-ctrl-group {
+  background: var(--surface);
+}
+
+:root[data-theme='dark'] .maplibregl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+
+:root[data-theme='dark'] .maplibregl-ctrl-group button:hover {
+  background-color: var(--surface-muted);
+}
+
+:root[data-theme='dark'] .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(1.4);
+}
+
 /* ---- Narrow screens: pane becomes a bottom sheet ----
    Bottom, not top: the header is already fixed top chrome and .search-results
    overflows downward into the map area, so a top pane would fight the search
@@ -2110,6 +2271,14 @@ body,
   .header-menu > * {
     width: 100%;
     text-align: center;
+  }
+
+  /* Stacked in the menu the toggle is full width, where a 50% radius
+     reads as a lozenge rather than a circle; and the auto margin that
+     starts the header's right-hand cluster has no job in a column. */
+  .header-menu .theme-toggle {
+    border-radius: 8px;
+    margin-left: 0;
   }
 
   /* Auth moves into the menu: `alice · Log out` is wider than the logged-out
