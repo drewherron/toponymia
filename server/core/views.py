@@ -166,6 +166,20 @@ def _place_json(place):
 @api_view(['POST'])
 @throttle_classes([ResolveThrottle])
 def resolve(request):
+    """Click resolution. Anonymous callers get the database half only:
+    a place we already know opens instantly, but creating one — which means
+    an outbound Overpass query and a permanent row — needs an account.
+
+    The asymmetry is deliberate. The Overpass traffic leaves under our
+    server's IP, so an anonymous script could get us banned from the public
+    instances and take the core interaction down with it; tying that spend
+    to an account (email-verified, bannable) keeps the cost attributable
+    without putting a login wall in front of ordinary browsing.
+    """
+    banned = banned_response(request.user)
+    if banned is not None:
+        return banned
+
     data = request.data
     name = data.get('name')
     # the English-first label the client displayed (optional)
@@ -200,14 +214,26 @@ def resolve(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    allow_create = request.user.is_authenticated
     try:
         place, created = resolution.resolve(
-            name.strip(), feature_class, lng, lat, zoom, name_en, qid=qid
+            name.strip(), feature_class, lng, lat, zoom, name_en, qid=qid,
+            allow_create=allow_create,
         )
     except OverpassError:
         return Response(
             {'error': 'resolution service unavailable'},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    if place is None:
+        # Anonymous, and we don't already know this place. 401 rather than
+        # 403: the client turns it into a sign-in prompt, not an error.
+        return Response(
+            {
+                'error': 'sign in to look up a place for the first time',
+                'reason': 'signin_required',
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
         )
     return Response({'place': _place_json(place), 'created': created})
 

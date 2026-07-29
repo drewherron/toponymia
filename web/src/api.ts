@@ -40,8 +40,13 @@ function jsonHeaders(): Record<string, string> {
 
 /** Why a resolution failed, so the pane can say whose problem it is:
  *  `unavailable` = Overpass (upstream) is busy or down, `throttled` = our
- *  own rate limit, `failed` = anything else. */
-export type ResolveFailure = 'unavailable' | 'throttled' | 'failed'
+ *  own rate limit, `signin_required` = nobody has opened this place before
+ *  and only accounts can create one, `failed` = anything else. */
+export type ResolveFailure =
+  | 'unavailable'
+  | 'throttled'
+  | 'signin_required'
+  | 'failed'
 
 export class ResolveError extends Error {
   readonly reason: ResolveFailure
@@ -50,7 +55,13 @@ export class ResolveError extends Error {
     super(`resolve failed: ${status}`)
     this.name = 'ResolveError'
     this.reason =
-      status === 503 ? 'unavailable' : status === 429 ? 'throttled' : 'failed'
+      status === 503
+        ? 'unavailable'
+        : status === 429
+          ? 'throttled'
+          : status === 401
+            ? 'signin_required'
+            : 'failed'
   }
 }
 

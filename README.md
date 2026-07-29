@@ -14,7 +14,10 @@ to articles about how they got their names.
   — a town label, a river line, a road — is clickable. Clicking opens
   the article for that place in a side pane (or a stub inviting you to
   write it). If several features overlap at the click point, a small
-  picker lets you choose.
+  picker lets you choose. Anyone can open a place Toponymia already
+  knows; identifying one for the *first* time queries OpenStreetMap's
+  public Overpass service under our own IP and creates a permanent
+  record, so that step asks you to sign in.
 - **Highlights instead of pins.** Places that have articles are shown
   by recoloring the basemap's own labels amber, so every rendered
   instance of a name lights up (a river along its whole course) and

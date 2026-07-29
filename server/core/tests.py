@@ -305,6 +305,15 @@ class OverpassCallTests(TestCase):
 
 
 class ResolveApiTests(ApiTestCase):
+    """Resolution as a signed-in user. Creating a place calls Overpass and
+    writes a permanent row, so it needs an account; the anonymous half of
+    the endpoint has its own class below."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('resolver', password='pw12345!')
+        self.client.force_login(self.user)
+
     def _post(self, **overrides):
         payload = {
             'name': 'Mississippi River',
@@ -766,6 +775,14 @@ class RelationGeometryResolveTests(ApiTestCase):
     """Line-like relations cache their course and snap the label point;
     area relations keep the click (a ring's midpoint is the city limit)."""
 
+    def setUp(self):
+        # These exercise resolution mechanics, which means creating places —
+        # an authenticated action. Permissions are covered separately.
+        super().setUp()
+        self.client.force_login(
+            User.objects.create_user('resolver', password='pw12345!')
+        )
+
     def _ways(self, *coord_lists):
         """Member ways as fetch_relation_member_ways returns them — that
         call has already dropped the excluded roles."""
@@ -870,6 +887,14 @@ class ResolveQidHintTests(ApiTestCase):
     tag differ (深圳 vs 深圳市; no P1705 at all, so an English label got
     sent at a Chinese name tag). A QID matches all four exactly.
     """
+
+    def setUp(self):
+        # Creating places is an authenticated action; see
+        # ResolvePermissionTests for the anonymous half of this endpoint.
+        super().setUp()
+        self.client.force_login(
+            User.objects.create_user('resolver', password='pw12345!')
+        )
 
     def _post(self, **overrides):
         payload = {
@@ -3760,3 +3785,85 @@ class ReadEndpointBoundsTests(ApiTestCase):
         self.assertTrue(xml.startswith('<?xml'))
         self.assertTrue(xml.endswith('</urlset>'))
         self.assertIn(f'/place/{self.place.slug}', xml)
+
+
+class ResolvePermissionTests(ApiTestCase):
+    """Who may spend an Overpass query and create a Place.
+
+    Anonymous callers get the database half of the ladder: a place we
+    already know opens normally, but a first-ever lookup — the part that
+    calls Overpass under our own IP and writes a permanent row — needs an
+    account. Banned users get neither.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+        self.mod = User.objects.create_user('mod', password='pw12345!')
+
+    def _post(self, **overrides):
+        payload = {
+            'name': 'Mississippi River',
+            'class': 'waterway',
+            'lngLat': [-91.0, 32.0],
+            'zoom': 8,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('core:resolve'), payload, content_type='application/json'
+        )
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_anonymous_cannot_create_and_never_calls_overpass(self, fetch):
+        fetch.return_value = [_relation()]
+        response = self._post()
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['reason'], 'signin_required')
+        # The point of the restriction: no outbound traffic, no new row.
+        fetch.assert_not_called()
+        self.assertEqual(Place.objects.count(), 0)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_anonymous_can_open_an_already_known_place(self, fetch):
+        """The half that stays public — otherwise every logged-out click on
+        an existing article would hit a sign-in wall."""
+        fetch.return_value = [_relation()]
+        self.client.force_login(self.user)
+        created = self._post()
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.json()['created'])
+        slug = created.json()['place']['slug']
+
+        self.client.logout()
+        fetch.reset_mock()
+        again = self._post()
+        self.assertEqual(again.status_code, 200)
+        self.assertFalse(again.json()['created'])
+        self.assertEqual(again.json()['place']['slug'], slug)
+        # Cache hit: still no Overpass call, and still one row.
+        fetch.assert_not_called()
+        self.assertEqual(Place.objects.count(), 1)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_banned_user_cannot_resolve(self, fetch):
+        fetch.return_value = [_relation()]
+        Ban.objects.create(user=self.user, created_by=self.mod)
+        self.client.force_login(self.user)
+        response = self._post()
+        self.assertEqual(response.status_code, 403)
+        fetch.assert_not_called()
+        self.assertEqual(Place.objects.count(), 0)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_lifted_ban_restores_resolution(self, fetch):
+        fetch.return_value = [_relation()]
+        ban = Ban.objects.create(user=self.user, created_by=self.mod)
+        ban.lifted = timezone.now()
+        ban.save(update_fields=['lifted'])
+        self.client.force_login(self.user)
+        self.assertEqual(self._post().status_code, 200)
+
+    def test_anonymous_bad_payload_still_400s(self):
+        """Validation order matters: a malformed body is a client error
+        whether or not you're signed in, and shouldn't read as a login wall."""
+        self.assertEqual(self._post(lngLat=[-91.0]).status_code, 400)

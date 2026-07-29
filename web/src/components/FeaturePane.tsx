@@ -153,14 +153,32 @@ const ANCHOR_LABEL: Record<ResolvedPlace['anchor_level'], string> = {
 function AnchorInfo({
   resolution,
   moderator,
+  onRequestAuth,
 }: {
   resolution: Resolution
   moderator: boolean
+  onRequestAuth: () => void
 }) {
   if (resolution.status === 'loading') {
     return <p className="anchor-info anchor-pending">Resolving place…</p>
   }
   if (resolution.status === 'error') {
+    // Not an error in the usual sense: nobody has opened this place before,
+    // and identifying it for the first time is the part that costs an
+    // Overpass query and a permanent row. Reads as an invitation.
+    if (resolution.reason === 'signin_required') {
+      return (
+        <div className="anchor-info anchor-signin">
+          <p>
+            Nobody has opened this place yet. Sign in to look it up — and to
+            write the first article about where its name comes from.
+          </p>
+          <button type="button" onClick={onRequestAuth}>
+            Sign in or create an account
+          </button>
+        </div>
+      )
+    }
     return (
       <div className="anchor-info anchor-error">
         {resolution.reason === 'unavailable' ? (
@@ -582,7 +600,11 @@ function FeaturePane({
           </button>
         </div>
       </div>
-      <AnchorInfo resolution={resolution} moderator={!!user?.is_moderator} />
+      <AnchorInfo
+        resolution={resolution}
+        moderator={!!user?.is_moderator}
+        onRequestAuth={onRequestAuth}
+      />
 
       {place && (
         <nav className="pane-tabs">

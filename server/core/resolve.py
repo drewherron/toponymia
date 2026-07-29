@@ -22,7 +22,7 @@ from .slugs import unique_slug
 
 
 def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
-            qid=None):
+            qid=None, allow_create=True):
     """Return (place, created). Raises overpass.OverpassError on outage.
 
     `name` is the feature's native OSM name (what Overpass matches on);
@@ -35,6 +35,13 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
     which anchors at level 1 by construction. A miss falls through to the
     name ladder below, so a wrong or stale hint costs a query, not a
     resolution.
+
+    `allow_create=False` restricts this to the database rungs of the
+    ladder: an already-known Place is returned as usual, and anything that
+    would query Overpass or write a new row returns (None, False) instead.
+    That is the anonymous path — it keeps clicking a known place instant and
+    free while making sure only accounts can spend our Overpass budget or
+    create permanent rows.
     """
     radius = overpass.radius_for_click(zoom, lat)
     click = Point(lng, lat, srid=4326)
@@ -61,6 +68,11 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
     )
     if cached:
         return cached, False
+
+    # Everything below here either calls Overpass or creates a row, so this
+    # is where the anonymous path stops.
+    if not allow_create:
+        return None, False
 
     element = None
     if qid:
