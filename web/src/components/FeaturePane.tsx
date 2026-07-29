@@ -165,16 +165,19 @@ function AnchorInfo({
   if (resolution.status === 'error') {
     // Not an error in the usual sense: nobody has opened this place before,
     // and identifying it for the first time is the part that costs an
-    // Overpass query and a permanent row. Reads as an invitation.
+    // Overpass query and a permanent row. Deliberately the same empty state
+    // a logged-out visitor gets on a place we *do* know — whether we happen
+    // to have a row yet is our bookkeeping, not something to explain here.
     if (resolution.reason === 'signin_required') {
       return (
         <div className="anchor-info anchor-signin">
-          <p>
-            Nobody has opened this place yet. Sign in to look it up — and to
-            write the first article about where its name comes from.
-          </p>
-          <button type="button" onClick={onRequestAuth}>
-            Sign in or create an account
+          <p className="feature-pane-note">No article about this place yet.</p>
+          <button
+            type="button"
+            className="article-write-button"
+            onClick={onRequestAuth}
+          >
+            Log in to write an article
           </button>
         </div>
       )

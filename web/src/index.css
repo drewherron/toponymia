@@ -295,7 +295,6 @@ body,
 .article-delete-actions button,
 .revision-revert,
 .history-more,
-.anchor-signin button,
 .diff-back,
 .revision-banner-actions button,
 .talk-form-actions button,
@@ -659,13 +658,6 @@ body,
 
 .anchor-error p:last-child {
   margin-bottom: 0;
-}
-
-/* An unopened place is an invitation, not a failure — normal text colour,
-   not the warning colour used by .anchor-error. */
-.anchor-signin p {
-  margin: 0 0 8px;
-  line-height: 1.45;
 }
 
 .anchor-error-hint {
