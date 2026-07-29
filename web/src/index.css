@@ -611,7 +611,11 @@ body,
   justify-content: center;
   border: none;
   background: none;
-  color: var(--text-dim);
+  /* One step up the ramp from the dim labels: this is an affordance, not
+     decoration, and --text-dim sits under the 3:1 that WCAG asks of a
+     non-text control (2.85:1 on white). Its resting state is exactly when
+     you are hunting for it, so the hover darkening doesn't cover for it. */
+  color: var(--text-faint);
   padding: 4px;
   border-radius: 6px;
   cursor: pointer;
@@ -1728,7 +1732,9 @@ body,
   width: 16px;
   height: 16px;
   padding: 0;
-  border: 1px solid var(--text-dim);
+  /* The circle is this control's only visible boundary — same 3:1 rule as
+     the pane icons, so it reads from --text-faint rather than --text-dim. */
+  border: 1px solid var(--text-faint);
   border-radius: 50%;
   background: none;
   color: var(--text-muted);
