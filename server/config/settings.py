@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.csp import CSP
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -82,6 +83,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Before WhiteNoise so static responses carry the policy too, and early
+    # enough that request.csp_nonce exists for every view (core/spa.py uses
+    # it). Django 6 ships this; no third-party CSP package needed.
+    'django.middleware.csp.ContentSecurityPolicyMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -305,6 +310,47 @@ def immutable_file_test(path, url):
 
 
 WHITENOISE_IMMUTABLE_FILE_TEST = immutable_file_test
+
+
+# Content-Security-Policy. Today XSS is closed off entirely by how
+# react-markdown is configured (no rehype-raw). This is the second layer, so
+# that a future mistake there is contained instead of fatal.
+#
+# The external origins are exactly the two the client talks to; both are in
+# the client source, so if either moves, this list has to move with it:
+#   tiles.openfreemap.org   basemap tiles, sprites, glyphs (web/src/map/MapView.tsx)
+#   photon.komoot.io        geocoding search             (web/src/api.ts)
+OPENFREEMAP = 'https://tiles.openfreemap.org'
+PHOTON = 'https://photon.komoot.io'
+
+SECURE_CSP = {
+    'default-src': [CSP.SELF],
+    'base-uri': [CSP.SELF],
+    'object-src': [CSP.NONE],
+    'frame-ancestors': [CSP.NONE],
+    'form-action': [CSP.SELF],
+    # The one inline script is index.html's dark-mode anti-flash snippet,
+    # which core/spa.py stamps with this nonce as it renders the shell.
+    # Without the nonce that script is blocked and returning dark-mode
+    # readers get a white flash — silently, since nothing else depends on it.
+    'script-src': [CSP.SELF, CSP.NONCE],
+    # Needed for `style` attributes, not stylesheets: FeaturePicker positions
+    # itself with one, and the sheet sets its height the same way. Narrow
+    # risk (style injection only), and CSP3's style-src-attr isn't portable
+    # enough yet to be more precise.
+    'style-src': [CSP.SELF, CSP.UNSAFE_INLINE],
+    # MapLibre decodes tiles in workers it creates from blob: URLs, and
+    # draws raster/sprite images from the tile host. child-src is the
+    # pre-CSP3 spelling of worker-src, kept for older browsers.
+    'worker-src': [CSP.SELF, 'blob:'],
+    'child-src': [CSP.SELF, 'blob:'],
+    'img-src': [CSP.SELF, 'data:', 'blob:', OPENFREEMAP],
+    'connect-src': [CSP.SELF, OPENFREEMAP, PHOTON],
+    # Both faces are self-hosted under /fonts/; map glyphs are .pbf fetched
+    # by XHR, so they fall under connect-src rather than here.
+    'font-src': [CSP.SELF],
+    'manifest-src': [CSP.SELF],
+}
 
 
 # Production hardening — active whenever DEBUG is off. TLS terminates at

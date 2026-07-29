@@ -161,6 +161,36 @@ turns on secure cookies, and expects TLS + `X-Forwarded-Proto` from a
 reverse proxy. See `server/config/settings.py` for the full
 environment-variable contract.
 
+### Content-Security-Policy
+
+`SECURE_CSP` in `server/config/settings.py` is the whole policy, sent by
+Django's built-in CSP middleware. Two things about it are easy to trip
+over:
+
+- **Inline scripts need the request's nonce.** `core/spa.py` stamps the
+  ones in `index.html` automatically as it renders the shell; a new
+  inline script added anywhere else is silently dropped by the browser.
+- **`npm run dev` does not exercise it.** Vite serves the SPA in
+  development, so the policy only applies once Django is serving the
+  build. To check it locally:
+
+  ```sh
+  cd web && npm run build
+  cd ../server && DJANGO_DEBUG=0 DJANGO_SECRET_KEY=any-long-random-string \
+    DJANGO_ALLOWED_HOSTS=127.0.0.1 \
+    .venv/bin/python manage.py runserver 127.0.0.1:8099
+  ```
+
+  Then open the site with the browser console visible and pan, zoom,
+  search, and open an article. A too-strict policy breaks the map in
+  ways that look like unrelated bugs, so the console is the real test.
+
+The policy allows exactly two external origins — `tiles.openfreemap.org`
+for the basemap and `photon.komoot.io` for geocoding. If either moves,
+the setting has to move with it. Note that images in article Markdown
+are restricted to the site's own origin: hotlinked external images will
+not load.
+
 ## License
 
 Toponymia licenses its software and its content separately:

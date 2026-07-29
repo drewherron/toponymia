@@ -16,6 +16,7 @@ from django.http import (
     HttpResponsePermanentRedirect,
     StreamingHttpResponse,
 )
+from django.middleware.csp import get_nonce
 from django.utils.html import escape
 
 from .models import Place
@@ -85,6 +86,32 @@ def _place_description(place):
     )
 
 
+# Bare <script> — an inline one. Vite's own tags always carry src=, so this
+# matches only the hand-written snippets in web/index.html.
+_INLINE_SCRIPT_RE = re.compile(r'<script(?=[\s>])(?![^>]*\ssrc=)')
+
+
+def _nonced(request, html):
+    """Stamp inline <script> tags with the request's CSP nonce.
+
+    settings.SECURE_CSP sends `script-src 'self' 'nonce-…'`, so an unstamped
+    inline script is silently dropped by the browser. Today that's the
+    dark-mode anti-flash snippet in index.html; matching on the tag rather
+    than that one snippet means a second one added later is covered too.
+
+    Interpolating the nonce is what makes the middleware emit it at all: it's
+    a LazyNonce, generated on first *access*. Note `bool(nonce)` is False
+    until then — testing it as a truth value would skip the substitution here
+    every time, and silently, so the check below is against None (which means
+    the middleware isn't installed). Substituting via a function keeps the
+    laziness honest: the nonce is generated only if there's a script to stamp.
+    """
+    nonce = get_nonce(request)
+    if nonce is None:
+        return html
+    return _INLINE_SCRIPT_RE.sub(lambda _: f'<script nonce="{nonce}"', html)
+
+
 def _render(request, *, title, description, path, og_type='website', status=200):
     html = _index_html()
     if html is None:
@@ -113,7 +140,7 @@ def _render(request, *, title, description, path, og_type='website', status=200)
         html = html.replace('<!--seo-->', head)
     else:
         html = html.replace('</head>', head + '\n</head>', 1)
-    return HttpResponse(html, status=status)
+    return HttpResponse(_nonced(request, html), status=status)
 
 
 def index(request):

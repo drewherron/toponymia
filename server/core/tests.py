@@ -3867,3 +3867,70 @@ class ResolvePermissionTests(ApiTestCase):
         """Validation order matters: a malformed body is a client error
         whether or not you're signed in, and shouldn't read as a login wall."""
         self.assertEqual(self._post(lngLat=[-91.0]).status_code, 400)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class ContentSecurityPolicyTests(TestCase):
+    """The second layer behind react-markdown's no-raw-HTML configuration.
+
+    These pin the parts that fail *silently* if they regress: a blocked
+    inline script and a missing origin both look like unrelated bugs.
+    """
+
+    def _csp(self, response):
+        return {
+            part.split(' ')[0]: part
+            for part in response.headers['Content-Security-Policy'].split('; ')
+        }
+
+    def test_shell_stamps_its_inline_script_with_the_header_nonce(self):
+        """The whole point of the nonce plumbing. If these two ever disagree,
+        the dark-mode anti-flash snippet is dropped by the browser and
+        returning readers get a white flash with nothing in the logs."""
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        header_nonce = re.search(
+            r"'nonce-([\w-]+)'", self._csp(response)['script-src']
+        )
+        self.assertIsNotNone(header_nonce)
+        html = response.content.decode()
+        self.assertIn(f'<script nonce="{header_nonce.group(1)}">', html)
+
+    def test_bundle_script_tag_is_left_alone(self):
+        """Only inline scripts need stamping; Vite's tags carry src=."""
+        html = self.client.get('/').content.decode()
+        tags = re.findall(r'<script[^>]*>', html)
+        src_tags = [t for t in tags if ' src=' in t]
+        self.assertTrue(src_tags)
+        for tag in src_tags:
+            self.assertNotIn('nonce=', tag)
+
+    def test_nonce_is_per_request(self):
+        first = self._csp(self.client.get('/'))['script-src']
+        second = self._csp(self.client.get('/'))['script-src']
+        self.assertNotEqual(first, second)
+
+    def test_no_nonce_is_minted_for_responses_without_inline_scripts(self):
+        """LazyNonce only generates on access, so an API response shouldn't
+        carry one. Guards the laziness, not just the header."""
+        response = self.client.get('/api/highlights/?bbox=0,0,1,1')
+        self.assertEqual(self._csp(response)['script-src'], "script-src 'self'")
+
+    def test_map_and_geocoder_origins_are_allowed(self):
+        """MapLibre and Photon are the only external origins. A too-strict
+        policy here breaks the map in ways that read as unrelated bugs."""
+        csp = self._csp(self.client.get('/'))
+        self.assertIn('https://tiles.openfreemap.org', csp['connect-src'])
+        self.assertIn('https://photon.komoot.io', csp['connect-src'])
+        self.assertIn('https://tiles.openfreemap.org', csp['img-src'])
+        # MapLibre runs its tile decoders in workers created from blob: URLs.
+        self.assertIn('blob:', csp['worker-src'])
+
+    def test_the_locked_down_directives(self):
+        csp = self._csp(self.client.get('/'))
+        self.assertEqual(csp['object-src'], "object-src 'none'")
+        self.assertEqual(csp['frame-ancestors'], "frame-ancestors 'none'")
+        self.assertEqual(csp['base-uri'], "base-uri 'self'")
+        self.assertEqual(csp['form-action'], "form-action 'self'")
+        self.assertNotIn('unsafe-inline', csp['script-src'])
+        self.assertNotIn('unsafe-eval', csp['script-src'])
