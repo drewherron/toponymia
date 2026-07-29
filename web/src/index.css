@@ -14,6 +14,107 @@
   src: url('/fonts/libertinus-serif-latin.woff2') format('woff2');
 }
 
+/* ---- Palette -------------------------------------------------------
+   Every colour in this file resolves here, so a theme is a matter of
+   redefining this block rather than editing 200 declarations.
+
+   The names are roles, not hues: --surface is "whatever a panel sits
+   on", not "white". That matters because a role can invert while the
+   literal cannot — .article-write-button keeps `color: var(--on-accent)`
+   in any theme, while a card's `background: var(--surface)` flips.
+
+   Colours that had drifted apart without meaning to (five off-whites,
+   six greens) are collapsed to one token each; see the note by each
+   group. */
+
+:root {
+  /* Surfaces */
+  --surface: #fff;
+  --surface-subtle: #f5f5f5; /* was #f0f0f0/#f4f4f4/#f5f5f5/#f7f7f7/#fafafa */
+  --surface-muted: #eee;
+  --surface-hover: #eef3f8; /* was #eef3f8 + #f4f7fa */
+
+  /* Text ramp, darkest to lightest */
+  --text: #000;
+  --text-strong: #333;
+  --text-body: #444;
+  --text-muted: #555; /* was #555 + #666 */
+  --text-faint: #777; /* was #777 + #888 */
+  --text-dim: #999;
+  --text-warn: #a15c00;
+
+  /* Borders */
+  --border: #ccc;
+  --border-light: #ddd;
+  --border-hairline: #eee; /* was #eee + #e3e3e3 + #f0f0f0 */
+
+  /* House blue */
+  --accent: #1f4f7a;
+  --accent-bg: #e6eef7;
+  --on-accent: #fff;
+
+  /* Amber — matched to the map's highlight colour */
+  --amber: #b45309;
+  --amber-strong: #92500a;
+  --amber-text: #92400e; /* was #92400e + #7a5a12 */
+  --amber-solid: #d97706;
+  --amber-solid-hover: #c76a05;
+  --amber-bg: #fef3c7;
+  --amber-surface: #fff7ec;
+  --amber-surface-hover: #fdeccf;
+  --amber-tint: #fdf6e3;
+  --amber-tint-soft: #fffbf3;
+  --amber-chip-bg: #fdeec4;
+  --amber-border: #c98a1a;
+  --amber-border-soft: #f0dcc0; /* was #f0dcc0 + #eadfbc */
+  --amber-underline: rgba(180, 83, 9, 0.4);
+
+  /* Success / present-tense green */
+  --ok-text: #1d5c2e; /* was six near-identical greens */
+  --ok-bg: #e3f0e3; /* was #e3f0e3 + #e7f0e7 + #dcfce7 */
+  --ok-chip-bg: #c8f0c8;
+
+  /* Danger / removal red */
+  --danger: #b91c1c;
+  --danger-link: #a11; /* was #a11 + #a12c00 */
+  --danger-text: #7f1d1d; /* was #7f1d1d + #7a2422 */
+  --danger-bg: #fef2f2; /* was #fef2f2 + #fff6f6 */
+  --danger-chip-bg: #ffd7d5; /* was #ffd7d5 + #fee2e2 */
+  --danger-border: #f0c9c9; /* was #f0c9c9 + #fca5a5 + #d99 */
+
+  /* Diff */
+  --diff-add-bg: #f2fbf2;
+  --diff-del-bg: #fff5f5;
+  --diff-del-strike: #b34240;
+
+  /* Moderation dashboard — a warmer grey than the rest of the app, so
+     the full-page mod view reads as a different place. */
+  --warm-bg: #f8f7f4;
+  --warm-border: #e2ddd3;
+  --warm-border-strong: #c9c1b4;
+  --warm-hover: #f3efe7;
+  --warm-hairline: #eee7db;
+  --warm-text: #8a8378;
+  --warm-text-strong: #57534e;
+
+  /* Role badges */
+  --role-mod-text: #1d4ed8;
+  --role-mod-bg: #dbeafe;
+  --role-admin-text: #6d28d9;
+  --role-admin-bg: #ede9fe;
+
+  /* One-offs */
+  --donate: #677ba6;
+  --donate-hover: #566890;
+  --grip: #ccc;
+  --grip-hover: #aaa;
+
+  /* Depth */
+  --shadow: rgba(0, 0, 0, 0.25);
+  --shadow-soft: rgba(0, 0, 0, 0.2);
+  --backdrop: rgba(0, 0, 0, 0.35);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -25,6 +126,9 @@ body,
 #root {
   height: 100%;
   font-family: system-ui, sans-serif;
+  /* Was the UA default (black in light mode). Named so body copy has
+     something to invert to when a dark theme redefines --text. */
+  color: var(--text);
 }
 
 .app-shell {
@@ -54,10 +158,10 @@ body,
   font: inherit;
   font-size: 0.85rem;
   padding: 6px 12px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: #fff;
-  color: #444;
+  background: var(--surface);
+  color: var(--text-body);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -65,7 +169,7 @@ body,
 .random-button:hover,
 .lang-select:hover,
 .articles-toggle:hover {
-  background: #f4f7fa;
+  background: var(--surface-hover);
 }
 
 /* Secondary buttons — white fill, hairline border. */
@@ -85,9 +189,9 @@ body,
 .mod-role-button,
 .mod-restore-button {
   font: inherit;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 
@@ -98,8 +202,8 @@ body,
   font: inherit;
   border: none;
   border-radius: 4px;
-  background: #1f4f7a;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   cursor: pointer;
 }
 
@@ -108,9 +212,9 @@ body,
 .article-editor-actions button[type='submit'],
 .talk-form-actions button[type='submit'],
 .talk-new-button {
-  background: #1f4f7a;
-  border-color: #1f4f7a;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 
 /* Text fields. */
@@ -126,7 +230,7 @@ body,
 .mod-filter,
 .mod-ban-reason {
   font: inherit;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 4px;
 }
 
@@ -134,9 +238,9 @@ body,
 .search-results,
 .feature-picker,
 .auth-form {
-  background: #fff;
+  background: var(--surface);
   border-radius: 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 10px var(--shadow);
 }
 
 /* Modal dialogs — the mod queue and the about/help dialogs share their
@@ -145,7 +249,7 @@ body,
 .about-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--backdrop);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -155,11 +259,11 @@ body,
 
 .mod-queue,
 .about-dialog {
-  background: #fff;
+  background: var(--surface);
   border-radius: 8px;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 10px 40px var(--shadow);
 }
 
 .mod-queue-header,
@@ -167,7 +271,7 @@ body,
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-hairline);
   margin-bottom: 12px;
 }
 
@@ -178,7 +282,7 @@ body,
   border: none;
   background: none;
   cursor: pointer;
-  color: #666;
+  color: var(--text-muted);
 }
 
 /* Header (logo · search · random · account) */
@@ -189,8 +293,8 @@ body,
   gap: 14px;
   height: 52px;
   padding: 0 16px;
-  background: #fff;
-  border-bottom: 1px solid #ddd;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-light);
   /* Positioned + above the moderation dashboard (z-index 45) so the search
      dropdown, which overflows down into the map area, stays visible while
      the dashboard is open. Full-screen overlays (z-index 50) still win. */
@@ -204,7 +308,7 @@ body,
   font-weight: 400;
   font-variant-caps: small-caps;
   letter-spacing: 0.02em;
-  color: #1f4f7a;
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -225,15 +329,15 @@ body,
   font: inherit;
   font-size: 0.9rem;
   padding: 7px 12px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: #f7f7f7;
+  background: var(--surface-subtle);
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #1f4f7a;
-  background: #fff;
+  border-color: var(--accent);
+  background: var(--surface);
 }
 
 .search-results {
@@ -251,7 +355,7 @@ body,
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #999;
+  color: var(--text-dim);
   padding: 8px 12px 2px;
 }
 
@@ -271,11 +375,11 @@ body,
 }
 
 .search-result:hover {
-  background: #eef3f8;
+  background: var(--surface-hover);
 }
 
 .search-result-article .search-result-name {
-  color: #b45309;
+  color: var(--amber);
   font-weight: 600;
 }
 
@@ -283,13 +387,13 @@ body,
 .search-result-context {
   font-size: 0.8rem;
   font-weight: 400;
-  color: #888;
+  color: var(--text-faint);
   margin-left: 8px;
 }
 
 .search-result-kind {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -298,7 +402,7 @@ body,
 .search-empty {
   padding: 10px 12px;
   font-size: 0.85rem;
-  color: #888;
+  color: var(--text-faint);
 }
 
 .map-area {
@@ -337,7 +441,7 @@ body,
 }
 
 .feature-picker-item:hover {
-  background: #eef3f8;
+  background: var(--surface-hover);
 }
 
 .feature-name {
@@ -346,7 +450,7 @@ body,
 
 .feature-kind {
   font-size: 0.8rem;
-  color: #777;
+  color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -359,8 +463,8 @@ body,
   top: 0;
   left: 0;
   bottom: 0;
-  background: #fff;
-  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
+  background: var(--surface);
+  box-shadow: 2px 0 12px var(--shadow-soft);
   padding: 20px;
   overflow-y: auto;
   z-index: 20;
@@ -391,26 +495,26 @@ body,
   justify-content: center;
   border: none;
   background: none;
-  color: #999;
+  color: var(--text-dim);
   padding: 4px;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .pane-icon-button:hover {
-  color: #555;
-  background: #f0f0f0;
+  color: var(--text-muted);
+  background: var(--surface-subtle);
 }
 
 /* In-article link to another Toponymia place (amber, matching highlights). */
 .place-link {
-  color: #b45309;
+  color: var(--amber);
   text-decoration: underline;
-  text-decoration-color: rgba(180, 83, 9, 0.4);
+  text-decoration-color: var(--amber-underline);
 }
 
 .place-link:hover {
-  text-decoration-color: #b45309;
+  text-decoration-color: var(--amber);
 }
 
 .anchor-info {
@@ -419,11 +523,11 @@ body,
 }
 
 .anchor-pending {
-  color: #888;
+  color: var(--text-faint);
 }
 
 .anchor-error {
-  color: #a15c00;
+  color: var(--text-warn);
 }
 
 .anchor-error p {
@@ -436,7 +540,7 @@ body,
 }
 
 .anchor-error-hint {
-  color: #888;
+  color: var(--text-faint);
 }
 
 .anchor-badge {
@@ -445,18 +549,18 @@ body,
   border-radius: 10px;
   font-size: 0.75rem;
   font-weight: 600;
-  background: #eee;
-  color: #444;
+  background: var(--surface-muted);
+  color: var(--text-body);
 }
 
 .anchor-wikidata {
-  background: #e3f0e3;
-  color: #1d5c2e;
+  background: var(--ok-bg);
+  color: var(--ok-text);
 }
 
 .anchor-osm {
-  background: #e6eef7;
-  color: #1f4f7a;
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .anchor-links {
@@ -467,16 +571,16 @@ body,
 }
 
 .anchor-links a {
-  color: #1f4f7a;
+  color: var(--accent);
 }
 
 .anchor-slug {
-  color: #888;
+  color: var(--text-faint);
 }
 
 .feature-pane-note {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--text-muted);
   margin-bottom: 16px;
 }
 
@@ -490,13 +594,13 @@ body,
 .feature-props td {
   text-align: left;
   padding: 4px 8px 4px 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-hairline);
   vertical-align: top;
   word-break: break-word;
 }
 
 .feature-props th {
-  color: #555;
+  color: var(--text-muted);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -506,13 +610,13 @@ body,
 /* Active = amber (highlights on); the resting pill comes from the shared
    header-pill recipe. */
 .articles-toggle.active {
-  background: #d97706;
-  border-color: #d97706;
-  color: #fff;
+  background: var(--amber-solid);
+  border-color: var(--amber-solid);
+  color: var(--on-accent);
 }
 
 .articles-toggle.active:hover {
-  background: #c76a05;
+  background: var(--amber-solid-hover);
 }
 
 /* Auth control (in the header, right edge) */
@@ -531,7 +635,7 @@ body,
 .auth-link {
   border: none;
   font: inherit;
-  color: #1f4f7a;
+  color: var(--accent);
   cursor: pointer;
   background: none;
   padding: 6px 4px;
@@ -565,7 +669,7 @@ body,
 .auth-tabs button {
   flex: 1;
   border: none;
-  background: #eee;
+  background: var(--surface-muted);
   font: inherit;
   padding: 6px;
   border-radius: 4px;
@@ -573,8 +677,8 @@ body,
 }
 
 .auth-tabs button.active {
-  background: #1f4f7a;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .auth-form label {
@@ -582,7 +686,7 @@ body,
   flex-direction: column;
   gap: 3px;
   font-size: 0.85rem;
-  color: #444;
+  color: var(--text-body);
 }
 
 .auth-form input {
@@ -600,7 +704,7 @@ body,
 .auth-note {
   margin: 0;
   font-size: 0.85rem;
-  color: #444;
+  color: var(--text-body);
   line-height: 1.4;
 }
 
@@ -609,13 +713,13 @@ body,
 }
 
 .auth-error {
-  color: #a12c00;
+  color: var(--danger-link);
   font-size: 0.85rem;
 }
 
 .auth-notice {
   margin: 0;
-  color: #1f5c37;
+  color: var(--ok-text);
   font-size: 0.85rem;
   line-height: 1.4;
 }
@@ -629,7 +733,7 @@ body,
   background: none;
   font: inherit;
   font-size: 0.85rem;
-  color: #1f4f7a;
+  color: var(--accent);
   cursor: pointer;
 }
 
@@ -655,7 +759,7 @@ body,
   font-size: 1.05rem;
   margin: 18px 0 8px;
   padding-bottom: 4px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-hairline);
 }
 
 .article-name h3 {
@@ -669,34 +773,34 @@ body,
 .name-language {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #1f4f7a;
+  color: var(--accent);
   text-transform: uppercase;
 }
 
 .name-endonym {
   font-size: 0.72rem;
   font-weight: 600;
-  background: #e3f0e3;
-  color: #1d5c2e;
+  background: var(--ok-bg);
+  color: var(--ok-text);
   padding: 1px 7px;
   border-radius: 9px;
 }
 
 .name-from {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
   margin-bottom: 6px;
 }
 
 .name-references {
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted);
   padding-left: 18px;
   margin-bottom: 8px;
 }
 
 .name-references a {
-  color: #1f4f7a;
+  color: var(--accent);
   word-break: break-word;
 }
 
@@ -709,9 +813,9 @@ body,
 .article-byline {
   margin-top: 20px;
   padding-top: 10px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border-hairline);
   font-size: 0.8rem;
-  color: #777;
+  color: var(--text-faint);
 }
 
 /* Article editor */
@@ -727,7 +831,7 @@ body,
   display: flex;
   flex-direction: column;
   gap: 3px;
-  color: #444;
+  color: var(--text-body);
 }
 
 .article-editor input,
@@ -748,7 +852,7 @@ body,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-light);
   border-radius: 6px;
   padding: 12px;
 }
@@ -780,7 +884,7 @@ body,
 }
 
 .article-editor-error {
-  color: #a12c00;
+  color: var(--danger-link);
 }
 
 .article-editor-actions {
@@ -799,14 +903,14 @@ body,
 .article-editor-note {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border-hairline);
   font-size: 0.78rem;
   line-height: 1.5;
-  color: #888;
+  color: var(--text-faint);
 }
 
 .article-editor-note a {
-  color: #1f4f7a;
+  color: var(--accent);
 }
 
 /* Pane tabs (Article · Talk · History) */
@@ -814,7 +918,7 @@ body,
 .pane-tabs {
   display: flex;
   gap: 2px;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border-light);
   margin-bottom: 14px;
 }
 
@@ -825,13 +929,13 @@ body,
   border: none;
   border-bottom: 2px solid transparent;
   background: none;
-  color: #555;
+  color: var(--text-muted);
   cursor: pointer;
 }
 
 .pane-tab.active {
-  color: #1f4f7a;
-  border-bottom-color: #1f4f7a;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
   font-weight: 600;
 }
 
@@ -862,7 +966,7 @@ body,
   display: flex;
   gap: 8px;
   padding: 7px 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-hairline);
   align-items: baseline;
 }
 
@@ -880,14 +984,14 @@ body,
   border: none;
   background: none;
   padding: 0;
-  color: #1f4f7a;
+  color: var(--accent);
   text-decoration: underline;
   cursor: pointer;
 }
 
 .revision-current {
-  background: #e7f0e7;
-  color: #2c662c;
+  background: var(--ok-bg);
+  color: var(--ok-text);
   border-radius: 3px;
   padding: 1px 6px;
   font-size: 0.75rem;
@@ -895,7 +999,7 @@ body,
 }
 
 .revision-comment {
-  color: #666;
+  color: var(--text-muted);
   font-style: italic;
   margin-left: 6px;
 }
@@ -918,8 +1022,8 @@ body,
 }
 
 .revision-banner {
-  background: #fdf6e3;
-  border: 1px solid #eadfbc;
+  background: var(--amber-tint);
+  border: 1px solid var(--amber-border-soft);
   border-radius: 4px;
   padding: 10px 12px;
   font-size: 0.85rem;
@@ -947,8 +1051,8 @@ body,
 
 .diff-side-header {
   font-size: 0.82rem;
-  color: #444;
-  background: #f5f5f5;
+  color: var(--text-body);
+  background: var(--surface-subtle);
   border-radius: 4px;
   padding: 8px 10px;
   margin-bottom: 10px;
@@ -958,7 +1062,7 @@ body,
   font-family: ui-monospace, 'SF Mono', Consolas, monospace;
   font-size: 0.8rem;
   line-height: 1.5;
-  border: 1px solid #e3e3e3;
+  border: 1px solid var(--border-hairline);
   border-radius: 4px;
   overflow-x: auto;
 }
@@ -969,7 +1073,7 @@ body,
 }
 
 .diff-row + .diff-row {
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-hairline);
 }
 
 .diff-cell {
@@ -980,29 +1084,29 @@ body,
 }
 
 .diff-cell + .diff-cell {
-  border-left: 1px solid #e3e3e3;
+  border-left: 1px solid var(--border-hairline);
 }
 
 .diff-row.changed .diff-cell:first-child {
-  background: #fff5f5;
+  background: var(--diff-del-bg);
 }
 
 .diff-row.changed .diff-cell:last-child {
-  background: #f2fbf2;
+  background: var(--diff-add-bg);
 }
 
 .diff-cell.absent {
-  background: #fafafa !important;
+  background: var(--surface-subtle) !important;
 }
 
 .diff-del {
-  background: #ffd7d5;
+  background: var(--danger-chip-bg);
   text-decoration: line-through;
-  text-decoration-color: #b34240;
+  text-decoration-color: var(--diff-del-strike);
 }
 
 .diff-add {
-  background: #c8f0c8;
+  background: var(--ok-chip-bg);
 }
 
 .diff-fields {
@@ -1017,7 +1121,7 @@ body,
 
 .diff-field {
   padding: 6px 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-hairline);
 }
 
 .diff-field-kind {
@@ -1028,18 +1132,18 @@ body,
 }
 
 .diff-field-added {
-  background: #c8f0c8;
-  color: #205920;
+  background: var(--ok-chip-bg);
+  color: var(--ok-text);
 }
 
 .diff-field-removed {
-  background: #ffd7d5;
-  color: #7a2422;
+  background: var(--danger-chip-bg);
+  color: var(--danger-text);
 }
 
 .diff-field-changed {
-  background: #fdeec4;
-  color: #7a5a12;
+  background: var(--amber-chip-bg);
+  color: var(--amber-text);
 }
 
 .diff-field-values {
@@ -1049,7 +1153,7 @@ body,
 /* Talk tab */
 
 .talk-thread {
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border-light);
   padding-bottom: 12px;
   margin-bottom: 14px;
 }
@@ -1065,7 +1169,7 @@ body,
 
 .talk-post-byline {
   font-size: 0.8rem;
-  color: #555;
+  color: var(--text-muted);
   margin-bottom: 2px;
 }
 
@@ -1079,7 +1183,7 @@ body,
   font-size: 0.78rem;
   border: none;
   background: none;
-  color: #1f4f7a;
+  color: var(--accent);
   text-decoration: underline;
   cursor: pointer;
   margin-left: 6px;
@@ -1106,7 +1210,7 @@ body,
 .talk-form label {
   display: block;
   font-size: 0.85rem;
-  color: #444;
+  color: var(--text-body);
 }
 
 .talk-form-actions button {
@@ -1130,14 +1234,14 @@ body,
 /* Header pills, but amber: moderation tools read as a distinct mode. */
 .mod-queue-button,
 .moderation-button {
-  border-color: #c98a1a;
-  background: #fff7ec;
-  color: #92500a;
+  border-color: var(--amber-border);
+  background: var(--amber-surface);
+  color: var(--amber-strong);
 }
 
 .mod-queue-button:hover,
 .moderation-button:hover {
-  background: #fdeccf;
+  background: var(--amber-surface-hover);
 }
 
 .report-button {
@@ -1145,7 +1249,7 @@ body,
   font-size: 0.78rem;
   border: none;
   background: none;
-  color: #92500a;
+  color: var(--amber-strong);
   text-decoration: underline;
   cursor: pointer;
   margin-left: 6px;
@@ -1161,7 +1265,7 @@ body,
 .report-done {
   font-size: 0.78rem;
   font-style: italic;
-  color: #92500a;
+  color: var(--amber-strong);
   margin-left: 6px;
 }
 
@@ -1190,7 +1294,7 @@ body,
   font-size: 0.78rem;
   border: none;
   background: none;
-  color: #a11;
+  color: var(--danger-link);
   text-decoration: underline;
   cursor: pointer;
   margin-left: 6px;
@@ -1199,7 +1303,7 @@ body,
 
 .talk-post-deleted .talk-post-tombstone {
   font-style: italic;
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.9rem;
 }
 
@@ -1221,7 +1325,7 @@ body,
 }
 
 .mod-report {
-  border: 1px solid #eee;
+  border: 1px solid var(--border-hairline);
   border-radius: 6px;
   padding: 12px 14px;
   margin-bottom: 12px;
@@ -1233,29 +1337,29 @@ body,
 }
 
 .mod-current {
-  color: #2c7a2c;
+  color: var(--ok-text);
   font-weight: 600;
 }
 
 .mod-excerpt {
   margin: 0;
   padding: 6px 10px;
-  border-left: 3px solid #ddd;
-  color: #444;
+  border-left: 3px solid var(--border-light);
+  color: var(--text-body);
   font-size: 0.9rem;
   white-space: pre-wrap;
 }
 
 .mod-target-gone {
   font-style: italic;
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.9rem;
   margin: 0;
 }
 
 .mod-report-meta {
   font-size: 0.82rem;
-  color: #666;
+  color: var(--text-muted);
   margin: 8px 0;
 }
 
@@ -1265,8 +1369,8 @@ body,
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #92400e;
-  background: #fef3c7;
+  color: var(--amber-text);
+  background: var(--amber-bg);
   border-radius: 4px;
   padding: 1px 6px;
 }
@@ -1278,8 +1382,8 @@ body,
 
 .mod-revert-hint {
   font-size: 0.82rem;
-  color: #92400e;
-  background: #fef3c7;
+  color: var(--amber-text);
+  background: var(--amber-bg);
   border-radius: 6px;
   padding: 6px 9px;
   margin: 8px 0;
@@ -1301,17 +1405,17 @@ body,
 }
 
 .mod-action-delete {
-  color: #a11;
-  border-color: #d99 !important;
+  color: var(--danger-link);
+  border-color: var(--danger-border) !important;
 }
 
 /* --- Article protection ------------------------------------------- */
 
 .protection-note {
   font-size: 0.85rem;
-  color: #92500a;
-  background: #fff7ec;
-  border: 1px solid #f0dcc0;
+  color: var(--amber-strong);
+  background: var(--amber-surface);
+  border: 1px solid var(--amber-border-soft);
   border-radius: 4px;
   padding: 6px 10px;
   margin-bottom: 10px;
@@ -1322,7 +1426,7 @@ body,
   align-items: center;
   gap: 8px;
   font-size: 0.82rem;
-  color: #555;
+  color: var(--text-muted);
   margin-bottom: 10px;
 }
 
@@ -1338,7 +1442,7 @@ body,
 .article-delete-button {
   font: inherit;
   font-size: 0.8rem;
-  color: #b91c1c;
+  color: var(--danger);
   background: none;
   border: none;
   padding: 4px 0;
@@ -1350,9 +1454,9 @@ body,
 .article-delete-form {
   margin-top: 18px;
   padding: 10px;
-  border: 1px solid #f0c9c9;
+  border: 1px solid var(--danger-border);
   border-radius: 4px;
-  background: #fff6f6;
+  background: var(--danger-bg);
 }
 
 .article-delete-form .feature-pane-note {
@@ -1380,15 +1484,15 @@ body,
 /* Confirm is the destructive one; cancel keeps the shared secondary look. */
 .article-delete-actions button:first-child {
   border: none;
-  background: #b91c1c;
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-accent);
 }
 
 .article-deleted-banner {
   font-size: 0.85rem;
-  color: #7f1d1d;
-  background: #fef2f2;
-  border: 1px solid #f0c9c9;
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
   border-radius: 4px;
   padding: 8px 10px;
   margin-bottom: 10px;
@@ -1398,7 +1502,7 @@ body,
   font-size: 0.8rem;
   margin-top: 8px;
   padding: 4px 12px;
-  border-color: #c9c1b4;
+  border-color: var(--warm-border-strong);
 }
 
 /* --- About / licensing dialog ------------------------------------- */
@@ -1409,7 +1513,7 @@ body,
   padding: 6px 10px;
   border: none;
   background: none;
-  color: #444;
+  color: var(--text-body);
   cursor: pointer;
   white-space: nowrap;
   /* Starts the right-aligned cluster: About sits just left of the
@@ -1418,7 +1522,7 @@ body,
 }
 
 .about-button:hover {
-  color: #1f4f7a;
+  color: var(--accent);
 }
 
 /* Chrome comes from the shared dialog recipe. */
@@ -1426,7 +1530,7 @@ body,
   width: min(660px, 100%);
   padding: 18px 24px 26px;
   line-height: 1.55;
-  color: #333;
+  color: var(--text-strong);
 }
 
 .about-header h2 {
@@ -1455,7 +1559,7 @@ body,
 }
 
 .about-dialog a {
-  color: #1f4f7a;
+  color: var(--accent);
 }
 
 .about-dialog .about-donate {
@@ -1464,15 +1568,15 @@ body,
   margin: 13px auto 0;
   padding: 8px 16px;
   border-radius: 6px;
-  background: #677ba6;
-  color: #fff;
+  background: var(--donate);
+  color: var(--on-accent);
   font-size: 0.9rem;
   font-weight: 600;
   text-decoration: none;
 }
 
 .about-dialog .about-donate:hover {
-  background: #566890;
+  background: var(--donate-hover);
 }
 
 /* Language-code help: the ? icon in the editor and its dialog extras
@@ -1488,23 +1592,23 @@ body,
   width: 16px;
   height: 16px;
   padding: 0;
-  border: 1px solid #999;
+  border: 1px solid var(--text-dim);
   border-radius: 50%;
   background: none;
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.7rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .lang-help-button:hover {
-  border-color: #1f4f7a;
-  color: #1f4f7a;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .lang-help-dialog code,
 .markdown-help-dialog code {
-  background: #f4f4f4;
+  background: var(--surface-subtle);
   border-radius: 3px;
   padding: 0 3px;
   font-size: 0.85em;
@@ -1519,7 +1623,7 @@ body,
 
 .lang-help-table td,
 .markdown-help-table td {
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-hairline);
   vertical-align: top;
 }
 
@@ -1532,7 +1636,7 @@ body,
 }
 
 .lang-help-status {
-  color: #777;
+  color: var(--text-faint);
   font-size: 0.85rem;
 }
 
@@ -1548,7 +1652,7 @@ body,
   text-align: left;
   padding: 3px 10px 6px 0;
   font-size: 0.8rem;
-  color: #777;
+  color: var(--text-faint);
   font-weight: 600;
 }
 
@@ -1557,7 +1661,7 @@ body,
 }
 
 .markdown-help-note {
-  color: #555;
+  color: var(--text-muted);
   font-size: 0.85rem;
   margin-top: 12px;
 }
@@ -1568,7 +1672,7 @@ body,
   position: absolute;
   inset: 0;
   z-index: 45;
-  background: #f8f7f4;
+  background: var(--warm-bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1578,8 +1682,8 @@ body,
   display: flex;
   gap: 4px;
   padding: 10px 16px 0;
-  border-bottom: 1px solid #e2ddd3;
-  background: #fff;
+  border-bottom: 1px solid var(--warm-border);
+  background: var(--surface);
 }
 
 .mod-dash-tabs button {
@@ -1589,12 +1693,12 @@ body,
   padding: 8px 16px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  color: #555;
+  color: var(--text-muted);
 }
 
 .mod-dash-tabs button.active {
-  color: #b45309;
-  border-bottom-color: #b45309;
+  color: var(--amber);
+  border-bottom-color: var(--amber);
   font-weight: 600;
 }
 
@@ -1611,7 +1715,7 @@ body,
 
 .mod-users-list {
   width: 340px;
-  border-right: 1px solid #e2ddd3;
+  border-right: 1px solid var(--warm-border);
   overflow-y: auto;
   padding: 12px;
   display: flex;
@@ -1641,7 +1745,7 @@ body,
   gap: 7px;
   margin-top: 8px;
   font-size: 0.85rem;
-  color: #57534e;
+  color: var(--warm-text-strong);
   cursor: pointer;
 }
 
@@ -1657,19 +1761,19 @@ body,
   text-align: left;
   font: inherit;
   border: 1px solid transparent;
-  background: #fff;
+  background: var(--surface);
   border-radius: 6px;
   padding: 8px 10px;
   cursor: pointer;
 }
 
 .mod-user-row:hover {
-  border-color: #e2ddd3;
+  border-color: var(--warm-border);
 }
 
 .mod-user-row.active {
-  border-color: #b45309;
-  background: #fffbf3;
+  border-color: var(--amber);
+  background: var(--amber-tint-soft);
 }
 
 .mod-user-name {
@@ -1684,17 +1788,17 @@ body,
   display: flex;
   gap: 10px;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .mod-stat-open {
-  color: #b45309;
+  color: var(--amber);
   font-weight: 600;
 }
 
 .mod-user-when {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-dim);
   text-align: right;
 }
 
@@ -1732,17 +1836,17 @@ body,
 .mod-detail-list blockquote {
   margin: 4px 0 0;
   padding-left: 10px;
-  border-left: 3px solid #e2ddd3;
-  color: #444;
+  border-left: 3px solid var(--warm-border);
+  color: var(--text-body);
   white-space: pre-wrap;
 }
 
 .mod-detail-list .mod-removed blockquote {
-  color: #b91c1c;
+  color: var(--danger);
 }
 
 .mod-note {
-  color: #777;
+  color: var(--text-faint);
   font-size: 0.88rem;
 }
 
@@ -1760,54 +1864,54 @@ body,
 }
 
 .mod-role-moderator {
-  color: #1d4ed8;
-  background: #dbeafe;
+  color: var(--role-mod-text);
+  background: var(--role-mod-bg);
 }
 
 .mod-role-admin {
-  color: #6d28d9;
-  background: #ede9fe;
+  color: var(--role-admin-text);
+  background: var(--role-admin-bg);
 }
 
 .mod-banned-tag,
 .mod-removed-tag {
-  color: #b91c1c;
-  background: #fee2e2;
+  color: var(--danger);
+  background: var(--danger-chip-bg);
 }
 
 .mod-current {
-  color: #92400e;
-  background: #fef3c7;
+  color: var(--amber-text);
+  background: var(--amber-bg);
 }
 
 .mod-status-open {
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--amber);
+  background: var(--amber-bg);
 }
 
 .mod-status-resolved {
-  color: #15803d;
-  background: #dcfce7;
+  color: var(--ok-text);
+  background: var(--ok-bg);
 }
 
 .mod-status-dismissed {
-  color: #666;
-  background: #eee;
+  color: var(--text-muted);
+  background: var(--surface-muted);
 }
 
 .mod-role-panel,
 .mod-ban-panel,
 .mod-ban-form {
-  border: 1px solid #e2ddd3;
+  border: 1px solid var(--warm-border);
   border-radius: 8px;
   padding: 14px 16px;
-  background: #fff;
+  background: var(--surface);
   margin-top: 12px;
 }
 
 .mod-ban-active {
-  border-color: #fca5a5;
-  background: #fef2f2;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 
 .mod-ban-form {
@@ -1845,7 +1949,7 @@ body,
 
 .mod-role-button {
   padding: 5px 12px;
-  border-color: #c9c1b4;
+  border-color: var(--warm-border-strong);
   border-radius: 6px;
 }
 
@@ -1853,14 +1957,14 @@ body,
    removal is always within reach of the removal itself. */
 .mod-restore-button {
   padding: 1px 8px;
-  border-color: #c9c1b4;
+  border-color: var(--warm-border-strong);
   font-size: 0.75rem;
 }
 
 .mod-role-button:hover:not(:disabled),
 .mod-restore-button:hover:not(:disabled),
 .mod-sort:hover {
-  background: #f3efe7;
+  background: var(--warm-hover);
 }
 
 .mod-restore-button:disabled {
@@ -1879,15 +1983,15 @@ body,
 .mod-audit-list li {
   padding: 4px 0 4px 8px;
   border-left: 3px solid transparent;
-  border-bottom: 1px solid #eee7db;
+  border-bottom: 1px solid var(--warm-hairline);
 }
 
 .mod-audit-destructive {
-  border-left-color: #b91c1c !important;
+  border-left-color: var(--danger) !important;
 }
 
 .mod-audit-when {
-  color: #777;
+  color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1901,11 +2005,11 @@ body,
 .mod-table td {
   text-align: left;
   padding: 6px 12px;
-  border-bottom: 1px solid #e2ddd3;
+  border-bottom: 1px solid var(--warm-border);
 }
 
 .mod-table tr.mod-flag td {
-  background: #fef2f2;
+  background: var(--danger-bg);
 }
 
 .mod-table td.mod-rate {
@@ -1935,12 +2039,12 @@ body,
 
 .mod-sort-arrow {
   font-size: 9px;
-  color: #8a8378;
+  color: var(--warm-text);
 }
 
 .mod-rate-basis,
 .mod-rate-none {
-  color: #8a8378;
+  color: var(--warm-text);
 }
 
 .mod-reporters {
@@ -1953,9 +2057,9 @@ body,
    clearly shows as the active mode. */
 .moderation-button.active,
 .moderation-button.active:hover {
-  background: #92500a;
-  border-color: #92500a;
-  color: #fff;
+  background: var(--amber-strong);
+  border-color: var(--amber-strong);
+  color: var(--on-accent);
 }
 
 /* ---- Narrow screens: pane becomes a bottom sheet ----
@@ -1997,9 +2101,9 @@ body,
     align-items: stretch;
     gap: 8px;
     padding: 10px;
-    background: #fff;
+    background: var(--surface);
     border-radius: 8px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 2px 12px var(--shadow);
     z-index: 50;
   }
 
@@ -2013,14 +2117,14 @@ body,
      matters least. Identity costs one tap to see — a worthwhile trade. */
   .header-menu .auth-control {
     justify-content: center;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--border-hairline);
     padding-top: 8px;
   }
 
   .auth-overlay-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--backdrop);
     z-index: 60;
   }
 
@@ -2053,7 +2157,7 @@ body,
     top: auto;
     right: 0;
     border-radius: 12px 12px 0 0;
-    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 -2px 14px var(--shadow);
     padding: 0 16px 16px;
     transition: height 180ms ease;
   }
@@ -2076,7 +2180,7 @@ body,
     margin: 0 -16px 4px;
     padding: 10px 0 6px;
     border: none;
-    background: #fff;
+    background: var(--surface);
     border-radius: 12px 12px 0 0;
     cursor: grab;
     /* Without this the browser claims the vertical drag for scrolling. */
@@ -2093,11 +2197,11 @@ body,
     width: 40px;
     height: 4px;
     border-radius: 2px;
-    background: #ccc;
+    background: var(--grip);
   }
 
   .sheet-handle:hover .sheet-grip {
-    background: #aaa;
+    background: var(--grip-hover);
   }
 
   /* The map is the index — keep the zoom controls clear of the sheet. */
@@ -2115,7 +2219,7 @@ body,
 
   .diff-cell + .diff-cell {
     border-left: none;
-    border-top: 1px solid #e3e3e3;
+    border-top: 1px solid var(--border-hairline);
   }
 
   .feature-picker {
