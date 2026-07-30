@@ -281,8 +281,10 @@ function AccountDialog({
               Anything you have written stays on the site, credited to{' '}
               <code>[deleted]</code> instead of your username — the page
               history is how contributors are attributed, and it can't lose
-              entries. If you've never written anything, the account is
-              removed outright.
+              entries. Your username is retired at the same time, so nobody
+              else can register it later — including you. If you've never
+              written anything, the account is removed outright and the name
+              stays available.
             </p>
             <label>
               Confirm your password

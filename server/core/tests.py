@@ -37,6 +37,7 @@ from .models import (
     PlaceName,
     PlaceSlug,
     Report,
+    ReservedUsername,
     Revision,
     TalkPost,
     TalkThread,
@@ -4200,9 +4201,11 @@ class AccountManagementTests(ApiTestCase):
 
 
 class ClosedAccountReuseTests(ApiTestCase):
-    """What a closed account frees up. Closing is the de-facto way to start
-    over under a new name, so the address and the old username have to be
-    usable again — unless the account was banned, where BannedEmail holds."""
+    """What a closed account frees up, and what it doesn't. Closing is the
+    de-facto way to start over, so the email address has to be usable again —
+    unless the account was banned, where BannedEmail holds. The *username*
+    goes the other way: it is retired permanently, because the archive that
+    carries it stays public."""
 
     PASSWORD = 'sturdy-passphrase-9'
     SIGNUP = '/_allauth/browser/v1/auth/signup'
@@ -4260,17 +4263,63 @@ class ClosedAccountReuseTests(ApiTestCase):
         )
         self.assertTrue(User.objects.filter(username='alice2').exists())
 
-    def test_old_username_is_freed_by_closing(self):
+    def test_old_username_is_retired_by_closing(self):
         self._close()
         self.assertEqual(
-            self._signup('alice', 'someone@example.com').status_code, 401
+            self._signup('alice', 'someone@example.com').status_code, 400
         )
-        # The new account is a different row; the old edits keep the sentinel.
-        fresh = User.objects.get(username='alice')
-        self.assertNotEqual(fresh.id, self.user.id)
+        # Nobody holds the name: not a new account, and not the closed row,
+        # which kept only its sentinel.
+        self.assertFalse(User.objects.filter(username='alice').exists())
         revision = Revision.objects.get(article__place__slug='reuseplace')
         self.assertEqual(revision.author_id, self.user.id)
         self.assertTrue(revision.author.username.startswith('[deleted-'))
+
+    def test_retired_username_is_matched_case_insensitively(self):
+        # Otherwise "Alice" walks straight past a reservation on "alice".
+        self._close()
+        self.assertEqual(
+            self._signup('ALICE', 'someone@example.com').status_code, 400
+        )
+
+    def test_reservation_keeps_no_link_to_the_closed_account(self):
+        # A foreign key here would map [deleted-…] back to "alice" for anyone
+        # with database or admin access, undoing the anonymization.
+        self._close()
+        row = ReservedUsername.objects.get(username='alice')
+        self.assertEqual(
+            {field.name for field in row._meta.get_fields()},
+            {'id', 'username', 'created', 'expires'},
+        )
+
+    def test_closing_without_contributions_does_not_retire_the_name(self):
+        # Nothing points at the row, so it is deleted outright — no history
+        # left to misattribute, and so no reason to hold the name.
+        bob = User.objects.create_user(
+            'bob', password=self.PASSWORD, email='bob@example.com'
+        )
+        self.client.force_login(bob)
+        self.client.post(
+            reverse('core:account-close'),
+            {'password': self.PASSWORD},
+            content_type='application/json',
+        )
+        self.client.logout()
+        self.assertFalse(ReservedUsername.objects.filter(username='bob'))
+        self.assertEqual(
+            self._signup('bob', 'bob2@example.com').status_code, 401
+        )
+
+    def test_expired_reservation_releases_the_name(self):
+        # Reservations are permanent today, but the expiry is honoured so the
+        # policy can be loosened later without touching the signup path.
+        self._close()
+        ReservedUsername.objects.filter(username='alice').update(
+            expires=timezone.now() - timedelta(days=1)
+        )
+        self.assertEqual(
+            self._signup('alice', 'someone@example.com').status_code, 401
+        )
 
     def test_banned_account_email_stays_blocked(self):
         # Closing is refused while banned, so the only route here is a ban

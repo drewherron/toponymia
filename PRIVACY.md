@@ -68,10 +68,13 @@ anyone who has already reused it, even if you later close your account.
 
 Closing your account does remove your **name** from that history: the username
 is replaced with an anonymous `[deleted]` placeholder that identifies nobody,
-and the placeholder can never be registered by anyone else. What it cannot do
-is remove the contributions themselves. Note also that it does not rewrite
-prose — if someone addressed you by name in a talk post, that text stays as
-written.
+and the placeholder can never be registered by anyone else. Your original
+username is retired at the same time — nobody can register it afterwards, so
+it cannot come to refer to someone else. That applies to you too: closing an
+account is not a way to give up a username and take it back later. What
+closing cannot do is remove the contributions themselves. Note also that it
+does not rewrite prose — if someone addressed you by name in a talk post, that
+text stays as written.
 
 Content can be removed from public view by moderators, and revisions can be
 suppressed from public history — but the underlying record is retained.
@@ -112,8 +115,11 @@ would create more personal data than it protects.
   new address, and the change only takes effect once you enter it.
 - **Close your account** from the same panel, confirmed with your password.
   Your email address is deleted, your password is erased, your username is
-  replaced with an anonymous placeholder, and the account is deactivated. If
-  you never contributed anything, the account is removed outright instead.
+  replaced with an anonymous placeholder, and the account is deactivated. The
+  username you were using is retired, so that it cannot later be registered by
+  someone else — we keep a record of the name alone for this, with nothing
+  linking it back to your former account. If you never contributed anything,
+  the account is removed outright and the name stays available.
   Your contributions stay in the revision history, for the reasons in section
   4 — closing an account cannot unpublish work that others have reused. This
   cannot be undone, and an account with an active suspension cannot be closed

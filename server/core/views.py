@@ -1140,8 +1140,10 @@ def close_account(request):
     """Close the signed-in account (see core/accounts.py for what that means).
 
     Confirmed by password rather than a checkbox: it is the most destructive
-    control in the product and, for a contributor, it is not reversible —
-    the sentinel username is random and the old one is not recorded anywhere.
+    control in the product and, for a contributor, it is not reversible. The
+    sentinel username is random, and while the old name is recorded — retired
+    in ReservedUsername so nobody can take it over — that row is deliberately
+    not linked back to the account, so it is no route to undoing any of this.
 
     Refused while a ban is active. Otherwise closing an account would be a
     way to shed a sanction and scramble the moderation trail mid-review;

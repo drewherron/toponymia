@@ -1,20 +1,31 @@
-"""Custom allauth account adapter — enforces the registration blocklist.
+"""Custom allauth account adapter — enforces the registration blocklists.
 
-When an account is banned its email address(es) are recorded in BannedEmail
-(see core.moderation.block_user_emails). This adapter refuses a *signup* that
-reuses a still-active address, which — together with allauth's unique-email
-rule — is what makes an account ban outlive the single login it was placed on.
+Two of them, with different lifecycles:
 
-Scoped to the signup endpoint on purpose. `clean_email` is shared with the
-add-email and password-reset flows; raising in the reset flow would leak which
-addresses are blocked and break the enumeration resistance that flow is built
-for (see the password-reset settings). So we only intervene when the active
-request is the headless signup call.
+**Banned emails.** When an account is banned its email address(es) are recorded
+in BannedEmail (see core.moderation.block_user_emails). This adapter refuses a
+*signup* that reuses a still-active address, which — together with allauth's
+unique-email rule — is what makes an account ban outlive the single login it
+was placed on.
+
+That check is scoped to the signup endpoint on purpose. `clean_email` is shared
+with the add-email and password-reset flows; raising in the reset flow would
+leak which addresses are blocked and break the enumeration resistance that flow
+is built for (see the password-reset settings). So we only intervene when the
+active request is the headless signup call.
+
+**Retired usernames.** Closing an account takes its username out of
+circulation (see core.accounts). `clean_username` needs no such scoping — it is
+not shared with a flow that must stay enumeration-resistant — and it reuses
+allauth's stock "username_taken" wording rather than announcing that a name is
+reserved, which would turn signup into an oracle for which accounts have
+closed.
 """
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core import context
 
+from .accounts import username_is_reserved
 from .moderation import active_email_ban
 
 
@@ -37,3 +48,12 @@ class AccountAdapter(DefaultAccountAdapter):
         ):
             raise self.validation_error('email_blocked')
         return email
+
+    def clean_username(self, username, shallow=False):
+        username = super().clean_username(username, shallow=shallow)
+        # `shallow` means "no database lookups" — allauth uses it while
+        # generating a candidate name, where a reservation is not yet relevant
+        # and the eventual non-shallow call will catch it anyway.
+        if not shallow and username_is_reserved(username):
+            raise self.validation_error('username_taken')
+        return username

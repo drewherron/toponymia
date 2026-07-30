@@ -25,14 +25,25 @@ unique, and merging every departed contributor into a single author would
 destroy the revision history as an audit trail. Square brackets are outside
 `core.validators.username_validators` (`^[\\w.+-]+\\Z`), so a sentinel can
 never be registered through signup or impersonated.
+
+Anonymizing also *retires* the original username (`ReservedUsername`), because
+renaming the account would otherwise hand the old name back to the pool while
+the archive that used it stays public. Retirement is permanent and applies to
+everyone, the closing user included — once the email and password are gone
+there is nothing left that could prove the name was ever theirs, so there is no
+one to make an exception for. Closing an account is not a way to change your
+username and keep it.
 """
 
 import secrets
 
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
 
-from .models import Report, Revision, TalkPost
+from .models import Report, ReservedUsername, Revision, TalkPost
 
 SENTINEL_PREFIX = '[deleted-'
 
@@ -57,8 +68,40 @@ def _sentinel_username():
             return candidate
 
 
+def username_is_reserved(username):
+    """Whether `username` is retired by a past closure — matched
+    case-insensitively, ignoring reservations that have been given an expiry
+    and passed it. The single lookup the signup adapter shares."""
+    if not username:
+        return False
+    return (
+        ReservedUsername.objects.filter(username__iexact=username.strip())
+        .filter(Q(expires__isnull=True) | Q(expires__gt=timezone.now()))
+        .exists()
+    )
+
+
+def reserve_username(username, *, expires=None):
+    """Retire `username`, permanently unless given an expiry. Idempotent: a
+    name already reserved is left with the reservation it has."""
+    username = (username or '').strip().lower()
+    if not username or username_is_reserved(username):
+        return None
+    return ReservedUsername.objects.create(username=username, expires=expires)
+
+
+@transaction.atomic
 def anonymize(user):
-    """Strip the identity, keep the row (and so the contributions)."""
+    """Strip the identity, keep the row (and so the contributions).
+
+    Atomic because it is now several writes: a half-applied closure could
+    retire a username while leaving the account using it, or clear the identity
+    without retiring the name.
+    """
+    # Before the name is overwritten, and only on this path: an account with no
+    # contributions is deleted outright, leaving no history to misattribute and
+    # so no reason to hold its name.
+    reserve_username(user.username)
     user.username = _sentinel_username()
     user.email = ''
     user.first_name = ''

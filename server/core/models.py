@@ -476,6 +476,53 @@ class BannedEmail(models.Model):
         return f'email ban on {self.email} ({state})'
 
 
+class ReservedUsername(models.Model):
+    """A username that closing an account has taken out of circulation.
+
+    Anonymizing replaces the username with a `[deleted-…]` sentinel (see
+    core.accounts), which would otherwise release the original name for anyone
+    to register. That matters because the revision history and talk archive are
+    permanent: prose that says "I disagree with alice" would come to mean a
+    different person, and nothing in the record would show the switch. So the
+    name is retired here instead.
+
+    Deliberately holds *no foreign key to the user* — unlike BannedEmail, which
+    keeps `banned_user` for provenance. A link from this row back to the closed
+    account would map `[deleted-abc123]` to `alice` for anyone with database or
+    admin access, undoing the very anonymization it exists to protect. The name
+    is stored alone, as a string with no owner.
+
+    `expires` null means permanent, mirroring BannedEmail's convention; the
+    check honours a date if one is ever set. Closures reserve permanently today
+    — Wikipedia likewise never recycles a vanished username — but reservations
+    are a one-way ratchet, so the field is here to allow releasing names later
+    (safe) without having needed to guess right now (unrecoverable if too
+    loose). Releasing a single name early means deleting its row; there is no
+    `lifted` column, because a lifted row would keep storing a name it no
+    longer protects.
+    """
+
+    # Stored lowercased by the write helper; matched case-insensitively, which
+    # is also how allauth tests usernames for uniqueness.
+    username = models.CharField(max_length=150, db_index=True)
+    created = models.DateTimeField(auto_now_add=True)
+    # Null = permanent.
+    expires = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created', '-id']
+
+    def is_active(self, now=None):
+        from django.utils import timezone
+
+        now = now or timezone.now()
+        return self.expires is None or self.expires > now
+
+    def __str__(self):
+        state = 'active' if self.is_active() else 'expired'
+        return f'reserved username {self.username} ({state})'
+
+
 class ModAction(models.Model):
     """An append-only audit log of moderator actions — the
     backbone of the Moderation dashboard's decision view. One row per
