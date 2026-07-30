@@ -5,7 +5,8 @@ import { loadLanguages, normalizeCode } from '../languages'
 import type { ArticleContent, ArticleData, NameEntry } from '../types'
 import LanguageHelpDialog from './LanguageHelpDialog'
 import MarkdownHelpDialog from './MarkdownHelpDialog'
-import TermsDialog from './TermsDialog'
+import DocumentDialog from './DocumentDialog'
+import type { LegalDoc } from '../legal'
 
 interface ArticleEditorProps {
   slug: string
@@ -81,7 +82,7 @@ function ArticleEditor({
   const [busy, setBusy] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [mdHelpOpen, setMdHelpOpen] = useState(false)
-  const [termsOpen, setTermsOpen] = useState(false)
+  const [legalDoc, setLegalDoc] = useState<LegalDoc | null>(null)
 
   const updateName = (index: number, patch: Partial<NameDraft>) => {
     setNames((prev) =>
@@ -278,7 +279,13 @@ function ArticleEditor({
       )}
       {/* As a dialog rather than a link to /terms: navigating away mid-edit
           would lose the draft. */}
-      {termsOpen && <TermsDialog onClose={() => setTermsOpen(false)} />}
+      {legalDoc && (
+        <DocumentDialog
+          doc={legalDoc}
+          onClose={() => setLegalDoc(null)}
+          onOpenDoc={setLegalDoc}
+        />
+      )}
       {error && <p className="article-editor-error">{error}</p>}
       <div className="article-editor-actions">
         <button type="submit" disabled={busy}>
@@ -304,7 +311,7 @@ function ArticleEditor({
         <button
           type="button"
           className="about-terms-link"
-          onClick={() => setTermsOpen(true)}
+          onClick={() => setLegalDoc('terms')}
         >
           See the Terms of Use
         </button>

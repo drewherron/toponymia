@@ -4038,3 +4038,13 @@ class TermsPageTests(TestCase):
         response = self.client.get(reverse('sitemap'))
         body = b''.join(response.streaming_content).decode()
         self.assertIn('/terms', body)
+
+    def test_privacy_url_serves_the_app(self):
+        response = self.client.get('/privacy')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Privacy Policy', response.content.decode())
+
+    def test_privacy_is_listed_in_the_sitemap(self):
+        response = self.client.get(reverse('sitemap'))
+        body = b''.join(response.streaming_content).decode()
+        self.assertIn('/privacy', body)

@@ -15,6 +15,9 @@ your account. Provide accurate information and keep your credentials secure.
 Your username is publicly and permanently associated with your contributions
 — that association is how the site provides attribution (see section 2).
 
+What the site collects about you, and what it does with it, is described in
+the [Privacy Policy](/privacy).
+
 ## 2. Licensing of your contributions
 
 This is the important part, and it is how a wiki is able to exist.

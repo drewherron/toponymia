@@ -14,6 +14,7 @@ urlpatterns = [
     path('sitemap.xml', spa.sitemap, name='sitemap'),
     path('', spa.index, name='spa-index'),
     path('terms', spa.terms, name='spa-terms'),
+    path('privacy', spa.privacy, name='spa-privacy'),
     path('place/<slug:slug>', spa.place, name='spa-place'),
     re_path(r'^.*$', spa.fallback, name='spa-fallback'),
 ]

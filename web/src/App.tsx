@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchMe, fetchRandomArticle, getPlace } from './api'
 import AboutDialog from './components/AboutDialog'
-import TermsDialog from './components/TermsDialog'
+import DocumentDialog from './components/DocumentDialog'
+import { DOC_PATHS, DOC_TITLES, docForPath } from './legal'
+import type { LegalDoc } from './legal'
 import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
@@ -50,10 +52,8 @@ function pathSlug(): string | null {
   return match ? match[1] : null
 }
 
-const TERMS_PATH = '/terms'
-
-function atTerms(): boolean {
-  return window.location.pathname.replace(/\/$/, '') === TERMS_PATH
+function currentDoc(): LegalDoc | null {
+  return docForPath(window.location.pathname)
 }
 
 /** A selection that already knows its place: pane skips resolution. */
@@ -77,13 +77,13 @@ function App() {
   const [modOpen, setModOpen] = useState(false)
   const [moderationOpen, setModerationOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
-  // /terms is a real URL (server/core/spa.py serves it 200) rendered as the
-  // same dialog, so it can be linked, shared and crawled — the DMCA agent
-  // contact has to be publicly reachable, not just findable via About.
-  const [termsOpen, setTermsOpen] = useState(atTerms)
-  // Where closing the dialog should return to. A direct visit to /terms has
-  // nowhere to go back to, hence the map root as the default.
-  const termsReturnRef = useRef('/')
+  // /terms and /privacy are real URLs (server/core/spa.py serves them 200)
+  // rendered as a dialog, so they can be linked, shared and crawled — the DMCA
+  // agent contact has to be publicly reachable, not just findable via About.
+  const [openDoc, setOpenDoc] = useState<LegalDoc | null>(currentDoc)
+  // Where closing the dialog should return to. A direct visit to a document
+  // has nowhere to go back to, hence the map root as the default.
+  const docReturnRef = useRef('/')
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [theme, setTheme] = useState<Theme>(storedTheme)
@@ -187,21 +187,25 @@ function App() {
     return () => controller.abort()
   }, [openPlace])
 
-  const openTerms = useCallback(() => {
+  const openLegalDoc = useCallback((doc: LegalDoc) => {
     setAboutOpen(false)
-    if (!atTerms()) {
-      termsReturnRef.current =
-        window.location.pathname + window.location.hash
-      window.history.pushState(null, '', TERMS_PATH)
+    // Only remember the return path on the way in — following a cross-link
+    // from one document to the other should still come back to where the
+    // reader started, not to its sibling.
+    if (currentDoc() === null) {
+      docReturnRef.current = window.location.pathname + window.location.hash
     }
-    document.title = 'Terms of Use – Toponymia'
-    setTermsOpen(true)
+    if (window.location.pathname !== DOC_PATHS[doc]) {
+      window.history.pushState(null, '', DOC_PATHS[doc])
+    }
+    document.title = `${DOC_TITLES[doc]} – Toponymia`
+    setOpenDoc(doc)
   }, [])
 
-  const closeTerms = useCallback(() => {
-    setTermsOpen(false)
-    if (atTerms()) {
-      window.history.pushState(null, '', termsReturnRef.current)
+  const closeLegalDoc = useCallback(() => {
+    setOpenDoc(null)
+    if (currentDoc() !== null) {
+      window.history.pushState(null, '', docReturnRef.current)
       // Restored by the pane when the return path is a place.
       document.title = 'Toponymia'
     }
@@ -210,7 +214,7 @@ function App() {
   // Back/forward re-open or close the pane to match the URL.
   useEffect(() => {
     const onPopState = () => {
-      setTermsOpen(atTerms())
+      setOpenDoc(currentDoc())
       const slug = pathSlug()
       if (slug) {
         setPicker(null)
@@ -220,7 +224,10 @@ function App() {
         )
       } else {
         setSelected(null)
-        document.title = atTerms() ? 'Terms of Use – Toponymia' : 'Toponymia'
+        const doc = currentDoc()
+        document.title = doc
+          ? `${DOC_TITLES[doc]} – Toponymia`
+          : 'Toponymia'
       }
     }
     window.addEventListener('popstate', onPopState)
@@ -396,7 +403,7 @@ function App() {
         if (!open) setMenuOpen(false)
       }}
       inMenu={compactHeader}
-      onOpenTerms={openTerms}
+      onOpenTerms={() => openLegalDoc('terms')}
     />
   )
 
@@ -533,10 +540,16 @@ function App() {
       {aboutOpen && (
         <AboutDialog
           onClose={() => setAboutOpen(false)}
-          onOpenTerms={openTerms}
+          onOpenDoc={openLegalDoc}
         />
       )}
-      {termsOpen && <TermsDialog onClose={closeTerms} />}
+      {openDoc && (
+        <DocumentDialog
+          doc={openDoc}
+          onClose={closeLegalDoc}
+          onOpenDoc={openLegalDoc}
+        />
+      )}
       <div className="map-area">
         <MapView
           onClickFeatures={handleClickFeatures}

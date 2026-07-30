@@ -1,12 +1,14 @@
+import type { LegalDoc } from '../legal'
+
 interface AboutDialogProps {
   onClose: () => void
-  /** Swap this dialog for the full Terms of Use. */
-  onOpenTerms: () => void
+  /** Swap this dialog for one of the site's legal documents. */
+  onOpenDoc: (doc: LegalDoc) => void
 }
 
 /** Static about/licensing panel. Content is
  * CC BY-SA 4.0; software is AGPL-3.0; upstream data keeps its own terms. */
-function AboutDialog({ onClose, onOpenTerms }: AboutDialogProps) {
+function AboutDialog({ onClose, onOpenDoc }: AboutDialogProps) {
   return (
     <div className="about-backdrop" onClick={onClose} role="presentation">
       <div
@@ -37,8 +39,20 @@ function AboutDialog({ onClose, onOpenTerms }: AboutDialogProps) {
 
         <p>
           Using and contributing to the site are covered by the{' '}
-          <button type="button" className="about-terms-link" onClick={onOpenTerms}>
+          <button
+            type="button"
+            className="about-terms-link"
+            onClick={() => onOpenDoc('terms')}
+          >
             Terms of Use
+          </button>
+          . What the site collects is described in the{' '}
+          <button
+            type="button"
+            className="about-terms-link"
+            onClick={() => onOpenDoc('privacy')}
+          >
+            Privacy Policy
           </button>
           .
         </p>
