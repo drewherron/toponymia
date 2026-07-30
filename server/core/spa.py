@@ -181,10 +181,30 @@ def place(request, slug):
     )
 
 
+TERMS_DESCRIPTION = (
+    'The Terms of Use for Toponymia: how contributions are licensed under '
+    'CC BY-SA 4.0, content standards, moderation, and copyright complaints.'
+)
+
+
+def terms(request):
+    """/terms — a real 200 URL for the Terms of Use, not just the in-app
+    dialog. Needed on both counts: the DMCA safe harbor requires the
+    designated agent's contact to be publicly accessible (§512(c)(2)), and a
+    linkable, crawlable address is what lets a copyright holder or a court
+    find the document at all."""
+    return _render(
+        request,
+        title='Terms of Use – Toponymia',
+        description=TERMS_DESCRIPTION,
+        path='/terms',
+    )
+
+
 def fallback(request):
     """Anything that isn't a known route serves the shell as a 404: the
-    client only ever creates / and /place/<slug>, so other URLs should
-    read as missing to crawlers while still rendering the app."""
+    client only ever creates /, /terms and /place/<slug>, so other URLs
+    should read as missing to crawlers while still rendering the app."""
     return _render(
         request,
         title=DEFAULT_TITLE,
@@ -210,10 +230,12 @@ def _sitemap_chunks(request):
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
     )
     yield f'<url><loc>{escape(request.build_absolute_uri("/"))}</loc></url>'
+    yield f'<url><loc>{escape(request.build_absolute_uri("/terms"))}</loc></url>'
     places = (
         published_places()
         .select_related('article__current_revision')
-        .order_by('slug')[: MAX_SITEMAP_URLS - 1]
+        # Less the two fixed URLs above (the map root and /terms).
+        .order_by('slug')[: MAX_SITEMAP_URLS - 2]
     )
     for place in places.iterator():
         loc = escape(request.build_absolute_uri(f'/place/{place.slug}'))

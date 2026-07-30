@@ -833,6 +833,25 @@ body,
   letter-spacing: 0.15em;
 }
 
+/* Terms agreement on the signup tab. Scoped under .auth-form to outrank
+   `.auth-form label`, which stacks its control under its text — here the
+   checkbox belongs beside the sentence, not above it. */
+.auth-form .auth-terms {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 7px;
+  line-height: 1.4;
+}
+
+.auth-form .auth-terms input[type='checkbox'] {
+  flex: none;
+  width: auto;
+  padding: 0;
+  /* Optical alignment with the first line of the label text. */
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
 .auth-error {
   color: var(--danger-link);
   font-size: 0.85rem;
@@ -1742,6 +1761,13 @@ body,
 /* Terms of Use: the rendered TERMS.md inside the about-dialog chrome. Long
    enough to scroll, so the header stays pinned to keep the close button
    reachable. */
+
+/* Above every other overlay: the Terms open *from* the signup panel and the
+   editor, and in the compact layout that panel is itself a z-index 61
+   overlay. Always the topmost thing while it's up. */
+.terms-backdrop {
+  z-index: 70;
+}
 
 .about-terms-link {
   padding: 0;

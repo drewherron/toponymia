@@ -20,6 +20,9 @@ interface AuthControlProps {
    *  hanging off a dropdown, so it opens as a centred overlay instead. Keyed
    *  to the header's breakpoint (900), not the pane's (768). */
   inMenu: boolean
+  /** Show the Terms of Use. Handled by App rather than here so the dialog
+   *  mounts at the app root, above this panel in both its layouts. */
+  onOpenTerms: () => void
 }
 
 function AuthControl({
@@ -28,6 +31,7 @@ function AuthControl({
   open,
   onOpenChange,
   inMenu,
+  onOpenTerms,
 }: AuthControlProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   // Signup is two steps under mandatory verification: the form, then the code
@@ -42,6 +46,9 @@ function AuthControl({
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
+  // Terms agreement, signup only. Starts false and is never pre-ticked: the
+  // affirmative act is the whole point (see server/core/forms.py).
+  const [terms, setTerms] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -54,9 +61,13 @@ function AuthControl({
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        onOpenChange(false)
-      }
+      const target = event.target as HTMLElement
+      if (rootRef.current?.contains(target)) return
+      // The Terms dialog is opened from this panel but mounts at the app
+      // root, so every click in it counts as "outside" — closing here would
+      // throw away the half-filled signup form behind it.
+      if (target.closest?.('.about-backdrop')) return
+      onOpenChange(false)
     }
     document.addEventListener('mousedown', onPointerDown)
     return () => document.removeEventListener('mousedown', onPointerDown)
@@ -78,6 +89,7 @@ function AuthControl({
     setEmail('')
     setPassword('')
     setCode('')
+    setTerms(false)
   }
 
   const handleLogout = () => {
@@ -113,7 +125,7 @@ function AuthControl({
     } else if (step === 'verify') {
       work = verifyEmail(code).then(done)
     } else if (mode === 'signup') {
-      work = signup(username, email, password).then((result) => {
+      work = signup(username, email, password, terms).then((result) => {
         // Verification pending: keep the form open on the code step. The
         // session stays anonymous until the code lands, so don't fetchMe.
         if (result.verificationRequired) {
@@ -275,6 +287,37 @@ function AuthControl({
               required
             />
           </label>
+          {mode === 'signup' && (
+            /* Clickwrap: notice plus an affirmative act, which is what makes
+               the §2 CC BY-SA license grant bind the account. The link opens
+               a tab rather than the Terms dialog — this panel dismisses on any
+               outside mousedown, so an overlay would discard the half-filled
+               form underneath it. */
+            <label className="auth-terms">
+              <input
+                type="checkbox"
+                checked={terms}
+                onChange={(e) => setTerms(e.target.checked)}
+                required
+              />
+              <span>
+                I have read and agree to the{' '}
+                <button
+                  type="button"
+                  className="about-terms-link"
+                  // stopPropagation, or the click reaches the wrapping label
+                  // and toggles the checkbox as a side effect of reading.
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenTerms()
+                  }}
+                >
+                  Terms of Use
+                </button>
+                .
+              </span>
+            </label>
+          )}
         </>
       )}
       {notice && <p className="auth-notice">{notice}</p>}

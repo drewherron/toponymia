@@ -27,6 +27,7 @@ from django.utils import timezone
 
 from . import dashboard, overpass, views
 from .articles import save_edit
+from .terms import TERMS_VERSION, documented_version
 from .models import (
     Article,
     Ban,
@@ -39,6 +40,7 @@ from .models import (
     Revision,
     TalkPost,
     TalkThread,
+    TermsAcceptance,
 )
 from .overpass import (
     OverpassError,
@@ -1609,7 +1611,11 @@ class AuthApiTests(ApiTestCase):
     def test_signup_requires_email(self):
         response = self.client.post(
             '/_allauth/browser/v1/auth/signup',
-            {'username': 'newuser', 'password': 'sturdy-passphrase-9'},
+            {
+                'username': 'newuser',
+                'password': 'sturdy-passphrase-9',
+                'terms': True,
+            },
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
@@ -1625,6 +1631,7 @@ class AuthApiTests(ApiTestCase):
                 'username': 'newuser',
                 'email': 'newuser@example.com',
                 'password': 'sturdy-passphrase-9',
+                'terms': True,
             },
             content_type='application/json',
         )
@@ -1642,6 +1649,7 @@ class AuthApiTests(ApiTestCase):
                 'username': 'newuser',
                 'email': 'newuser@example.com',
                 'password': 'sturdy-passphrase-9',
+                'terms': True,
             },
             content_type='application/json',
         )
@@ -1677,6 +1685,7 @@ class AuthApiTests(ApiTestCase):
                     'username': f'spammer{i}',
                     'email': f'spammer{i}@example.com',
                     'password': 'sturdy-passphrase-9',
+                    'terms': True,
                 },
                 content_type='application/json',
             )
@@ -1712,6 +1721,7 @@ class AuthApiTests(ApiTestCase):
                 'username': 'dr@ew',
                 'email': 'atsign@example.com',
                 'password': 'sturdy-passphrase-9',
+                'terms': True,
             },
             content_type='application/json',
         )
@@ -1772,6 +1782,7 @@ class BannedEmailTests(ApiTestCase):
                 'username': username,
                 'email': email,
                 'password': 'sturdy-passphrase-9',
+                'terms': True,
             },
             content_type='application/json',
         )
@@ -3934,3 +3945,76 @@ class ContentSecurityPolicyTests(TestCase):
         self.assertEqual(csp['form-action'], "form-action 'self'")
         self.assertNotIn('unsafe-inline', csp['script-src'])
         self.assertNotIn('unsafe-eval', csp['script-src'])
+
+
+class TermsAcceptanceTests(TestCase):
+    """The Terms-of-Use gate on signup.
+
+    TERMS.md §2 has every contributor license their edits CC BY-SA 4.0, and
+    that grant only binds someone who actually agreed — so agreement is a
+    server-side precondition of getting an account, and each one is recorded
+    against the version of the document the user was shown.
+    """
+
+    SIGNUP = '/_allauth/browser/v1/auth/signup'
+
+    def _signup(self, **extra):
+        body = {
+            'username': 'newuser',
+            'email': 'newuser@example.com',
+            'password': 'sturdy-passphrase-9',
+        }
+        body.update(extra)
+        return self.client.post(
+            self.SIGNUP, body, content_type='application/json'
+        )
+
+    def test_signup_without_agreement_is_rejected(self):
+        # The point of validating server-side: posting straight to the
+        # endpoint, past the React checkbox, still cannot create an account.
+        response = self._signup()
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='newuser').exists())
+
+    def test_signup_refusing_agreement_is_rejected(self):
+        response = self._signup(terms=False)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(username='newuser').exists())
+
+    def test_agreement_is_recorded_with_version(self):
+        response = self._signup(terms=True)
+        # 401 = created, pending email verification (mandatory).
+        self.assertEqual(response.status_code, 401)
+        user = User.objects.get(username='newuser')
+        acceptance = TermsAcceptance.objects.get(user=user)
+        self.assertEqual(acceptance.version, TERMS_VERSION)
+        self.assertIsNotNone(acceptance.accepted)
+
+    def test_version_matches_the_document(self):
+        """The recorded version has to name a real revision of TERMS.md, or
+        the record proves nothing. Guards against updating the document and
+        forgetting the constant (or the reverse)."""
+        documented = documented_version()
+        if documented is None:
+            self.skipTest('TERMS.md not present next to the server')
+        self.assertEqual(
+            documented,
+            TERMS_VERSION,
+            'TERMS.md "Last updated" and core.terms.TERMS_VERSION disagree — '
+            'update both when the Terms change.',
+        )
+
+
+class TermsPageTests(TestCase):
+    """/terms is a real URL, not only an in-app dialog: the DMCA safe harbor
+    needs the designated agent's contact publicly accessible."""
+
+    def test_terms_url_serves_the_app(self):
+        response = self.client.get('/terms')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Terms of Use', response.content.decode())
+
+    def test_terms_is_listed_in_the_sitemap(self):
+        response = self.client.get(reverse('sitemap'))
+        body = b''.join(response.streaming_content).decode()
+        self.assertIn('/terms', body)

@@ -50,6 +50,12 @@ function pathSlug(): string | null {
   return match ? match[1] : null
 }
 
+const TERMS_PATH = '/terms'
+
+function atTerms(): boolean {
+  return window.location.pathname.replace(/\/$/, '') === TERMS_PATH
+}
+
 /** A selection that already knows its place: pane skips resolution. */
 function slugSelection(
   slug: string,
@@ -71,7 +77,13 @@ function App() {
   const [modOpen, setModOpen] = useState(false)
   const [moderationOpen, setModerationOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
-  const [termsOpen, setTermsOpen] = useState(false)
+  // /terms is a real URL (server/core/spa.py serves it 200) rendered as the
+  // same dialog, so it can be linked, shared and crawled — the DMCA agent
+  // contact has to be publicly reachable, not just findable via About.
+  const [termsOpen, setTermsOpen] = useState(atTerms)
+  // Where closing the dialog should return to. A direct visit to /terms has
+  // nowhere to go back to, hence the map root as the default.
+  const termsReturnRef = useRef('/')
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [theme, setTheme] = useState<Theme>(storedTheme)
@@ -175,9 +187,30 @@ function App() {
     return () => controller.abort()
   }, [openPlace])
 
+  const openTerms = useCallback(() => {
+    setAboutOpen(false)
+    if (!atTerms()) {
+      termsReturnRef.current =
+        window.location.pathname + window.location.hash
+      window.history.pushState(null, '', TERMS_PATH)
+    }
+    document.title = 'Terms of Use – Toponymia'
+    setTermsOpen(true)
+  }, [])
+
+  const closeTerms = useCallback(() => {
+    setTermsOpen(false)
+    if (atTerms()) {
+      window.history.pushState(null, '', termsReturnRef.current)
+      // Restored by the pane when the return path is a place.
+      document.title = 'Toponymia'
+    }
+  }, [])
+
   // Back/forward re-open or close the pane to match the URL.
   useEffect(() => {
     const onPopState = () => {
+      setTermsOpen(atTerms())
       const slug = pathSlug()
       if (slug) {
         setPicker(null)
@@ -187,7 +220,7 @@ function App() {
         )
       } else {
         setSelected(null)
-        document.title = 'Toponymia'
+        document.title = atTerms() ? 'Terms of Use – Toponymia' : 'Toponymia'
       }
     }
     window.addEventListener('popstate', onPopState)
@@ -363,6 +396,7 @@ function App() {
         if (!open) setMenuOpen(false)
       }}
       inMenu={compactHeader}
+      onOpenTerms={openTerms}
     />
   )
 
@@ -499,13 +533,10 @@ function App() {
       {aboutOpen && (
         <AboutDialog
           onClose={() => setAboutOpen(false)}
-          onOpenTerms={() => {
-            setAboutOpen(false)
-            setTermsOpen(true)
-          }}
+          onOpenTerms={openTerms}
         />
       )}
-      {termsOpen && <TermsDialog onClose={() => setTermsOpen(false)} />}
+      {termsOpen && <TermsDialog onClose={closeTerms} />}
       <div className="map-area">
         <MapView
           onClickFeatures={handleClickFeatures}

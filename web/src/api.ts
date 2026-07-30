@@ -685,11 +685,15 @@ export async function signup(
   username: string,
   email: string,
   password: string,
+  terms: boolean,
 ): Promise<{ verificationRequired: boolean }> {
   const response = await fetch('/_allauth/browser/v1/auth/signup', {
     method: 'POST',
     headers: jsonHeaders(),
-    body: JSON.stringify({ username, email, password }),
+    // `terms` carries the Terms-of-Use agreement through as the user actually
+    // left it (core/forms.py requires it). The server, not the checkbox, is
+    // what makes agreement a real precondition of having an account.
+    body: JSON.stringify({ username, email, password, terms }),
   })
   if (response.status === 401) {
     return { verificationRequired: true }

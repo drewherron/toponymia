@@ -195,6 +195,10 @@ ACCOUNT_ADAPTER = 'core.adapter.AccountAdapter'
 ACCOUNT_LOGIN_METHODS = {'username', 'email'}
 ACCOUNT_USERNAME_VALIDATORS = 'core.validators.username_validators'
 ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*']
+# Adds the required Terms-of-Use checkbox to signup and records the
+# acceptance (core/forms.py). Server-side, so the agreement holds for
+# direct API calls too, not just the React form.
+ACCOUNT_SIGNUP_FORM_CLASS = 'core.forms.TermsSignupForm'
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = True
 ACCOUNT_UNIQUE_EMAIL = True

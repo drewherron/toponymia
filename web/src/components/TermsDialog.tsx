@@ -46,7 +46,11 @@ function TermsDialog({ onClose }: TermsDialogProps) {
   )
 
   return (
-    <div className="about-backdrop" onClick={onClose} role="presentation">
+    <div
+      className="about-backdrop terms-backdrop"
+      onClick={onClose}
+      role="presentation"
+    >
       <div
         className="about-dialog terms-dialog"
         onClick={(e) => e.stopPropagation()}

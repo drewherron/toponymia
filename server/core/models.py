@@ -531,3 +531,35 @@ class ModAction(models.Model):
 
     def __str__(self):
         return f'{self.action} by {self.actor_id} on {self.target_user_id}'
+
+
+class TermsAcceptance(models.Model):
+    """A user's affirmative agreement to a specific version of the Terms.
+
+    The whole CC BY-SA licensing model in TERMS.md §2 rests on contributors
+    having actually accepted the Terms, and "clickwrap" only holds up if you
+    can show the agreement happened. One row is written per acceptance, at
+    signup, by core.forms.TermsSignupForm — the form's `terms` checkbox is
+    required, so a row existing means the box was ticked on a request the
+    server validated.
+
+    Append-only and versioned rather than a flag on the user: if the Terms
+    change materially and everyone has to re-accept, that's another row, with
+    the original agreement still on record.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='terms_acceptances',
+    )
+    # core.terms.TERMS_VERSION at the time of acceptance — matches the
+    # "Last updated" date of the TERMS.md revision the user was shown.
+    version = models.CharField(max_length=32)
+    accepted = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-accepted', '-id']
+
+    def __str__(self):
+        return f'{self.user_id} accepted terms {self.version}'
