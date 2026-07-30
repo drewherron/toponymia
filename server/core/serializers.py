@@ -131,7 +131,8 @@ class ReportSerializer(serializers.Serializer):
     target_id = serializers.IntegerField()
     category = serializers.ChoiceField(
         choices=[
-            'spam', 'vandalism', 'harassment', 'personal_info', 'other',
+            'spam', 'vandalism', 'harassment', 'personal_info',
+            'copyright', 'other',
         ],
         default='other',
     )

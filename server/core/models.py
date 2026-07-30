@@ -281,6 +281,14 @@ class Report(models.Model):
         VANDALISM = 'vandalism'
         HARASSMENT = 'harassment'
         PERSONAL_INFO = 'personal_info'
+        # Its own class rather than folded into "other": copied text is the
+        # one report type with a clear-cut test (is this someone else's
+        # wording?) and a distinct remedy — suppress the revision rather than
+        # leave it in public history, since a copyright removal that survives
+        # in history hasn't really been removed. Also what keeps the CC BY-SA
+        # corpus honest: an infringing paste is licensed under TERMS.md §2 by
+        # someone with no right to do so.
+        COPYRIGHT = 'copyright'
         OTHER = 'other'
 
     reporter = models.ForeignKey(

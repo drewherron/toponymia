@@ -2116,6 +2116,26 @@ class ModerationApiTests(ApiTestCase):
         )
         self.assertEqual(Report.objects.get().category, 'harassment')
 
+    def test_report_accepts_copyright_category(self):
+        # Copyvio is its own triage class, not "other": the serializer's
+        # choices and the model's have to agree it exists.
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        response = self.client.post(
+            reverse('core:report-create'),
+            {
+                'target_type': 'talk_post',
+                'target_id': post['id'],
+                'category': 'copyright',
+                'reason': 'pasted from etymonline',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            Report.objects.get().category, Report.Category.COPYRIGHT
+        )
+
     def test_report_category_defaults_to_other(self):
         post = self._thread_with_post()[1]
         self.client.force_login(self.other)
