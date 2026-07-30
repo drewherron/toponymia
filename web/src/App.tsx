@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchMe, fetchRandomArticle, getPlace } from './api'
 import AboutDialog from './components/AboutDialog'
+import TermsDialog from './components/TermsDialog'
 import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
@@ -70,6 +71,7 @@ function App() {
   const [modOpen, setModOpen] = useState(false)
   const [moderationOpen, setModerationOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [termsOpen, setTermsOpen] = useState(false)
   const [allArticles, setAllArticles] = useState(false)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [theme, setTheme] = useState<Theme>(storedTheme)
@@ -494,7 +496,16 @@ function App() {
         )}
       </header>
       {modOpen && <ModQueue onClose={() => setModOpen(false)} />}
-      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {aboutOpen && (
+        <AboutDialog
+          onClose={() => setAboutOpen(false)}
+          onOpenTerms={() => {
+            setAboutOpen(false)
+            setTermsOpen(true)
+          }}
+        />
+      )}
+      {termsOpen && <TermsDialog onClose={() => setTermsOpen(false)} />}
       <div className="map-area">
         <MapView
           onClickFeatures={handleClickFeatures}

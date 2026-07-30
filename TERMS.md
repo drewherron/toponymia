@@ -70,10 +70,10 @@ or other legal reasons may also be suppressed from public revision history.
 If you believe content on the site infringes your copyright, send a notice to
 the site's designated agent, registered with the US Copyright Office:
 
-> **Designated Agent:** Drew Herron
-> Toponymia
-> 8542 SW 30th Ave, Portland, OR 97219, USA
-> Email: <support@toponymia.org>
+> **Designated Agent:** Drew Herron \
+> Toponymia \
+> 8542 SW 30th Ave, Portland, OR 97219, USA \
+> Email: <support@toponymia.org> \
 > Phone: +1 971-808-3739
 
 Your notice must include:

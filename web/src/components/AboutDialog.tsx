@@ -1,10 +1,12 @@
 interface AboutDialogProps {
   onClose: () => void
+  /** Swap this dialog for the full Terms of Use. */
+  onOpenTerms: () => void
 }
 
 /** Static about/licensing panel. Content is
  * CC BY-SA 4.0; software is AGPL-3.0; upstream data keeps its own terms. */
-function AboutDialog({ onClose }: AboutDialogProps) {
+function AboutDialog({ onClose, onOpenTerms }: AboutDialogProps) {
   return (
     <div className="about-backdrop" onClick={onClose} role="presentation">
       <div
@@ -31,6 +33,14 @@ function AboutDialog({ onClose }: AboutDialogProps) {
           the world, and any named feature — a town, river, road, or
           mountain — opens the article about how it got its name, or a stub
           inviting you to write it.
+        </p>
+
+        <p>
+          Using and contributing to the site are covered by the{' '}
+          <button type="button" className="about-terms-link" onClick={onOpenTerms}>
+            Terms of Use
+          </button>
+          .
         </p>
 
         <h3>Data &amp; attribution</h3>

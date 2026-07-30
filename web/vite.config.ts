@@ -9,6 +9,9 @@ const apiProxy = {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  server: { proxy: apiProxy },
+  // TERMS.md lives at the repo root, one level above this package, and is
+  // imported ?raw into the Terms dialog — the dev server has to be allowed to
+  // read it.
+  server: { proxy: apiProxy, fs: { allow: ['..'] } },
   preview: { proxy: apiProxy },
 })

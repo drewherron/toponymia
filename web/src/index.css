@@ -1739,6 +1739,51 @@ body,
   background: var(--donate-hover);
 }
 
+/* Terms of Use: the rendered TERMS.md inside the about-dialog chrome. Long
+   enough to scroll, so the header stays pinned to keep the close button
+   reachable. */
+
+.about-terms-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.terms-dialog .about-header {
+  position: sticky;
+  /* Cancels the dialog's own top padding so the header pins flush to the
+     top edge, with the padding reinstated below as its own. */
+  top: -18px;
+  margin-top: -18px;
+  padding-top: 18px;
+  background: var(--surface);
+}
+
+/* Section headings only — direct-child so this doesn't tie on specificity
+   with, and then override, the dialog title's `.about-header h2`. */
+.terms-dialog > h2 {
+  font-size: 1rem;
+  margin: 18px 0 6px;
+}
+
+.terms-dialog ol {
+  font-size: 0.9rem;
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.terms-dialog blockquote {
+  margin: 0 0 8px;
+  padding-left: 12px;
+  border-left: 3px solid var(--border-light);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
 /* Language-code help: the ? icon in the editor and its dialog extras
    (the dialog itself reuses the about-dialog chrome). */
 
