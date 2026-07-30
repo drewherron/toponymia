@@ -23,6 +23,8 @@ interface AuthControlProps {
   /** Show the Terms of Use. Handled by App rather than here so the dialog
    *  mounts at the app root, above this panel in both its layouts. */
   onOpenTerms: () => void
+  /** Open the account panel — the signed-in half of this control. */
+  onOpenAccount: () => void
 }
 
 function AuthControl({
@@ -32,6 +34,7 @@ function AuthControl({
   onOpenChange,
   inMenu,
   onOpenTerms,
+  onOpenAccount,
 }: AuthControlProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   // Signup is two steps under mandatory verification: the form, then the code
@@ -145,7 +148,13 @@ function AuthControl({
   if (user) {
     return (
       <div className="auth-control">
-        <span className="auth-username">{user.username}</span>
+        <button
+          type="button"
+          className="auth-username"
+          onClick={onOpenAccount}
+        >
+          {user.username}
+        </button>
         <button type="button" className="auth-link" onClick={handleLogout}>
           Log out
         </button>

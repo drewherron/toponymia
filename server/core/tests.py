@@ -4048,3 +4048,236 @@ class TermsPageTests(TestCase):
         response = self.client.get(reverse('sitemap'))
         body = b''.join(response.streaming_content).decode()
         self.assertIn('/privacy', body)
+
+
+class AccountManagementTests(ApiTestCase):
+    """The self-serve account panel: password change, email change, closure."""
+
+    PASSWORD = 'sturdy-passphrase-9'
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            'alice', password=self.PASSWORD, email='alice@example.com'
+        )
+        EmailAddress.objects.create(
+            user=self.user, email='alice@example.com',
+            verified=True, primary=True,
+        )
+
+    # --- password -------------------------------------------------------
+
+    def test_password_change_requires_current_password(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            '/_allauth/browser/v1/account/password/change',
+            {'current_password': 'wrong', 'new_password': 'another-good-one-4'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.PASSWORD))
+
+    def test_password_change_succeeds(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            '/_allauth/browser/v1/account/password/change',
+            {
+                'current_password': self.PASSWORD,
+                'new_password': 'another-good-one-4',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('another-good-one-4'))
+
+    # --- email ----------------------------------------------------------
+
+    def test_email_change_is_two_step_and_replaces_the_old_address(self):
+        # Verification is by code, so POSTing the address only *sends* one —
+        # nothing is stored until the code comes back. The UI has to collect
+        # it, exactly as signup does.
+        self.client.force_login(self.user)
+        response = self.client.post(
+            '/_allauth/browser/v1/account/email',
+            {'email': 'alice2@example.com'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertFalse(
+            EmailAddress.objects.filter(email='alice2@example.com').exists()
+        )
+
+        code = re.search(
+            r'\b([A-Z0-9]{4}-[A-Z0-9]{4})\b', mail.outbox[0].body
+        ).group(1)
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/email/verify',
+            {'key': code},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        # ACCOUNT_CHANGE_EMAIL: the new address supersedes rather than joins.
+        addresses = set(
+            EmailAddress.objects.filter(user=self.user).values_list(
+                'email', flat=True
+            )
+        )
+        self.assertEqual(addresses, {'alice2@example.com'})
+
+    # --- closure --------------------------------------------------------
+
+    def _close(self, password=PASSWORD):
+        return self.client.post(
+            reverse('core:account-close'),
+            {'password': password},
+            content_type='application/json',
+        )
+
+    def test_close_requires_the_password(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self._close(password='nope').status_code, 400)
+        self.assertTrue(User.objects.filter(username='alice').exists())
+
+    def test_close_deletes_an_account_with_no_contributions(self):
+        self.client.force_login(self.user)
+        response = self._close()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['outcome'], 'deleted')
+        self.assertFalse(User.objects.filter(username='alice').exists())
+        # The session is gone with it.
+        self.assertIsNone(self.client.get(reverse('core:me')).json()['user'])
+
+    def test_close_anonymizes_a_contributor(self):
+        place = Place.objects.create(
+            slug='anonplace', anchor_level='name', display_name='Anonplace',
+            feature_class='city', centroid=Point(0, 0),
+        )
+        save_edit(
+            place, self.user,
+            {'names': [{'name': 'Anonplace', 'language': 'eng',
+                        'from_languages': [], 'is_endonym': False,
+                        'etymology_md': 'x', 'references': []}],
+             'body_md': '', 'derivations': [], 'see_also': []},
+            'first',
+        )
+        self.client.force_login(self.user)
+        response = self._close()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['outcome'], 'anonymized')
+
+        self.user.refresh_from_db()
+        # Identity gone...
+        self.assertTrue(self.user.username.startswith('[deleted-'))
+        self.assertEqual(self.user.email, '')
+        self.assertFalse(self.user.is_active)
+        self.assertFalse(self.user.has_usable_password())
+        self.assertFalse(
+            EmailAddress.objects.filter(user=self.user).exists()
+        )
+        # ...contribution kept, still attributed to the same row.
+        revision = Revision.objects.get(article__place=place)
+        self.assertEqual(revision.author_id, self.user.id)
+
+    def test_close_is_refused_while_banned(self):
+        Ban.objects.create(user=self.user, reason='spam')
+        self.client.force_login(self.user)
+        response = self._close()
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(User.objects.filter(username='alice').exists())
+
+    def test_sentinel_username_cannot_be_registered(self):
+        # Square brackets fail username validation, so a closed account's
+        # name can never be claimed or impersonated.
+        from .validators import username_validators
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            for validator in username_validators:
+                validator('[deleted-abc123]')
+
+
+class ClosedAccountReuseTests(ApiTestCase):
+    """What a closed account frees up. Closing is the de-facto way to start
+    over under a new name, so the address and the old username have to be
+    usable again — unless the account was banned, where BannedEmail holds."""
+
+    PASSWORD = 'sturdy-passphrase-9'
+    SIGNUP = '/_allauth/browser/v1/auth/signup'
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            'alice', password=self.PASSWORD, email='alice@example.com'
+        )
+        EmailAddress.objects.create(
+            user=self.user, email='alice@example.com',
+            verified=True, primary=True,
+        )
+        # Give her history, so closing anonymizes rather than deletes.
+        place = Place.objects.create(
+            slug='reuseplace', anchor_level='name', display_name='Reuseplace',
+            feature_class='city', centroid=Point(0, 0),
+        )
+        save_edit(
+            place, self.user,
+            {'names': [{'name': 'Reuseplace', 'language': 'eng',
+                        'from_languages': [], 'is_endonym': False,
+                        'etymology_md': 'x', 'references': []}],
+             'body_md': '', 'derivations': [], 'see_also': []},
+            'first',
+        )
+
+    def _close(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse('core:account-close'),
+            {'password': self.PASSWORD},
+            content_type='application/json',
+        )
+        self.client.logout()
+        return response
+
+    def _signup(self, username, email):
+        return self.client.post(
+            self.SIGNUP,
+            {
+                'username': username,
+                'email': email,
+                'password': self.PASSWORD,
+                'terms': True,
+            },
+            content_type='application/json',
+        )
+
+    def test_email_is_reusable_after_closing(self):
+        self.assertEqual(self._close().json()['outcome'], 'anonymized')
+        # 401 = created, pending verification.
+        self.assertEqual(
+            self._signup('alice2', 'alice@example.com').status_code, 401
+        )
+        self.assertTrue(User.objects.filter(username='alice2').exists())
+
+    def test_old_username_is_freed_by_closing(self):
+        self._close()
+        self.assertEqual(
+            self._signup('alice', 'someone@example.com').status_code, 401
+        )
+        # The new account is a different row; the old edits keep the sentinel.
+        fresh = User.objects.get(username='alice')
+        self.assertNotEqual(fresh.id, self.user.id)
+        revision = Revision.objects.get(article__place__slug='reuseplace')
+        self.assertEqual(revision.author_id, self.user.id)
+        self.assertTrue(revision.author.username.startswith('[deleted-'))
+
+    def test_banned_account_email_stays_blocked(self):
+        # Closing is refused while banned, so the only route here is a ban
+        # that outlives the account — which is BannedEmail's whole job.
+        from .moderation import block_user_emails
+
+        block_user_emails(self.user, None, reason='spam')
+        self.assertEqual(
+            self._signup('alice2', 'alice@example.com').status_code, 400
+        )

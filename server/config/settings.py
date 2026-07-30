@@ -202,6 +202,10 @@ ACCOUNT_SIGNUP_FORM_CLASS = 'core.forms.TermsSignupForm'
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = True
 ACCOUNT_UNIQUE_EMAIL = True
+# One address per account, replaced rather than accumulated: email here is a
+# credential (login identifier, reset target), not a list to manage. Adding an
+# address supersedes the old one once the new one is verified.
+ACCOUNT_CHANGE_EMAIL = True
 HEADLESS_ONLY = True
 HEADLESS_CLIENTS = ('browser',)
 

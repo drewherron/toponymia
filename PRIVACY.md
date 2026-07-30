@@ -1,6 +1,6 @@
 # Privacy Policy
 
-*Last updated 2026-07-31.*
+*Last updated 2026-08-01.*
 
 Toponymia is a map-based wiki about place names, run by one person. It has no
 advertising, no analytics, and no tracking. This policy describes what the site
@@ -14,9 +14,10 @@ needed, and no cookie is set until you log in.
 
 **If you create an account**, the site stores:
 
-- **Your username.** It is public and permanent — it appears on every edit you
-  make and in the revision history, because that is how contributors are
-  credited (see the [Terms of Use](/terms), section 2).
+- **Your username.** It is public — it appears on every edit you make and in
+  the revision history, because that is how contributors are credited (see the
+  [Terms of Use](/terms), section 2). You can remove it by closing your
+  account; see section 4.
 - **Your email address.** Required, and verified by a code before the account
   works. It is used to confirm the account, to reset a forgotten password, and
   for essential notices about the account. It is *not* shown publicly and is
@@ -65,6 +66,13 @@ authors, and the license you grant when you contribute is irrevocable (Terms of
 Use, section 2). So a contribution cannot be withdrawn from the site or from
 anyone who has already reused it, even if you later close your account.
 
+Closing your account does remove your **name** from that history: the username
+is replaced with an anonymous `[deleted]` placeholder that identifies nobody,
+and the placeholder can never be registered by anyone else. What it cannot do
+is remove the contributions themselves. Note also that it does not rewrite
+prose — if someone addressed you by name in a talk post, that text stays as
+written.
+
 Content can be removed from public view by moderators, and revisions can be
 suppressed from public history — but the underlying record is retained.
 
@@ -99,15 +107,19 @@ would create more personal data than it protects.
 
 ## 7. Your choices
 
-- **Change your email or password** at any time from your account.
-- **Close your account** by emailing <support@toponymia.org>. Your email
-  address is deleted, your password is erased, and the account is deactivated
-  so it can no longer be logged into. If you never contributed anything, the
-  account is removed outright. Your username and your contributions stay in
-  the revision history, for the reasons in section 4 — closing an account
-  cannot unpublish work that others have built on and reused.
-- **Ask what is held about you**, or raise any privacy concern, at the same
-  address.
+- **Change your email or password** at any time: click your username in the
+  header to open your account panel. Changing your email sends a code to the
+  new address, and the change only takes effect once you enter it.
+- **Close your account** from the same panel, confirmed with your password.
+  Your email address is deleted, your password is erased, your username is
+  replaced with an anonymous placeholder, and the account is deactivated. If
+  you never contributed anything, the account is removed outright instead.
+  Your contributions stay in the revision history, for the reasons in section
+  4 — closing an account cannot unpublish work that others have reused. This
+  cannot be undone, and an account with an active suspension cannot be closed
+  until the suspension is resolved.
+- **Ask what is held about you**, or raise any privacy concern, by emailing
+  <support@toponymia.org>.
 
 ## 8. Changes
 

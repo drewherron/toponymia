@@ -143,6 +143,7 @@ export interface PlaceDetail {
 export interface User {
   id: number
   username: string
+  email: string
   is_moderator: boolean
   is_admin: boolean
 }

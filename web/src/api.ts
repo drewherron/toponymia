@@ -750,3 +750,46 @@ export async function logout(): Promise<void> {
     if (error.message !== '401') throw error
   })
 }
+
+/** Change the password of the signed-in account. Unlike the reset flow this
+ *  needs no email round trip — proving knowledge of the current password is
+ *  stronger evidence than possession of a mailbox, and the session is already
+ *  authenticated. */
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  return allauth('POST', '/account/password/change', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  })
+}
+
+/** Start an email change. Verification is by code, so nothing is stored yet:
+ *  allauth only sends the message. The caller collects the code and calls
+ *  verifyEmail, after which the new address *replaces* the old one
+ *  (ACCOUNT_CHANGE_EMAIL). */
+export function requestEmailChange(email: string): Promise<void> {
+  return allauth('POST', '/account/email', { email })
+}
+
+/** Close the signed-in account. An account with no contributions is deleted;
+ *  one with contributions is anonymized to a `[deleted-…]` username, since the
+ *  revision history is the site's attribution mechanism and cannot lose its
+ *  rows. Either way the session ends. See server/core/accounts.py. */
+export async function closeAccount(
+  password: string,
+): Promise<{ outcome: 'deleted' | 'anonymized'; username: string | null }> {
+  const response = await fetch('/api/account/close/', {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ password }),
+  })
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(body?.error ?? 'Could not close the account.')
+  }
+  return response.json()
+}

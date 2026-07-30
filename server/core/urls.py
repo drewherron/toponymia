@@ -73,6 +73,7 @@ urlpatterns = [
         views.talk_post_delete,
         name='talk-post-delete',
     ),
+    path('account/close/', views.close_account, name='account-close'),
     path('reports/', views.create_report, name='report-create'),
     path('mod/reports/', views.mod_reports, name='mod-reports'),
     path(

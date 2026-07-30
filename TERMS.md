@@ -1,6 +1,6 @@
 # Terms of Use
 
-*Last updated 2026-07-31.*
+*Last updated 2026-08-01.*
 
 These terms cover use of and contributions to Toponymia (the "site").
 Reading the site is open to everyone; contributing requires an account and
@@ -12,8 +12,11 @@ You must be at least 13 years old (or older where the law where you live
 requires it) to create an account. You are responsible for activity under
 your account. Provide accurate information and keep your credentials secure.
 
-Your username is publicly and permanently associated with your contributions
-— that association is how the site provides attribution (see section 2).
+Your username is publicly associated with your contributions — that
+association is how the site provides attribution (see section 2). If you close
+your account, the username is replaced with an anonymous placeholder, but the
+contributions themselves remain: they cannot be withdrawn from the licensed
+corpus.
 
 What the site collects about you, and what it does with it, is described in
 the [Privacy Policy](/privacy).

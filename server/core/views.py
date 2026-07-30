@@ -1,6 +1,7 @@
 import json
 from math import isfinite
 
+from django.contrib.auth import logout
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.geos import Polygon
 from django.db.models import Case, IntegerField, Prefetch, Q, Value, When
@@ -18,6 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
+from . import accounts
 from . import resolve as resolution
 from .articles import save_edit
 from .models import (
@@ -128,6 +130,9 @@ def me(request):
             'user': {
                 'id': user.id,
                 'username': user.username,
+                # Shown in the account panel so the address can be checked
+                # before it is changed.
+                'email': user.email,
                 'is_moderator': is_moderator(user),
                 # Admins get the role controls and the whole-roster view in
                 # the Moderation dashboard.
@@ -1127,3 +1132,35 @@ def mod_talk_post_restore(request, post_id):
             target_user=post.author, talk_post=post,
         )
     return Response({'ok': True})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def close_account(request):
+    """Close the signed-in account (see core/accounts.py for what that means).
+
+    Confirmed by password rather than a checkbox: it is the most destructive
+    control in the product and, for a contributor, it is not reversible —
+    the sentinel username is random and the old one is not recorded anywhere.
+
+    Refused while a ban is active. Otherwise closing an account would be a
+    way to shed a sanction and scramble the moderation trail mid-review;
+    BannedEmail would still block re-registration, but the account's own
+    history should stay legible until the ban is resolved.
+    """
+    if active_ban(request.user) is not None:
+        return Response(
+            {'error': 'A suspended account cannot be closed. Contact support.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    password = request.data.get('password') or ''
+    if not request.user.check_password(password):
+        return Response(
+            {'error': 'That password is not correct.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    user = request.user
+    # End the session before the row changes under it.
+    logout(request)
+    outcome, username = accounts.close(user)
+    return Response({'outcome': outcome, 'username': username})

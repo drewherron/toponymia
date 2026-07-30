@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchMe, fetchRandomArticle, getPlace } from './api'
 import AboutDialog from './components/AboutDialog'
+import AccountDialog from './components/AccountDialog'
 import DocumentDialog from './components/DocumentDialog'
 import { DOC_PATHS, DOC_TITLES, docForPath } from './legal'
 import type { LegalDoc } from './legal'
@@ -77,6 +78,7 @@ function App() {
   const [modOpen, setModOpen] = useState(false)
   const [moderationOpen, setModerationOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
   // /terms and /privacy are real URLs (server/core/spa.py serves them 200)
   // rendered as a dialog, so they can be linked, shared and crawled — the DMCA
   // agent contact has to be publicly reachable, not just findable via About.
@@ -404,6 +406,7 @@ function App() {
       }}
       inMenu={compactHeader}
       onOpenTerms={() => openLegalDoc('terms')}
+      onOpenAccount={() => setAccountOpen(true)}
     />
   )
 
@@ -540,6 +543,17 @@ function App() {
       {aboutOpen && (
         <AboutDialog
           onClose={() => setAboutOpen(false)}
+          onOpenDoc={openLegalDoc}
+        />
+      )}
+      {accountOpen && user && (
+        <AccountDialog
+          user={user}
+          onClose={() => setAccountOpen(false)}
+          onUserChange={(next) => {
+            setUser(next)
+            if (next === null) setAccountOpen(false)
+          }}
           onOpenDoc={openLegalDoc}
         />
       )}

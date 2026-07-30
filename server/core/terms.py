@@ -16,7 +16,7 @@ from pathlib import Path
 
 from django.conf import settings
 
-TERMS_VERSION = '2026-07-31'
+TERMS_VERSION = '2026-08-01'
 
 TERMS_PATH = Path(settings.BASE_DIR).parent / 'TERMS.md'
 

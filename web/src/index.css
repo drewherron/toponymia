@@ -768,6 +768,19 @@ body,
 .auth-username {
   font-weight: 600;
   white-space: nowrap;
+  /* A button now (it opens the account panel), so undo the control chrome
+     and keep it reading as the plain label it was. */
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.auth-username:hover {
+  text-decoration: underline;
 }
 
 .auth-form {
@@ -2491,4 +2504,92 @@ body,
   .feature-picker {
     max-width: 80vw;
   }
+}
+
+/* Account panel — self-serve password/email changes and closure, opened from
+   the username in the header. Shares the about-dialog chrome. */
+
+.account-dialog {
+  width: min(420px, 100%);
+}
+
+.account-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+}
+
+.account-facts dt {
+  color: var(--text-muted);
+}
+
+.account-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.account-note {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-body);
+}
+
+.account-actions,
+.account-form,
+.account-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.account-actions,
+.account-form {
+  flex-direction: column;
+}
+
+.account-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.85rem;
+  color: var(--text-body);
+}
+
+.account-form input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.account-actions button,
+.account-form-actions button {
+  font: inherit;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.account-form-actions {
+  margin-top: 2px;
+}
+
+.account-actions button:hover,
+.account-form-actions button:hover {
+  border-color: var(--text-dim);
+}
+
+/* Closing an account is irreversible for a contributor, so it never looks
+   like the neighbouring reversible actions. */
+.account-dialog .account-danger {
+  color: var(--danger-link);
+}
+
+.account-actions .account-danger {
+  margin-top: 4px;
 }
