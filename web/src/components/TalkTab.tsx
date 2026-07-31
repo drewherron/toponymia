@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { FormEvent } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -144,16 +144,23 @@ function PostView({
 function ThreadView({
   thread,
   user,
+  startCollapsed,
   onRequestAuth,
   onChanged,
   onDeleted,
 }: {
   thread: TalkThread
   user: User | null
+  /** Initial state only — read once, when the thread mounts. Toggling a
+   *  thread open and having a re-render slam it shut again would make the
+   *  control feel broken. */
+  startCollapsed: boolean
   onRequestAuth: () => void
   onChanged: (thread: TalkThread) => void
   onDeleted: (threadId: number) => void
 }) {
+  const bodyId = useId()
+  const [collapsed, setCollapsed] = useState(startCollapsed)
   const [replying, setReplying] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -192,8 +199,26 @@ function ThreadView({
 
   return (
     <section className="talk-thread">
+      {/* The title is the toggle. The delete button is a sibling, not a
+          child: nesting a button inside a button is invalid HTML, and the
+          browser would fire the collapse on every delete click. */}
       <h3>
-        {thread.title}
+        <button
+          type="button"
+          className="talk-thread-toggle"
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          <span className="talk-thread-caret" aria-hidden="true">
+            {collapsed ? '▸' : '▾'}
+          </span>
+          <span className="talk-thread-title">{thread.title}</span>
+          <span className="talk-thread-count">
+            {thread.posts.length}
+            {thread.posts_truncated && '+'}
+          </span>
+        </button>
         {user?.is_moderator && (
           <button
             type="button"
@@ -205,19 +230,27 @@ function ThreadView({
           </button>
         )}
       </h3>
-      {thread.posts.map((post) => (
-        <PostView
-          key={post.id}
-          post={post}
-          user={user}
-          onChanged={handlePostChanged}
-        />
-      ))}
-      {thread.posts_truncated && (
-        <p className="talk-truncated">
-          This thread is unusually long; only the earliest posts are shown.
-        </p>
-      )}
+      {/* Unmounted rather than hidden when collapsed: a place like this one
+          can carry eighty posts of rendered Markdown per thread, and paying
+          for all of it to sit in the DOM invisibly is the cost the collapse
+          exists to avoid. Losing an in-progress reply draft is the tradeoff,
+          so the reply form is left mounted below. */}
+      <div id={bodyId} hidden={collapsed}>
+        {!collapsed &&
+          thread.posts.map((post) => (
+            <PostView
+              key={post.id}
+              post={post}
+              user={user}
+              onChanged={handlePostChanged}
+            />
+          ))}
+        {!collapsed && thread.posts_truncated && (
+          <p className="talk-truncated">
+            This thread is unusually long; only the earliest posts are shown.
+          </p>
+        )}
+      </div>
       {replying ? (
         <form className="talk-form" onSubmit={submit}>
           <textarea
@@ -240,13 +273,15 @@ function ThreadView({
           </div>
         </form>
       ) : (
-        <button
-          type="button"
-          className="talk-reply-button"
-          onClick={() => (user ? setReplying(true) : onRequestAuth())}
-        >
-          Reply
-        </button>
+        !collapsed && (
+          <button
+            type="button"
+            className="talk-reply-button"
+            onClick={() => (user ? setReplying(true) : onRequestAuth())}
+          >
+            Reply
+          </button>
+        )
       )}
     </section>
   )
@@ -255,6 +290,11 @@ function ThreadView({
 function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
   const [threads, setThreads] = useState<TalkThread[] | null>(null)
   const [moreThreads, setMoreThreads] = useState(false)
+  // Threads started in this session. They mount expanded — collapsing a
+  // post the moment its author submits it reads as though it failed to
+  // save. Everything loaded from the server starts collapsed, so the tab
+  // opens as a list of topics rather than a wall of discussion.
+  const [justStarted, setJustStarted] = useState<number[]>([])
   const [error, setError] = useState(false)
   const [composing, setComposing] = useState(false)
   const [title, setTitle] = useState('')
@@ -264,6 +304,7 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
   useEffect(() => {
     const controller = new AbortController()
     setError(false)
+    setJustStarted([])
     getTalk(slug, controller.signal)
       .then((page) => {
         setThreads(page.threads)
@@ -285,6 +326,7 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
     createTalkThread(slug, title.trim(), body)
       .then((thread) => {
         setThreads((prev) => [...(prev ?? []), thread])
+        setJustStarted((prev) => [...prev, thread.id])
         setTitle('')
         setBody('')
         setComposing(false)
@@ -328,6 +370,7 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
           key={thread.id}
           thread={thread}
           user={user}
+          startCollapsed={!justStarted.includes(thread.id)}
           onRequestAuth={onRequestAuth}
           onChanged={handleThreadChanged}
           onDeleted={handleThreadDeleted}

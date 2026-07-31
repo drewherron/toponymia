@@ -1337,9 +1337,57 @@ body,
   margin-bottom: 14px;
 }
 
+/* Flex row so the moderator's "delete thread" stays on the title line
+   instead of being pushed below by the full-width toggle. */
 .talk-thread h3 {
   font-size: 1.05rem;
   margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* The whole title line is the collapse control, so it has to fill the
+   heading rather than sit as a word-width target inside it. Styled back to
+   look like the heading text it replaced — the affordance is the caret and
+   the hover, not a button chrome. */
+.talk-thread-toggle {
+  font: inherit;
+  color: inherit;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.talk-thread-toggle:hover .talk-thread-title {
+  color: var(--accent);
+}
+
+.talk-thread-caret {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  flex: none;
+}
+
+.talk-thread-title {
+  flex: 1;
+}
+
+/* Post count: the one thing a collapsed thread still has to say about
+   itself. `+` when the response cap hid posts, so the number never claims
+   to be the whole thread. */
+.talk-thread-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex: none;
 }
 
 /* Shown when a response cap hid posts or threads — quiet, but never silent. */
