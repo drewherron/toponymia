@@ -71,7 +71,12 @@ MAX_REPORTS = 100
 # would make them unreachable, and a wiki's history has to stay complete.
 # Talk is capped per request with an explicit `has_more`, since threads read
 # oldest-first and a page boundary is the natural place to stop.
-MAX_REVISIONS_PER_PAGE = 100
+#
+# The history page size is set by what reads well in a side pane, not by
+# what the query can afford: 100 rows is a wall of near-identical bylines
+# you have to scroll past to reach "Load more", and the recent edits are
+# what anyone actually came for. 25 fills the pane about once over.
+MAX_REVISIONS_PER_PAGE = 25
 MAX_TALK_THREADS = 50
 MAX_TALK_POSTS = 200
 # Longest search term we'll run. Every query becomes an unanchored ILIKE
