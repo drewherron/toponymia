@@ -16,6 +16,7 @@ import type {
   ModReporter,
   ModUserDetail,
   ModUserRow,
+  RemovedContent,
   User,
   UserRole,
 } from '../types'
@@ -46,6 +47,36 @@ const EXPIRY_OPTIONS = [
   { days: 30, label: '30 days' },
 ]
 
+/** What a ban does, spelled out at the moment of deciding.
+ *
+ *  The first line is the one worth reprinting every time: a ban is a write
+ *  block, not a login block, and assuming otherwise is the natural mistake —
+ *  it is the difference between "they're gone" and "they can still read every
+ *  page and see what you wrote about them". */
+function BanEffects({ username }: { username: string }) {
+  return (
+    <ul className="mod-ban-effects">
+      <li>
+        <strong>{username} can still sign in and read.</strong> A ban blocks
+        writing: edits, talk posts, reports and reverts are all refused, with
+        the reason below shown to them.
+      </li>
+      <li>
+        Their email address can’t open a new account for as long as the ban
+        lasts.
+      </li>
+      <li>
+        Everything they’ve written <strong>stays up</strong>, under their name,
+        unless you also remove it.
+      </li>
+      <li>
+        Lifting the ban restores writing and unblocks the address — but it does
+        not restore anything removed here.
+      </li>
+    </ul>
+  )
+}
+
 function BanForm({
   user,
   isAdmin,
@@ -53,7 +84,7 @@ function BanForm({
 }: {
   user: ModUserDetail
   isAdmin: boolean
-  onDone: () => void
+  onDone: (removed: RemovedContent | null) => void
 }) {
   const [reason, setReason] = useState('')
   const [expiryDays, setExpiryDays] = useState(0)
@@ -61,6 +92,19 @@ function BanForm({
   const [busy, setBusy] = useState(false)
 
   const submit = () => {
+    // Removal deletes articles and can't be undone in one step, so it asks —
+    // the plain ban, which is reversible and touches nothing, does not.
+    if (
+      removeContent &&
+      !window.confirm(
+        `Remove everything ${user.username} has written?\n\n` +
+          'Talk posts and revisions are hidden from the public, articles they ' +
+          'last edited are reverted, and articles only they have written are ' +
+          'taken down. Undoing it means restoring each item by hand.',
+      )
+    ) {
+      return
+    }
     setBusy(true)
     banUser(user.id, {
       reason: reason.trim(),
@@ -75,6 +119,7 @@ function BanForm({
   return (
     <div className="mod-ban-form">
       <h4>Ban {user.username}</h4>
+      <BanEffects username={user.username} />
       <input
         className="mod-ban-reason"
         value={reason}
@@ -127,14 +172,71 @@ function BanForm({
   )
 }
 
+/** The receipt for a removal: what it actually took down.
+ *
+ *  Worth showing because the counts are not guessable from the outside — the
+ *  article lines especially, since whether a given article was reverted or
+ *  deleted depends on whether anyone else had ever edited it. */
+function RemovalSummary({ removed }: { removed: RemovedContent }) {
+  const lines: string[] = []
+  const plural = (n: number, one: string, many: string) =>
+    `${n} ${n === 1 ? one : many}`
+  if (removed.talk_posts > 0) {
+    lines.push(plural(removed.talk_posts, 'talk post', 'talk posts') + ' hidden')
+  }
+  if (removed.revisions > 0) {
+    lines.push(
+      plural(removed.revisions, 'revision', 'revisions') +
+        ' hidden (the byline stays, for attribution)',
+    )
+  }
+  if (removed.articles_reverted > 0) {
+    lines.push(
+      plural(removed.articles_reverted, 'article', 'articles') +
+        ' reverted to the last edit by someone else',
+    )
+  }
+  if (removed.articles_deleted > 0) {
+    lines.push(
+      plural(removed.articles_deleted, 'article', 'articles') +
+        ' taken down — nobody else had written ' +
+        (removed.articles_deleted === 1 ? 'it' : 'them'),
+    )
+  }
+
+  return (
+    <div className="mod-removal-summary">
+      <p>
+        <strong>Content removed.</strong>
+        {lines.length === 0 && ' They had nothing published.'}
+      </p>
+      {lines.length > 0 && (
+        <ul>
+          {lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {lines.length > 0 && (
+        <p className="mod-note">
+          Nothing is erased — moderators still see all of it, and each item can
+          be restored individually below.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function BanPanel({
   user,
   isAdmin,
+  removed,
   onChanged,
 }: {
   user: ModUserDetail
   isAdmin: boolean
-  onChanged: () => void
+  removed: RemovedContent | null
+  onChanged: (removed: RemovedContent | null) => void
 }) {
   const [busy, setBusy] = useState(false)
   const activeBan = user.bans.find((b) => b.active)
@@ -142,7 +244,9 @@ function BanPanel({
   const unban = () => {
     setBusy(true)
     unbanUser(user.id)
-      .then(onChanged)
+      // A lift doesn't restore content, so the removal receipt would be
+      // stale — and misleading — next to an unbanned account.
+      .then(() => onChanged(null))
       .catch(console.error)
       .finally(() => setBusy(false))
   }
@@ -158,6 +262,11 @@ function BanPanel({
           {activeBan.reason && <> — “{activeBan.reason}”</>}
           {activeBan.created_by && <> (by {activeBan.created_by})</>}
         </p>
+        <p className="mod-note">
+          They can still sign in and read; writing is blocked until this is
+          lifted.
+        </p>
+        {removed && <RemovalSummary removed={removed} />}
         {user.can_ban ? (
           <button type="button" disabled={busy} onClick={unban}>
             Lift ban
@@ -270,6 +379,10 @@ function UserDetail({
 }) {
   const [detail, setDetail] = useState<ModUserDetail | null>(null)
   const [error, setError] = useState(false)
+  // Lives here, not in BanPanel: the reload below unmounts every child while
+  // it runs, and the receipt has to outlast that to be readable at all. Reset
+  // on a change of user so it can't be read as the new one's.
+  const [removed, setRemoved] = useState<RemovedContent | null>(null)
 
   const load = useCallback(() => {
     setDetail(null)
@@ -277,6 +390,10 @@ function UserDetail({
     fetchModUser(userId)
       .then(setDetail)
       .catch(() => setError(true))
+  }, [userId])
+
+  useEffect(() => {
+    setRemoved(null)
   }, [userId])
 
   useEffect(load, [load])
@@ -289,6 +406,11 @@ function UserDetail({
     onChanged()
   }
 
+  const afterBan = (result: RemovedContent | null) => {
+    setRemoved(result)
+    refresh()
+  }
+
   return (
     <div className="mod-user-detail">
       <h3>
@@ -297,7 +419,12 @@ function UserDetail({
       </h3>
       <p className="mod-note">Joined {when(detail.date_joined)}</p>
 
-      <BanPanel user={detail} isAdmin={isAdmin} onChanged={refresh} />
+      <BanPanel
+        user={detail}
+        isAdmin={isAdmin}
+        removed={removed}
+        onChanged={afterBan}
+      />
       <RolePanel user={detail} onChanged={refresh} />
 
       <section>

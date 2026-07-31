@@ -2263,6 +2263,49 @@ body,
   font-size: 0.88rem;
 }
 
+/* What a ban does, at the moment of deciding. Quiet — it is a reminder, not a
+   warning; the destructive control is the checkbox below it. */
+.mod-ban-effects {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.mod-ban-effects li + li {
+  margin-top: 4px;
+}
+
+.mod-ban-effects strong {
+  color: var(--text);
+}
+
+/* The receipt after a removal. Counts sit close to the ban they belong to,
+   and read as a record rather than an alert. */
+.mod-removal-summary {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--danger);
+  background: var(--danger-chip-bg);
+  border-radius: 0 4px 4px 0;
+  font-size: 0.82rem;
+}
+
+.mod-removal-summary p {
+  margin: 0;
+}
+
+.mod-removal-summary ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
+.mod-removal-summary .mod-note {
+  margin-top: 6px;
+}
+
 /* Spells out what the checkbox actually does — it deletes articles, and the
    label alone never said so. */
 .mod-ban-check-note {

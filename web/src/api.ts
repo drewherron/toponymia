@@ -14,6 +14,7 @@ import type {
   ReportAction,
   ReportCategory,
   ReportRow,
+  RemovedContent,
   ResolvedPlace,
   ResolveResponse,
   RevisionDetail,
@@ -553,10 +554,12 @@ export async function fetchModUser(
   return response.json()
 }
 
+/** Resolves with what the removal actually took down, or null when removal
+ *  wasn't requested — the server distinguishes the two. */
 export async function banUser(
   userId: number,
   input: BanInput,
-): Promise<void> {
+): Promise<RemovedContent | null> {
   const response = await fetch(`/api/mod/users/${userId}/ban/`, {
     method: 'POST',
     headers: jsonHeaders(),
@@ -565,6 +568,8 @@ export async function banUser(
   if (!response.ok) {
     throw new Error(`ban failed: ${response.status}`)
   }
+  const data = await response.json()
+  return data.removed_content ?? null
 }
 
 export async function unbanUser(userId: number): Promise<void> {

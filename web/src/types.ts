@@ -375,3 +375,13 @@ export interface BanInput {
   expires_days: number
   remove_content: boolean
 }
+
+/** What a ban's content removal took out of public view. Null rather than
+ *  all-zeroes when removal wasn't requested, so "removed nothing" and "wasn't
+ *  asked to remove anything" stay distinguishable. */
+export interface RemovedContent {
+  talk_posts: number
+  revisions: number
+  articles_reverted: number
+  articles_deleted: number
+}
