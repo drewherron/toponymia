@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchMe, fetchRandomArticle, getPlace } from './api'
+import {
+  fetchContributions,
+  fetchMe,
+  fetchRandomArticle,
+  getPlace,
+} from './api'
 import AboutDialog from './components/AboutDialog'
 import AccountDialog from './components/AccountDialog'
 import DocumentDialog from './components/DocumentDialog'
@@ -27,6 +32,7 @@ import MapView from './map/MapView'
 import { applyTheme, storedTheme, storeTheme, type Theme } from './theme'
 import type {
   ClickContext,
+  Contributions,
   FeatureCandidate,
   GeocodeHit,
   MapApi,
@@ -87,6 +93,11 @@ function App() {
   // has nowhere to go back to, hence the map root as the default.
   const docReturnRef = useRef('/')
   const [allArticles, setAllArticles] = useState(false)
+  // The contributions lens: the fetched footprint, or null when it's off —
+  // one piece of state for "on" and "what to draw", so they can't disagree.
+  // Mutually exclusive with allArticles: two sets of dots meaning different
+  // things, with nothing on screen to tell them apart, is just noise.
+  const [contributions, setContributions] = useState<Contributions | null>(null)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [theme, setTheme] = useState<Theme>(storedTheme)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
@@ -387,6 +398,23 @@ function App() {
       .catch(console.error)
   }, [openPlace])
 
+  // Fetched fresh on every activation rather than cached: an edit made in
+  // this session should show up the next time you ask, and the response is
+  // one small request.
+  const handleShowContributions = useCallback(() => {
+    fetchContributions()
+      .then((data) => {
+        setAccountOpen(false)
+        setModerationOpen(false) // it's a map lens — show the map
+        setAllArticles(false)
+        setContributions(data)
+        // Nothing to frame: the chip says so rather than flying the camera
+        // to a bbox that doesn't exist.
+        if (data.bbox) mapApiRef.current?.flyToBounds(data.bbox)
+      })
+      .catch(console.error)
+  }, [])
+
   const getMapCenter = useCallback(
     () => mapApiRef.current?.getCenter() ?? null,
     [],
@@ -395,7 +423,12 @@ function App() {
   const authControl = (
     <AuthControl
       user={user}
-      onUserChange={setUser}
+      onUserChange={(next) => {
+        setUser(next)
+        // Logging out takes the lens down with it: it's a view of who you
+        // are, and there's no one to be once the session ends.
+        if (next === null) setContributions(null)
+      }}
       open={authOpen}
       onOpenChange={(open) => {
         setAuthOpen(open)
@@ -423,6 +456,7 @@ function App() {
         className={`articles-toggle${allArticles ? ' active' : ''}`}
         onClick={() => {
           setModerationOpen(false) // it's a map overlay — show the map
+          setContributions(null) // the two lenses are exclusive
           setAllArticles((value) => !value)
         }}
         aria-pressed={allArticles}
@@ -552,9 +586,13 @@ function App() {
           onClose={() => setAccountOpen(false)}
           onUserChange={(next) => {
             setUser(next)
-            if (next === null) setAccountOpen(false)
+            if (next === null) {
+              setAccountOpen(false)
+              setContributions(null)
+            }
           }}
           onOpenDoc={openLegalDoc}
+          onShowContributions={handleShowContributions}
         />
       )}
       {openDoc && (
@@ -570,6 +608,7 @@ function App() {
           onMoveStart={handleMoveStart}
           onViewportChange={handleViewportChange}
           allArticles={allArticles}
+          contributions={contributions?.features ?? null}
           labelLanguage={labelLanguage}
           highlightsEpoch={highlightsEpoch}
           narrow={narrow}
@@ -577,6 +616,27 @@ function App() {
           sheetDetent={sheetDetent}
           mapApi={mapApiRef}
         />
+        {/* The lens is launched from a dialog that dismisses itself, so
+            this is the only thing on screen saying why the map is filtered
+            — and the only way back out. */}
+        {contributions && (
+          <div className="contrib-chip" role="status">
+            <span>
+              {contributions.features.length === 0
+                ? "You haven't written or discussed anything yet"
+                : contributions.truncated
+                  ? `Your contributions (first ${contributions.features.length})`
+                  : 'Your contributions'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setContributions(null)}
+              aria-label="Stop showing your contributions"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {picker && (
           <FeaturePicker
             x={picker.x}

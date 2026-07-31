@@ -3,6 +3,7 @@ import type {
   ArticleContent,
   ArticleData,
   ClickContext,
+  Contributions,
   GeocodeHit,
   PlaceDetail,
   BanInput,
@@ -101,6 +102,19 @@ export async function fetchHighlights(
   })
   if (!response.ok) {
     throw new Error(`highlights failed: ${response.status}`)
+  }
+  return response.json()
+}
+
+/** Every place the signed-in user has edited or posted talk on, whole —
+ *  not viewport-scoped the way highlights is, because the point of the
+ *  lens is to show where you've been before you know where to look. */
+export async function fetchContributions(
+  signal?: AbortSignal,
+): Promise<Contributions> {
+  const response = await fetch('/api/me/contributions/', { signal })
+  if (!response.ok) {
+    throw new Error(`contributions failed: ${response.status}`)
   }
   return response.json()
 }

@@ -23,7 +23,9 @@ to articles about how they got their names.
   instance of a name lights up (a river along its whole course) and
   visibility follows the map's own zoom and collision choices. An "All
   articles" toggle adds a dot for any article whose label isn't
-  currently drawn.
+  currently drawn. Signed in, "Map my contributions" in the account
+  panel turns the same map into a view of everywhere you've written or
+  discussed, framed on your own footprint.
 - **English-first labels, one article per place.** Labels, the picker,
   and article titles resolve to an English name where one exists, so
   Greenland reads "Greenland", not "Kalaallit Nunaat" — while the

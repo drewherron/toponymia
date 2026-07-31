@@ -4,7 +4,16 @@ from math import isfinite
 from django.contrib.auth import logout
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.geos import Polygon
-from django.db.models import Case, IntegerField, Prefetch, Q, Value, When
+from django.db.models import (
+    Case,
+    Exists,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Value,
+    When,
+)
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -60,6 +69,11 @@ from .throttles import (
 )
 
 MAX_HIGHLIGHTS = 500
+# Contributions ship in one response rather than per viewport, so this cap
+# is the whole lens, not a page of it. Well clear of what a person edits by
+# hand; past it the client says the view is partial rather than quietly
+# dropping the tail.
+MAX_CONTRIBUTIONS = 500
 MAX_SEARCH_RESULTS = 8
 MAX_REPORTS = 100
 # Revision history and talk are both unbounded in the data model: a
@@ -100,6 +114,41 @@ def published_places():
         article__current_revision__isnull=False,
         article__deleted__isnull=True,
     )
+
+
+def published_q():
+    """`published_places`'s test as a Q, for combining under an OR.
+
+    Same definition, expressed so it can sit inside a larger filter —
+    contributions needs "published AND edited by you, OR talked on by
+    you", which a pre-filtered queryset can't express.
+    """
+    return Q(
+        article__current_revision__isnull=False,
+        article__deleted__isnull=True,
+    )
+
+
+def _dot_feature(place):
+    """One place as a point Feature, the shape the map's dot layers read.
+
+    `names` carries every alias so the client can match the place against
+    whatever the basemap happens to label it. The point is `label_point`
+    when we have one — a guaranteed-on-the-feature click — falling back to
+    the bbox centroid, which for a long river can sit off it entirely.
+    """
+    names = {place.display_name}
+    names.update(entry.name for entry in place.names.all())
+    return {
+        'type': 'Feature',
+        'geometry': json.loads((place.label_point or place.centroid).geojson),
+        'properties': {
+            'slug': place.slug,
+            'display_name': place.display_name,
+            'feature_class': place.feature_class,
+            'names': sorted(names),
+        },
+    }
 
 
 def can_edit_article(user, article):
@@ -303,25 +352,68 @@ def highlights(request):
         | Q(centroid_plane__intersects=viewport)
     ).prefetch_related('names')[:MAX_HIGHLIGHTS]
 
-    features = []
-    for place in places:
-        names = {place.display_name}
-        names.update(entry.name for entry in place.names.all())
-        features.append(
-            {
-                'type': 'Feature',
-                'geometry': json.loads(
-                    (place.label_point or place.centroid).geojson
-                ),
-                'properties': {
-                    'slug': place.slug,
-                    'display_name': place.display_name,
-                    'feature_class': place.feature_class,
-                    'names': sorted(names),
-                },
-            }
-        )
+    features = [_dot_feature(place) for place in places]
     return Response({'type': 'FeatureCollection', 'features': features})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def contributions(request):
+    """Every place the signed-in user has worked on, as centroid GeoJSON.
+
+    The map's "your contributions" lens. Unlike `highlights` this is not
+    viewport-scoped: the question it answers is "where have I been?",
+    which a viewport query can't answer without the user first guessing
+    where to look. One person's contributions are a small set, so the
+    whole footprint ships at once and the client frames `bbox`.
+
+    Contributing means either authoring a revision or posting to talk.
+    Talk attaches to the Place, not the Article, so a discussion on a
+    stub counts and lands a dot on a place with nothing written yet —
+    but an edit only counts while its article is actually live, so a
+    deleted article stays out of this listing like every other one.
+    """
+    user = request.user
+    edited = Revision.objects.filter(
+        article__place=OuterRef('pk'), author=user
+    )
+    # A deleted post is withheld from the thread it's in, so it shouldn't
+    # keep pinning a dot to the map either.
+    talked = TalkPost.objects.filter(
+        thread__place=OuterRef('pk'),
+        thread__deleted__isnull=True,
+        author=user,
+        deleted__isnull=True,
+    )
+    places = (
+        Place.objects.filter(
+            (published_q() & Q(Exists(edited))) | Q(Exists(talked))
+        )
+        .prefetch_related('names')
+        .order_by('display_name', 'id')[: MAX_CONTRIBUTIONS + 1]
+    )
+    places = list(places)
+    truncated = len(places) > MAX_CONTRIBUTIONS
+    features = [_dot_feature(place) for place in places[:MAX_CONTRIBUTIONS]]
+
+    # Framing box over the dots themselves, so the client's fitBounds
+    # lands on exactly what it's about to draw. Planar min/max: a set
+    # spanning the antimeridian frames the long way round, which is
+    # merely a wide view, not a wrong one.
+    bbox = None
+    if features:
+        lngs = [f['geometry']['coordinates'][0] for f in features]
+        lats = [f['geometry']['coordinates'][1] for f in features]
+        bbox = [min(lngs), min(lats), max(lngs), max(lats)]
+
+    return Response(
+        {
+            'type': 'FeatureCollection',
+            'features': features,
+            'bbox': bbox,
+            'truncated': truncated,
+        }
+    )
 
 
 @api_view(['GET'])

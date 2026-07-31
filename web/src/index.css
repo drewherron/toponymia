@@ -740,6 +740,57 @@ body,
   background: var(--amber-solid-hover);
 }
 
+/* Contributions lens banner (top-centre of the map).
+
+   The lens is turned on from inside the account dialog, which closes
+   behind it — so this is the only thing telling you the map is showing a
+   filtered set, and the × is the only way back. Top-centre keeps it clear
+   of the article pane (left), the sheet (bottom) and the zoom controls
+   (top-right). */
+.contrib-chip {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--amber-border);
+  border-radius: 16px;
+  background: var(--amber-chip-bg);
+  color: var(--amber-text);
+  font-size: 0.85rem;
+  box-shadow: 0 2px 10px var(--shadow);
+}
+
+.contrib-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contrib-chip button {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.contrib-chip button:hover {
+  background: var(--amber-surface-hover);
+}
+
 /* Auth control (in the header, right edge) */
 
 .auth-control {

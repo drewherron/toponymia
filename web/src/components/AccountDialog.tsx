@@ -15,6 +15,9 @@ interface AccountDialogProps {
   onClose: () => void
   onUserChange: (user: User | null) => void
   onOpenDoc: (doc: LegalDoc) => void
+  /** Show the map lens for everything this user has worked on. Handled by
+   *  App, which owns the map and closes this dialog on the way. */
+  onShowContributions: () => void
 }
 
 type Panel = 'menu' | 'password' | 'email' | 'verify' | 'close'
@@ -35,6 +38,7 @@ function AccountDialog({
   onClose,
   onUserChange,
   onOpenDoc,
+  onShowContributions,
 }: AccountDialogProps) {
   const [panel, setPanel] = useState<Panel>('menu')
   const [currentPassword, setCurrentPassword] = useState('')
@@ -166,6 +170,9 @@ function AccountDialog({
               .
             </p>
             <div className="account-actions">
+              <button type="button" onClick={onShowContributions}>
+                Map my contributions
+              </button>
               <button type="button" onClick={() => go('password')}>
                 Change password
               </button>

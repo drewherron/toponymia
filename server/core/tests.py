@@ -1549,6 +1549,132 @@ class HighlightApiTests(ApiTestCase):
         self.assertEqual(len(features), 1)
 
 
+class ContributionsApiTests(ApiTestCase):
+    """The "your contributions" map lens. Unlike highlights this is not
+    viewport-scoped: it answers "where have I been?", so it ships the
+    user's whole footprint plus a box to frame it with."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+        self.other = User.objects.create_user('sam', password='pw12345!')
+
+    def _get(self):
+        return self.client.get(reverse('core:contributions'))
+
+    def _talk(self, place, author, **overrides):
+        thread = TalkThread.objects.create(place=place, title='Where from?')
+        fields = {'thread': thread, 'author': author, 'body_md': 'hi'}
+        fields.update(overrides)
+        return TalkPost.objects.create(**fields)
+
+    def test_requires_sign_in(self):
+        self.assertEqual(self._get().status_code, 403)
+
+    def test_empty_for_a_user_who_has_written_nothing(self):
+        _publish(_make_place(), self.other)
+        self.client.force_login(self.user)
+        body = self._get().json()
+        self.assertEqual(body['features'], [])
+        # No dots means nothing to frame — the client shows the empty
+        # state rather than flying the camera at a made-up box.
+        self.assertIsNone(body['bbox'])
+        self.assertFalse(body['truncated'])
+
+    def test_includes_places_the_user_edited(self):
+        _publish(_make_place(), self.user)
+        _publish(_make_place('Elsewhere', 'elsewhere'), self.other)
+        self.client.force_login(self.user)
+        features = self._get().json()['features']
+        self.assertEqual(
+            [f['properties']['slug'] for f in features], ['testville']
+        )
+
+    def test_includes_an_earlier_edit_someone_else_has_since_revised(self):
+        # Authorship of *any* revision counts, not just the current one:
+        # the article is still somewhere you've been.
+        place = _make_place()
+        _publish(place, self.user)
+        article = place.article
+        article.current_revision = Revision.objects.create(
+            article=article, author=self.other, comment='', content=_content()
+        )
+        article.save(update_fields=['current_revision'])
+        self.client.force_login(self.user)
+        self.assertEqual(len(self._get().json()['features']), 1)
+
+    def test_includes_a_stub_the_user_only_talked_on(self):
+        # Talk attaches to the Place, not the Article, so a discussion
+        # about a place nobody has written up yet still earns a dot.
+        self._talk(_make_place(), self.user)
+        self.client.force_login(self.user)
+        features = self._get().json()['features']
+        self.assertEqual(
+            [f['properties']['slug'] for f in features], ['testville']
+        )
+
+    def test_excludes_a_place_only_others_talked_on(self):
+        self._talk(_make_place(), self.other)
+        self.client.force_login(self.user)
+        self.assertEqual(self._get().json()['features'], [])
+
+    def test_excludes_deleted_talk_posts_and_threads(self):
+        withheld = self._talk(
+            _make_place('Gone', 'gone'), self.user, deleted=timezone.now()
+        )
+        self.assertIsNotNone(withheld)
+        buried = self._talk(_make_place('Buried', 'buried'), self.user)
+        TalkThread.objects.filter(pk=buried.thread_id).update(
+            deleted=timezone.now()
+        )
+        self.client.force_login(self.user)
+        self.assertEqual(self._get().json()['features'], [])
+
+    def test_excludes_an_edit_whose_article_was_deleted(self):
+        # `published_places`'s rule, held to in this listing too: a
+        # deleted article doesn't linger anywhere public.
+        place = _make_place()
+        _publish(place, self.user)
+        Article.objects.filter(place=place).update(deleted=timezone.now())
+        self.client.force_login(self.user)
+        self.assertEqual(self._get().json()['features'], [])
+
+    def test_counts_a_place_once_however_many_times_it_was_touched(self):
+        place = _make_place()
+        _publish(place, self.user)
+        article = place.article
+        Revision.objects.create(
+            article=article, author=self.user, comment='', content=_content()
+        )
+        self._talk(place, self.user)
+        self.client.force_login(self.user)
+        self.assertEqual(len(self._get().json()['features']), 1)
+
+    def test_bbox_spans_every_dot(self):
+        _publish(_make_place(), self.user)  # (10, 50)
+        east = Place.objects.create(
+            slug='eastward',
+            anchor_level=Place.AnchorLevel.NAME,
+            display_name='Eastward',
+            feature_class='city',
+            centroid=Point(30.0, 55.0, srid=4326),
+        )
+        _publish(east, self.user)
+        self.client.force_login(self.user)
+        self.assertEqual(self._get().json()['bbox'], [10.0, 50.0, 30.0, 55.0])
+
+    def test_flags_a_footprint_past_the_cap(self):
+        with patch('core.views.MAX_CONTRIBUTIONS', 1):
+            _publish(_make_place(), self.user)
+            _publish(_make_place('Elsewhere', 'elsewhere'), self.user)
+            self.client.force_login(self.user)
+            body = self._get().json()
+        # Truncated, and honest about it — the client says the view is
+        # partial rather than quietly dropping the tail.
+        self.assertEqual(len(body['features']), 1)
+        self.assertTrue(body['truncated'])
+
+
 class PlaceGeometryApiTests(ApiTestCase):
     """The lazily-fetched course behind the "zoom to place" highlight."""
 

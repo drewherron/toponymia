@@ -1,4 +1,4 @@
-import type { FeatureCollection } from 'geojson'
+import type { Feature, FeatureCollection } from 'geojson'
 // Relative path: the package's `exports` map hides its dist build, but
 // MapLibre's plugin loader needs the dist UMD file, served as an asset.
 import rtlTextUrl from '../../node_modules/@mapbox/mapbox-gl-rtl-text/dist/mapbox-gl-rtl-text.js?url'
@@ -180,6 +180,13 @@ const EMPTY_COLLECTION: FeatureCollection = {
   features: [],
 }
 
+/** Dots as a source payload — the lens off is an empty collection, not an
+ *  absent one, so turning it off actually clears the layer. */
+function dotCollection(features: Feature[] | null): FeatureCollection {
+  if (!features) return EMPTY_COLLECTION
+  return { type: 'FeatureCollection', features }
+}
+
 // The OpenMapTiles vector source (see the style's `sources`). `place`
 // labels carry stable OSM-derived feature ids there, so feature-state
 // keyed by id survives tile reloads — the basis of the tier-2 highlight.
@@ -225,6 +232,12 @@ interface MapViewProps {
   onViewportChange: () => void
   /** Show dots for articles whose basemap label isn't rendered here. */
   allArticles: boolean
+  /** The user's contributions lens, or null when it's off. Its own layer
+   *  rather than a filter over `highlights`: that source is refetched per
+   *  viewport and capped, so a footprint spanning continents would lose
+   *  dots to the cap — and filtering it would un-amber everyone else's
+   *  article labels, which the same response drives. */
+  contributions: Feature[] | null
   /** Language the basemap labels render in (labels.ts codes). */
   labelLanguage: string
   /** Bump to force a highlight refetch (e.g. after saving an article). */
@@ -245,6 +258,7 @@ function MapView({
   onMoveStart,
   onViewportChange,
   allArticles,
+  contributions,
   labelLanguage,
   highlightsEpoch,
   narrow,
@@ -261,6 +275,7 @@ function MapView({
     onMoveStart,
     onViewportChange,
     allArticles,
+    contributions,
     labelLanguage,
     narrow,
     paneOpen,
@@ -289,6 +304,7 @@ function MapView({
       onMoveStart,
       onViewportChange,
       allArticles,
+      contributions,
       labelLanguage,
       narrow,
       paneOpen,
@@ -299,6 +315,7 @@ function MapView({
     onMoveStart,
     onViewportChange,
     allArticles,
+    contributions,
     labelLanguage,
     narrow,
     paneOpen,
@@ -596,6 +613,20 @@ function MapView({
           )
         })
       },
+      flyToBounds: (bbox: [number, number, number, number]) => {
+        const [w, s, e, n] = bbox
+        flyWhenReady(() => {
+          fitBox(
+            [
+              [w - POINT_BOUNDS_EPS, s - POINT_BOUNDS_EPS],
+              [e + POINT_BOUNDS_EPS, n + POINT_BOUNDS_EPS],
+            ],
+            // A footprint of one place is a box of zero extent; without a
+            // ceiling the fit would slam to max zoom on that single dot.
+            FIT_MAXZOOM,
+          )
+        })
+      },
       flyToHit: (hit: GeocodeHit) => {
         flyWhenReady(() => {
           if (hit.extent) {
@@ -725,6 +756,30 @@ function MapView({
           'circle-stroke-width': 1.5,
         },
       })
+      map.addSource('contributions', {
+        type: 'geojson',
+        data: dotCollection(propsRef.current.contributions),
+      })
+      // Never subject to updateDotFilter, unlike the article dots: those
+      // stand in for a label that isn't drawn, but a footprint that drops
+      // the places whose label happens to be rendered is answering a
+      // different question. Same amber a shade larger — the lens narrows
+      // which articles you see, it doesn't make them a different thing.
+      map.addLayer({
+        id: 'contribution-dots',
+        type: 'circle',
+        source: 'contributions',
+        layout: {
+          visibility: propsRef.current.contributions ? 'visible' : 'none',
+        },
+        paint: {
+          'circle-color': DOT_COLOR,
+          'circle-radius': 6,
+          'circle-opacity': 0.95,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+        },
+      })
       readyRef.current = true
       refreshHighlights(map)
       propsRef.current.onViewportChange()
@@ -745,12 +800,14 @@ function MapView({
         propsRef.current.onViewportChange()
       }
     })
-    map.on('mouseenter', 'article-dots', () => {
-      map.getCanvas().style.cursor = 'pointer'
-    })
-    map.on('mouseleave', 'article-dots', () => {
-      map.getCanvas().style.cursor = ''
-    })
+    for (const layer of ['article-dots', 'contribution-dots']) {
+      map.on('mouseenter', layer, () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+      map.on('mouseleave', layer, () => {
+        map.getCanvas().style.cursor = ''
+      })
+    }
 
     map.on('click', (e) => {
       // Read per click rather than latched: a tablet with a keyboard folio
@@ -762,8 +819,12 @@ function MapView({
         [e.point.x - t, e.point.y - t],
         [e.point.x + t, e.point.y + t],
       ]
+      // Both dot layers: a contribution dot carries the same slug, so it
+      // opens its article without the resolve round-trip too.
       const dots = readyRef.current
-        ? map.queryRenderedFeatures(box, { layers: ['article-dots'] })
+        ? map.queryRenderedFeatures(box, {
+            layers: ['contribution-dots', 'article-dots'],
+          })
         : []
       propsRef.current.onClickFeatures(
         toCandidates(
@@ -811,6 +872,20 @@ function MapView({
       allArticles ? 'visible' : 'none',
     )
   }, [allArticles])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !readyRef.current) return
+    const source = map.getSource('contributions') as
+      | maplibregl.GeoJSONSource
+      | undefined
+    source?.setData(dotCollection(contributions))
+    map.setLayoutProperty(
+      'contribution-dots',
+      'visibility',
+      contributions ? 'visible' : 'none',
+    )
+  }, [contributions])
 
   useEffect(() => {
     const map = mapRef.current

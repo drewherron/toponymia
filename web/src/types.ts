@@ -1,3 +1,5 @@
+import type { Feature } from 'geojson'
+
 export interface FeatureCandidate {
   /** English-first display name — what the map label shows. */
   name: string
@@ -59,6 +61,19 @@ export interface GeocodeHit {
   osmRef: string | null
 }
 
+/** Every place the signed-in user has edited or discussed, fetched whole
+ *  rather than per viewport — see the server's `contributions` view. */
+export interface Contributions {
+  type: 'FeatureCollection'
+  features: Feature[]
+  /** Framing box over the dots; null when there are none to frame.
+   *  Its own field rather than GeoJSON's optional `bbox`, which is typed
+   *  as "2D or 3D box, or absent" — this one is always the flat four. */
+  bbox: [number, number, number, number] | null
+  /** The user is past the server's cap, so this is a partial footprint. */
+  truncated: boolean
+}
+
 /** The chrome overlaying the map, in CSS px per edge — the camera keeps a
  *  place inside what's left. */
 export interface MapPadding {
@@ -73,6 +88,9 @@ export interface MapApi {
   /** animate: false jumps straight to the framing (boot deep links). */
   flyToPlace: (place: ResolvedPlace, animate?: boolean) => void
   flyToHit: (hit: GeocodeHit) => void
+  /** Frame an arbitrary box — the contributions lens landing on the
+   *  user's whole footprint. */
+  flyToBounds: (bbox: [number, number, number, number]) => void
   getCenter: () => { lng: number; lat: number }
   /** Is the live camera still at the place's canonical framing (the view
    *  flyToPlace lands on)? Drives the pane's "recenter" affordance — it
