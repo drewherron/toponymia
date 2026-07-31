@@ -119,7 +119,10 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
           <h2>Names</h2>
           {content.names.map((entry) => (
             <div className="article-name" key={`${entry.name}|${entry.language}`}>
-              <h3>
+              {/* Its own class because an etymology's Markdown renders
+                  `###` as a bare h3 in this same container — without it the
+                  name and its own subsections style identically. */}
+              <h3 className="article-name-heading">
                 {entry.name}
                 {entry.language && (
                   <span className="name-language">{entry.language}</span>

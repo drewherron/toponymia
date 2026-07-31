@@ -915,12 +915,27 @@ body,
   border-bottom: 1px solid var(--border-hairline);
 }
 
+/* Markdown subheadings inside an etymology. Deliberately quieter than the
+   name they sit under — see .article-name-heading. */
 .article-name h3 {
   font-size: 0.95rem;
   margin: 10px 0 4px;
   display: flex;
   align-items: baseline;
   gap: 8px;
+}
+
+/* The name itself: the one heading a reader navigates by, so it outranks
+   both the "Names" section label and any subheading an etymology brings
+   with it. Selector carries the element too — it has to beat the rule
+   above, which matches this same h3. Layout (flex, baseline-aligned
+   badges) is inherited from there; only the weight changes. */
+.article-name h3.article-name-heading {
+  font-size: 1.2rem;
+  font-weight: 650;
+  margin: 20px 0 6px;
+  line-height: 1.25;
+  flex-wrap: wrap;
 }
 
 .name-language {
