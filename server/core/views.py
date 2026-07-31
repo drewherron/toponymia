@@ -469,16 +469,34 @@ def place_geometry(request, slug):
     return response
 
 
-def _revision_json(revision, current_id, with_content=False):
+def _revision_json(revision, current_id, with_content=False,
+                   for_moderator=False):
+    """One history row.
+
+    A suppressed revision still renders publicly, as a tombstone: author and
+    timestamp survive, the comment and the snapshot do not. That split is
+    deliberate and it is a licensing requirement, not a UI preference — the
+    history *is* how we satisfy CC BY-SA attribution for text that is still
+    live. An editor whose good prose survives in the current article, under a
+    later editor's revision, is owed credit for it even if a separate edit of
+    theirs was abusive enough to hide. Dropping their rows entirely would
+    leave us distributing their words with the attribution stripped.
+
+    The snapshot itself is never served for a suppressed revision (see
+    `revision_detail`), so nothing hidden leaks through the tombstone.
+    """
+    suppressed = revision.suppressed is not None
     data = {
         'id': revision.id,
         'author': revision.author.username,
         'created': revision.created.isoformat(),
-        'comment': revision.comment,
+        # The comment is authored text like any other, so a suppressed row
+        # withholds it — an edit summary is a perfectly good place to put a
+        # slur, and hiding the snapshot while printing the summary would
+        # defeat the whole removal.
+        'comment': '' if suppressed and not for_moderator else revision.comment,
         'is_current': revision.id == current_id,
-        # Only ever true in responses to moderators — public lists filter
-        # suppressed revisions out entirely.
-        'suppressed': revision.suppressed is not None,
+        'suppressed': suppressed,
     }
     if with_content:
         data['content'] = revision.content
@@ -505,10 +523,12 @@ def revision_list(request, slug):
     if article.deleted is not None and not is_admin(request.user):
         return Response(_EMPTY_HISTORY)
     revisions = article.revisions.select_related('author')
-    # Suppressed revisions are hidden from public history but stay visible
-    # to moderators.
-    if not is_moderator(request.user):
-        revisions = revisions.filter(suppressed__isnull=True)
+    # Suppressed revisions stay in the list for everyone — as tombstones for
+    # the public (see `_revision_json`), in full for moderators. They are not
+    # filtered out: the row is the attribution record for text that may still
+    # be live, and a history with gaps in it also tells a reader exactly which
+    # revisions were hidden, which is the opposite of discreet.
+    moderator = is_moderator(request.user)
 
     total = revisions.count()
     try:
@@ -524,7 +544,11 @@ def revision_list(request, slug):
     return Response(
         {
             'revisions': [
-                _revision_json(revision, article.current_revision_id)
+                _revision_json(
+                    revision,
+                    article.current_revision_id,
+                    for_moderator=moderator,
+                )
                 for revision in window
             ],
             'total': total,
@@ -554,6 +578,7 @@ def revision_detail(request, slug, revision_id):
                 revision,
                 revision.article.current_revision_id,
                 with_content=True,
+                for_moderator=is_moderator(request.user),
             )
         }
     )
@@ -652,6 +677,14 @@ def article_restore(request, slug):
 
     Note this restores the article *as it was*: any revision suppressed
     while it was down stays suppressed, because that flag is its own.
+
+    With one exception, which is a refusal rather than a surprise: if the
+    *current* revision is suppressed, restoring would republish the very text
+    that was hidden — the article pane renders the current snapshot without
+    consulting the flag. That combination is what bulk removal leaves behind
+    when it deletes an article a banned account solely authored, so it is a
+    reachable state, not a theoretical one. Restore the revision or revert
+    past it first, deliberately.
     """
     if not is_admin(request.user):
         return Response(status=status.HTTP_403_FORBIDDEN)
@@ -662,6 +695,14 @@ def article_restore(request, slug):
     article = getattr(place, 'article', None)
     if article is None:
         return Response(status=status.HTTP_404_NOT_FOUND)
+    current = article.current_revision
+    if current is not None and current.suppressed is not None:
+        return Response(
+            {'error': 'this article’s current revision is suppressed; '
+                      'restore that revision first, or the removed text '
+                      'goes back up with the article'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if article.deleted is not None:
         article.deleted = None
         article.deleted_by = None
@@ -721,13 +762,25 @@ def article_protection(request, slug):
     return Response({'protection_level': article.protection_level})
 
 
-def _post_json(post):
-    # A soft-deleted post stays as a tombstone (thread coherence) but its
-    # body is withheld from everyone.
+# What a removed post's byline reads as publicly. Square brackets can't be
+# registered as a username (`core/validators.py`), so this can never collide
+# with a real account.
+DELETED_AUTHOR = '[deleted]'
+
+
+def _post_json(post, for_moderator=False):
+    # A soft-deleted post stays as a tombstone (thread coherence) but its body
+    # is withheld from everyone, and publicly its byline goes too: naming the
+    # author of removed abuse pins the abuse to them on a page anyone can
+    # read, which is the harm the removal was for. Unlike a revision there is
+    # no attribution to preserve here — the text isn't being republished — so
+    # the byline can go where a revision's can't. Moderators still see who
+    # wrote it, and the row is untouched in the database.
     deleted = post.deleted is not None
+    hidden = deleted and not for_moderator
     return {
         'id': post.id,
-        'author': post.author.username,
+        'author': DELETED_AUTHOR if hidden else post.author.username,
         'body_md': '' if deleted else post.body_md,
         'created': post.created.isoformat(),
         'edited': post.edited.isoformat() if post.edited else None,
@@ -735,7 +788,7 @@ def _post_json(post):
     }
 
 
-def _thread_json(thread):
+def _thread_json(thread, for_moderator=False):
     # `post_window` is the capped prefetch (MAX_TALK_POSTS + 1) set up in
     # `talk`, not the whole thread — the bound is enforced in SQL, so an
     # enormous thread never lands in memory. A thread past the cap is
@@ -752,7 +805,10 @@ def _thread_json(thread):
         'id': thread.id,
         'title': thread.title,
         'created': thread.created.isoformat(),
-        'posts': [_post_json(post) for post in posts[:MAX_TALK_POSTS]],
+        'posts': [
+            _post_json(post, for_moderator=for_moderator)
+            for post in posts[:MAX_TALK_POSTS]
+        ],
         'posts_truncated': len(posts) > MAX_TALK_POSTS,
     }
 
@@ -794,7 +850,10 @@ def talk(request, slug):
         return Response(
             {
                 'threads': [
-                    _thread_json(thread) for thread in window[:MAX_TALK_THREADS]
+                    _thread_json(
+                        thread, for_moderator=is_moderator(request.user)
+                    )
+                    for thread in window[:MAX_TALK_THREADS]
                 ],
                 'has_more': has_more,
             }
@@ -892,7 +951,9 @@ def talk_post_delete(request, post_id):
                 request.user, ModAction.Action.DELETE_POST,
                 target_user=post.author, talk_post=post,
             )
-    return Response({'post': _post_json(post)})
+    return Response(
+        {'post': _post_json(post, for_moderator=is_moderator(request.user))}
+    )
 
 
 @api_view(['DELETE'])

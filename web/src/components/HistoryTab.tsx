@@ -304,62 +304,83 @@ function HistoryTab({
         </button>
       )}
       <ol className="revision-list">
-        {revisions.map((revision) => (
-          <li key={revision.id} className="revision-item">
-            {revisions.length > 1 && (
-              <span className="revision-radios">
-                <input
-                  type="radio"
-                  name="diff-from"
-                  title="Older revision to compare"
-                  checked={fromId === revision.id}
-                  onChange={() => setFromId(revision.id)}
-                />
-                <input
-                  type="radio"
-                  name="diff-to"
-                  title="Newer revision to compare"
-                  checked={toId === revision.id}
-                  onChange={() => setToId(revision.id)}
-                />
-              </span>
-            )}
-            <div className="revision-meta">
-              <button
-                type="button"
-                className="revision-view"
-                disabled={busy}
-                onClick={() => view(revision.id)}
-              >
-                {formatWhen(revision.created)}
-              </button>{' '}
-              <strong>{revision.author}</strong>
-              {revision.is_current && (
-                <span className="revision-current">current</span>
+        {revisions.map((revision) => {
+          // A suppressed revision still occupies its row — that row is the
+          // attribution for text that may still be live — but for anyone but
+          // a moderator it is inert: nothing to open, diff, revert or report,
+          // because the server won't serve the snapshot behind it.
+          const sealed = revision.suppressed && !user?.is_moderator
+          return (
+            <li
+              key={revision.id}
+              className={`revision-item${sealed ? ' revision-sealed' : ''}`}
+            >
+              {revisions.length > 1 && !sealed && (
+                <span className="revision-radios">
+                  <input
+                    type="radio"
+                    name="diff-from"
+                    title="Older revision to compare"
+                    checked={fromId === revision.id}
+                    onChange={() => setFromId(revision.id)}
+                  />
+                  <input
+                    type="radio"
+                    name="diff-to"
+                    title="Newer revision to compare"
+                    checked={toId === revision.id}
+                    onChange={() => setToId(revision.id)}
+                  />
+                </span>
               )}
-              {revision.comment && (
-                <span className="revision-comment">“{revision.comment}”</span>
-              )}
-              {canEdit && !revision.is_current && (
-                <button
-                  type="button"
-                  className="revision-revert"
-                  disabled={busy}
-                  onClick={() => revert(revision.id)}
-                >
-                  revert
-                </button>
-              )}
-              {(!user || user.username !== revision.author) && (
-                <ReportButton
-                  targetType="revision"
-                  targetId={revision.id}
-                  loggedIn={!!user}
-                />
-              )}
-            </div>
-          </li>
-        ))}
+              <div className="revision-meta">
+                {sealed ? (
+                  <span className="revision-when">
+                    {formatWhen(revision.created)}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="revision-view"
+                    disabled={busy}
+                    onClick={() => view(revision.id)}
+                  >
+                    {formatWhen(revision.created)}
+                  </button>
+                )}{' '}
+                <strong>{revision.author}</strong>
+                {revision.is_current && (
+                  <span className="revision-current">current</span>
+                )}
+                {revision.suppressed && (
+                  <span className="revision-removed">removed</span>
+                )}
+                {revision.comment && (
+                  <span className="revision-comment">
+                    “{revision.comment}”
+                  </span>
+                )}
+                {canEdit && !revision.is_current && !sealed && (
+                  <button
+                    type="button"
+                    className="revision-revert"
+                    disabled={busy}
+                    onClick={() => revert(revision.id)}
+                  >
+                    revert
+                  </button>
+                )}
+                {!sealed && (!user || user.username !== revision.author) && (
+                  <ReportButton
+                    targetType="revision"
+                    targetId={revision.id}
+                    loggedIn={!!user}
+                  />
+                )}
+              </div>
+            </li>
+          )
+        })}
       </ol>
       {hasMore && (
         <button

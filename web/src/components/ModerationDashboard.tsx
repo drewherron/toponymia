@@ -48,9 +48,11 @@ const EXPIRY_OPTIONS = [
 
 function BanForm({
   user,
+  isAdmin,
   onDone,
 }: {
   user: ModUserDetail
+  isAdmin: boolean
   onDone: () => void
 }) {
   const [reason, setReason] = useState('')
@@ -93,14 +95,26 @@ function BanForm({
           ))}
         </select>
       </label>
-      <label className="mod-ban-check">
-        <input
-          type="checkbox"
-          checked={removeContent}
-          onChange={(e) => setRemoveContent(e.target.checked)}
-        />
-        Also remove all their content
-      </label>
+      {/* Admin-only: removal can take down whole articles, which matches the
+          grant on article deletion itself. The server enforces this too. */}
+      {isAdmin && (
+        <label className="mod-ban-check">
+          <input
+            type="checkbox"
+            checked={removeContent}
+            onChange={(e) => setRemoveContent(e.target.checked)}
+          />
+          <span>
+            Also remove all their content
+            <small className="mod-ban-check-note">
+              Hides every talk post and revision of theirs from the public,
+              reverts articles they last edited, and deletes articles only
+              they have written. Reversible, item by item — unbanning does
+              not undo it.
+            </small>
+          </span>
+        </label>
+      )}
       <button
         type="button"
         className="mod-action-delete"
@@ -115,9 +129,11 @@ function BanForm({
 
 function BanPanel({
   user,
+  isAdmin,
   onChanged,
 }: {
   user: ModUserDetail
+  isAdmin: boolean
   onChanged: () => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -162,7 +178,7 @@ function BanPanel({
       </p>
     )
   }
-  return <BanForm user={user} onDone={onChanged} />
+  return <BanForm user={user} isAdmin={isAdmin} onDone={onChanged} />
 }
 
 // --- role controls --------------------------------------------------
@@ -245,9 +261,11 @@ function RestoreButton({
 
 function UserDetail({
   userId,
+  isAdmin,
   onChanged,
 }: {
   userId: number
+  isAdmin: boolean
   onChanged: () => void
 }) {
   const [detail, setDetail] = useState<ModUserDetail | null>(null)
@@ -279,7 +297,7 @@ function UserDetail({
       </h3>
       <p className="mod-note">Joined {when(detail.date_joined)}</p>
 
-      <BanPanel user={detail} onChanged={refresh} />
+      <BanPanel user={detail} isAdmin={isAdmin} onChanged={refresh} />
       <RolePanel user={detail} onChanged={refresh} />
 
       <section>
@@ -459,7 +477,7 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
         {selected === null ? (
           <p className="mod-note">Select a user to review.</p>
         ) : (
-          <UserDetail userId={selected} onChanged={load} />
+          <UserDetail userId={selected} isAdmin={isAdmin} onChanged={load} />
         )}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import json
 import re
 import shutil
 import tempfile
@@ -27,7 +28,6 @@ from django.utils import timezone
 
 from . import dashboard, overpass, views
 from .articles import save_edit
-from .terms import TERMS_VERSION, documented_version
 from .models import (
     Article,
     Ban,
@@ -60,6 +60,7 @@ from .serializers import (
     MAX_NAMES,
     MAX_REFERENCES,
 )
+from .terms import TERMS_VERSION, documented_version
 
 
 class ApiTestCase(TestCase):
@@ -2340,20 +2341,42 @@ class ModerationApiTests(ApiTestCase):
         report.refresh_from_db()
         self.assertEqual(report.status, Report.Status.RESOLVED)
 
-    def test_suppressed_revision_hidden_from_public_history(self):
+    def test_suppressed_revision_is_a_public_tombstone(self):
+        """The row survives for attribution; its content does not.
+
+        CC BY-SA credit lives in the history, and a suppressed author's
+        earlier prose may still be in the live article, so the byline has to
+        outlast the removal. Everything readable goes.
+        """
         old = self._older_revision()
+        old.comment = 'a slur in the edit summary'
         old.suppressed = timezone.now()
         old.suppressed_by = self.mod
-        old.save(update_fields=['suppressed', 'suppressed_by'])
+        old.save(update_fields=['comment', 'suppressed', 'suppressed_by'])
         url = reverse('core:revision-list', args=[self.place.slug])
-        # anonymous: suppressed row is gone
-        ids = [r['id'] for r in self.client.get(url).json()['revisions']]
-        self.assertNotIn(old.id, ids)
-        # moderator: still there, flagged
-        self.client.force_login(self.mod)
+
         rows = self.client.get(url).json()['revisions']
         row = next(r for r in rows if r['id'] == old.id)
         self.assertTrue(row['suppressed'])
+        self.assertEqual(row['author'], old.author.username)
+        self.assertEqual(row['created'], old.created.isoformat())
+        self.assertEqual(row['comment'], '')  # withheld
+
+        # moderator: the same row, with the summary intact
+        self.client.force_login(self.mod)
+        rows = self.client.get(url).json()['revisions']
+        row = next(r for r in rows if r['id'] == old.id)
+        self.assertEqual(row['comment'], 'a slur in the edit summary')
+
+    def test_suppressed_revision_counts_in_public_pagination(self):
+        # A history that silently dropped rows would also announce, by the
+        # gap in it, exactly which revisions were hidden.
+        old = self._older_revision()
+        url = reverse('core:revision-list', args=[self.place.slug])
+        before = self.client.get(url).json()['total']
+        old.suppressed = timezone.now()
+        old.save(update_fields=['suppressed'])
+        self.assertEqual(self.client.get(url).json()['total'], before)
 
     def test_suppressed_revision_detail_404_for_public(self):
         old = self._older_revision()
@@ -2715,15 +2738,181 @@ class DashboardApiTests(ApiTestCase):
 
     def test_ban_with_remove_content_removes_posts(self):
         post = self._post_by(self.author)
-        self.client.force_login(self.mod)
+        self.client.force_login(self.admin)
         response = self.client.post(
             reverse('core:mod-ban-user', args=[self.author.id]),
             {'reason': 'x', 'remove_content': True},
             content_type='application/json',
         )
-        self.assertEqual(response.json()['removed_content'], 1)
+        self.assertEqual(response.json()['removed_content']['talk_posts'], 1)
         post.refresh_from_db()
         self.assertIsNotNone(post.deleted)
+
+    # --- ban with content removal ------------------------------------
+    #
+    # The scenario the checkbox exists for: someone posts something nobody
+    # should have to read, and the ban is supposed to take it down. Until
+    # M14 it took down everything *except* the text that was actually on
+    # screen, because an article's current revision can't be suppressed
+    # without leaving the article blank. These cover the three ways out.
+
+    def _remove_all(self, actor=None):
+        self.client.force_login(actor or self.admin)
+        response = self.client.post(
+            reverse('core:mod-ban-user', args=[self.author.id]),
+            {'reason': 'abuse', 'remove_content': True},
+            content_type='application/json',
+        )
+        self.client.logout()
+        return response
+
+    def test_removal_reverts_an_article_off_the_banned_users_edit(self):
+        clean = save_edit(
+            self.place, self.reporter, _content(body_md='clean text'), 'ok'
+        )
+        save_edit(
+            self.place, self.author, _content(body_md='SLUR'), 'bad'
+        )
+        removed = self._remove_all().json()['removed_content']
+
+        self.assertEqual(removed['articles_reverted'], 1)
+        article = Article.objects.get(place=self.place)
+        self.assertEqual(
+            article.current_revision.content['body_md'], 'clean text'
+        )
+        # The revert is a new revision by the acting admin, not a rewrite of
+        # history, and the abusive one is now suppressed history.
+        self.assertEqual(article.current_revision.author, self.admin)
+        self.assertNotEqual(article.current_revision_id, clean.id)
+        self.assertFalse(
+            Revision.objects.filter(
+                author=self.author, suppressed__isnull=True
+            ).exists()
+        )
+
+    def test_removal_deletes_an_article_only_the_banned_user_wrote(self):
+        save_edit(self.place, self.author, _content(body_md='SLUR'), 'bad')
+        removed = self._remove_all().json()['removed_content']
+
+        self.assertEqual(removed['articles_deleted'], 1)
+        self.assertEqual(removed['articles_reverted'], 0)
+        article = Article.objects.get(place=self.place)
+        self.assertIsNotNone(article.deleted)
+        self.assertEqual(article.deleted_by, self.admin)
+        # With the article down there is nothing to keep textful, so even the
+        # current revision is suppressed — otherwise a later edit to the place
+        # would quietly demote it to history and re-expose it.
+        self.assertIsNotNone(
+            Revision.objects.get(id=article.current_revision_id).suppressed
+        )
+
+    def test_removal_takes_the_text_out_of_the_public_article(self):
+        save_edit(self.place, self.author, _content(body_md='SLUR'), 'bad')
+        self._remove_all()
+        data = self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        ).json()
+        self.assertNotIn('SLUR', json.dumps(data))
+
+    def test_removal_takes_the_text_out_of_search_and_the_map(self):
+        # Names are materialized from the *current* revision into PlaceName,
+        # which feeds the search box and the map highlights — so an abusive
+        # name outlives a removal that only touches revisions.
+        save_edit(
+            self.place, self.author,
+            _content(names=[{
+                'name': 'Slurville', 'language': 'eng',
+                'is_endonym': True, 'etymology_md': 'x',
+            }]),
+            'bad',
+        )
+        self.assertTrue(PlaceName.objects.filter(name='Slurville').exists())
+        self._remove_all()
+
+        results = self.client.get(
+            reverse('core:search'), {'q': 'Slurville'}
+        ).json()['results']
+        self.assertEqual(results, [])
+        self.assertFalse(PlaceName.objects.filter(name='Slurville').exists())
+
+    def test_removal_hides_the_edit_summary_too(self):
+        save_edit(self.place, self.reporter, _content(), 'ok')
+        save_edit(
+            self.place, self.author, _content(body_md='x'), 'SLUR IN SUMMARY'
+        )
+        self._remove_all()
+        rows = self.client.get(
+            reverse('core:revision-list', args=[self.place.slug])
+        ).json()['revisions']
+        self.assertNotIn('SLUR IN SUMMARY', json.dumps(rows))
+
+    def test_removal_keeps_the_byline_for_attribution(self):
+        # Their earlier prose can survive in the live article under a later
+        # editor's revision; CC BY-SA credit for it lives in this row.
+        save_edit(self.place, self.author, _content(body_md='useful'), 'good')
+        save_edit(self.place, self.reporter, _content(body_md='useful'), 'ok')
+        self._remove_all()
+        rows = self.client.get(
+            reverse('core:revision-list', args=[self.place.slug])
+        ).json()['revisions']
+        self.assertIn('drew', [r['author'] for r in rows])
+
+    def test_removal_masks_the_talk_byline_publicly(self):
+        post = self._post_by(self.author, body='SLUR')
+        self._remove_all()
+        threads = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()['threads']
+        row = next(
+            p for t in threads for p in t['posts'] if p['id'] == post.id
+        )
+        self.assertEqual(row['author'], '[deleted]')
+        self.assertEqual(row['body_md'], '')
+        # A moderator still sees who wrote it.
+        self.client.force_login(self.mod)
+        threads = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()['threads']
+        row = next(
+            p for t in threads for p in t['posts'] if p['id'] == post.id
+        )
+        self.assertEqual(row['author'], 'drew')
+
+    def test_removal_is_admin_only(self):
+        save_edit(self.place, self.author, _content(body_md='SLUR'), 'bad')
+        response = self._remove_all(actor=self.mod)
+        self.assertEqual(response.status_code, 403)
+        # And the ban didn't half-apply.
+        self.assertFalse(Ban.objects.filter(user=self.author).exists())
+        self.assertIsNone(Article.objects.get(place=self.place).deleted)
+
+    def test_plain_ban_leaves_all_content_alone(self):
+        save_edit(self.place, self.author, _content(body_md='fine'), 'ok')
+        post = self._post_by(self.author)
+        self.client.force_login(self.mod)
+        response = self.client.post(
+            reverse('core:mod-ban-user', args=[self.author.id]),
+            {'reason': 'x'}, content_type='application/json',
+        )
+        self.assertIsNone(response.json()['removed_content'])
+        post.refresh_from_db()
+        self.assertIsNone(post.deleted)
+        article = Article.objects.get(place=self.place)
+        self.assertIsNone(article.deleted)
+        self.assertEqual(article.current_revision.content['body_md'], 'fine')
+        self.assertIsNone(article.current_revision.suppressed)
+
+    def test_restore_refused_while_current_revision_is_suppressed(self):
+        # The state bulk removal leaves behind: restoring here would put the
+        # removed text straight back on the page.
+        save_edit(self.place, self.author, _content(body_md='SLUR'), 'bad')
+        self._remove_all()
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('core:article-restore', args=[self.place.slug])
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNotNone(Article.objects.get(place=self.place).deleted)
 
     def test_ban_rejects_malformed_body(self):
         # These all used to reach the model layer and 500: a JSON object
@@ -3429,12 +3618,26 @@ class ArticleDeleteTests(ApiTestCase):
         save_edit(self.place, self.author, _content(), 'rewritten')
         self.revision.refresh_from_db()
         self.assertIsNotNone(self.revision.suppressed)
-        ids = [
-            r['id'] for r in self.client.get(
+        row = next(
+            r for r in self.client.get(
                 reverse('core:revision-list', args=[self.place.slug])
             ).json()['revisions']
-        ]
-        self.assertNotIn(self.revision.id, ids)
+            if r['id'] == self.revision.id
+        )
+        # The row is back in public history — the article was rewritten, so
+        # the history is public again — but it is still a tombstone: the
+        # byline stands, the summary and the snapshot don't.
+        self.assertTrue(row['suppressed'])
+        self.assertEqual(row['comment'], '')
+        self.assertEqual(
+            self.client.get(
+                reverse(
+                    'core:revision-detail',
+                    args=[self.place.slug, self.revision.id],
+                )
+            ).status_code,
+            404,
+        )
 
 
 class RevertAuditTests(ApiTestCase):
@@ -4192,8 +4395,9 @@ class AccountManagementTests(ApiTestCase):
     def test_sentinel_username_cannot_be_registered(self):
         # Square brackets fail username validation, so a closed account's
         # name can never be claimed or impersonated.
-        from .validators import username_validators
         from django.core.exceptions import ValidationError
+
+        from .validators import username_validators
 
         with self.assertRaises(ValidationError):
             for validator in username_validators:

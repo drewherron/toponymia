@@ -1177,6 +1177,27 @@ body,
   margin-left: 6px;
 }
 
+/* A removed revision keeps its row so the author still gets credit for text
+   that may still be live, but the row is a record, not a door: the date is
+   plain text where an openable revision has a link. */
+.revision-when {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.revision-removed {
+  background: var(--danger-chip-bg);
+  color: var(--danger);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 0.75rem;
+  margin-left: 6px;
+}
+
+.revision-sealed {
+  opacity: 0.75;
+}
+
 .revision-comment {
   color: var(--text-muted);
   font-style: italic;
@@ -2237,9 +2258,19 @@ body,
 .mod-ban-field,
 .mod-ban-check {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 0.88rem;
+}
+
+/* Spells out what the checkbox actually does — it deletes articles, and the
+   label alone never said so. */
+.mod-ban-check-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 /* Role changes are admin-only and rare — a quiet control, not a red one:

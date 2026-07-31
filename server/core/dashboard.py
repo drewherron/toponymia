@@ -23,12 +23,22 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Ban, ModAction, Report, Revision, TalkPost
+from .articles import save_edit
+from .models import (
+    Article,
+    Ban,
+    ModAction,
+    PlaceName,
+    Report,
+    Revision,
+    TalkPost,
+)
 from .moderation import (
     active_ban,
     block_user_emails,
     can_ban,
     can_set_role,
+    is_admin,
     is_moderator,
     lift_user_email_blocks,
     log_action,
@@ -278,7 +288,8 @@ def mod_user_detail(request, user_id):
 @permission_classes([IsAuthenticated])
 def mod_ban_user(request, user_id):
     """Ban an account. Body: reason, expires_days (0/absent =
-    permanent), remove_content (also soft-remove all their content)."""
+    permanent), remove_content (also take all their content out of public
+    view — admin only, see below)."""
     forbidden = _forbidden(request)
     if forbidden is not None:
         return forbidden
@@ -291,6 +302,16 @@ def mod_ban_user(request, user_id):
     serializer = BanSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    remove_content = serializer.validated_data['remove_content']
+    # Removal can now delete whole articles, which is already an admin-only
+    # power on its own endpoint (`article_delete`). Letting a moderator reach
+    # the same outcome through a checkbox on the ban form would be a way
+    # around that grant, so the two agree.
+    if remove_content and not is_admin(request.user):
+        return Response(
+            {'error': 'only an admin may remove an account’s content'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     reason = serializer.validated_data['reason'] or ''
     days = serializer.validated_data['expires_days'] or 0
     expires = timezone.now() + timedelta(days=days) if days > 0 else None
@@ -310,41 +331,126 @@ def mod_ban_user(request, user_id):
         block_user_emails(
             target, request.user, reason=reason, expires=expires,
         )
-        removed = 0
-        if serializer.validated_data['remove_content']:
+        removed = None
+        if remove_content:
             removed = _remove_all_content(target, request.user)
         log_action(
             request.user, ModAction.Action.BAN_USER,
             target_user=target, reason=reason,
         )
     return Response(
-        {'ban': _ban_json(ban), 'removed_content': removed},
+        {
+            'ban': _ban_json(ban),
+            # Null when removal wasn't asked for, so the client can tell
+            # "removed nothing" from "wasn't asked to remove anything".
+            'removed_content': removed,
+        },
         status=status.HTTP_201_CREATED,
     )
 
 
 def _remove_all_content(user, actor):
-    """Soft-delete all of a user's talk posts and suppress all their
-    non-current revisions. Returns how many items were removed."""
+    """Take everything a user has published out of public view.
+
+    Used by ban-with-removal, whose whole purpose is the case where someone
+    posted something nobody should have to see. It aims at *nothing of theirs
+    is publicly readable*, which needs three passes, because a plain
+    suppress-everything loop can't touch the text that matters most — an
+    article's current revision, which is the article.
+
+      1. Talk posts become tombstones.
+      2. Articles whose current revision is theirs get moved off it: revert to
+         the newest revision by someone else, or — when there is no such
+         revision, because they wrote the article — soft-delete the article.
+         Either way their text stops being the live text, which also clears
+         the PlaceName rows feeding search and the map (`save_edit`
+         rematerializes; a deleted article drops out of `published_places`).
+      3. Every revision of theirs is suppressed, now that pass 2 has left none
+         of them current on a live article.
+
+    Nothing is destroyed: suppression and soft-deletion are flags, the rows
+    and their text stay in the database for appeals and for the audit trail.
+    Removing content *permanently* is deliberately not something a ban can do.
+
+    Returns a breakdown of what was removed.
+    """
     now = timezone.now()
-    count = 0
+    removed = {
+        'talk_posts': 0,
+        'revisions': 0,
+        'articles_reverted': 0,
+        'articles_deleted': 0,
+    }
+
     for post in TalkPost.objects.filter(author=user, deleted__isnull=True):
         post.deleted = now
         post.deleted_by = actor
         post.save(update_fields=['deleted', 'deleted_by'])
-        count += 1
+        removed['talk_posts'] += 1
+
+    live_articles = (
+        Article.objects.filter(
+            current_revision__author=user, deleted__isnull=True
+        )
+        .select_related('current_revision', 'place')
+    )
+    for article in live_articles:
+        replacement = (
+            article.revisions.filter(suppressed__isnull=True)
+            .exclude(author=user)
+            .order_by('-created', '-id')
+            .first()
+        )
+        if replacement is not None:
+            # A revert, credited to the moderator: the article keeps the last
+            # text a non-removed account stood behind.
+            save_edit(
+                article.place, actor, replacement.content,
+                f'Removed content from a suspended account '
+                f'(reverted to revision {replacement.id})',
+            )
+            log_action(
+                actor, ModAction.Action.REVERT_ARTICLE, target_user=user,
+                reason='content removal on ban', article=article,
+            )
+            removed['articles_reverted'] += 1
+        else:
+            # They are the only author it has ever had. There is no clean text
+            # to fall back to, so the article itself comes down — the stub
+            # state, which is what the place looked like before they wrote it.
+            article.deleted = now
+            article.deleted_by = actor
+            article.save(update_fields=['deleted', 'deleted_by'])
+            # PlaceName is materialized by `save_edit`, so unlike the revert
+            # branch nothing here clears it — and those rows are what the
+            # search box matches on. `published_places` already screens out a
+            # deleted article, but leaving an abusive name sitting in the
+            # table means one missing filter anywhere else puts it back in
+            # front of readers.
+            PlaceName.objects.filter(place=article.place).delete()
+            log_action(
+                actor, ModAction.Action.DELETE_ARTICLE, target_user=user,
+                reason='content removal on ban', article=article,
+                revision=article.current_revision,
+            )
+            removed['articles_deleted'] += 1
+
     revisions = (
         Revision.objects.filter(author=user, suppressed__isnull=True)
         .select_related('article')
     )
     for revision in revisions:
-        if revision.id == revision.article.current_revision_id:
-            continue  # can't suppress a live article's current text
+        is_current = revision.id == revision.article.current_revision_id
+        if is_current and revision.article.deleted is None:
+            # Should be unreachable after pass 2, but suppressing the current
+            # revision of a *live* article would leave it with no text to
+            # render, so the invariant is enforced here rather than assumed.
+            continue
         revision.suppressed = now
         revision.suppressed_by = actor
         revision.save(update_fields=['suppressed', 'suppressed_by'])
-        count += 1
-    return count
+        removed['revisions'] += 1
+    return removed
 
 
 @api_view(['POST'])

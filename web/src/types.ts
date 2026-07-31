@@ -154,6 +154,11 @@ export interface RevisionSummary {
   created: string
   comment: string
   is_current: boolean
+  /** Removed from public view. The row still appears in history — it is the
+   *  attribution record for text that may still be live — but the author and
+   *  timestamp are all a non-moderator gets: the comment comes back empty and
+   *  the snapshot 404s. */
+  suppressed: boolean
 }
 
 export interface RevisionDetail extends RevisionSummary {
@@ -173,6 +178,9 @@ export interface RevisionPage {
 
 export interface TalkPost {
   id: number
+  /** Reads `[deleted]` on a removed post unless the viewer is a moderator —
+   *  naming the author of hidden abuse would republish the association the
+   *  removal was meant to end. */
   author: string
   body_md: string
   created: string
