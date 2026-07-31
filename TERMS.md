@@ -68,8 +68,20 @@ where content or conduct violates these terms. Reporting and moderation tools
 exist for this purpose. The site's operator and moderators may, but are not
 obligated to, monitor contributions.
 
-Removed content may remain in revision history; content removed for copyright
-or other legal reasons may also be suppressed from public revision history.
+Removal hides content from public view rather than erasing it, and the
+underlying record is retained so that a removal can be reviewed or reversed:
+
+- A removed **talk post** keeps its place in the discussion, with its text
+  withheld and no author shown.
+- A removed **revision** keeps its entry in the article's public history —
+  showing who made it and when — with its text and its edit summary withheld.
+  That entry is deliberate: it is the attribution for work of yours that may
+  still form part of the live article (section 2).
+- Where an article consists only of removed material, the article itself is
+  taken down and the place reads as unwritten.
+
+Material removed for copyright or other legal reasons is handled the same way,
+and may additionally be erased from the record where the law requires it.
 
 ## 5. Copyright complaints
 

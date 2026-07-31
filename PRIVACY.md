@@ -67,7 +67,7 @@ Use, section 2). So a contribution cannot be withdrawn from the site or from
 anyone who has already reused it, even if you later close your account.
 
 Closing your account does remove your **name** from that history: the username
-is replaced with an anonymous `[deleted]` placeholder that identifies nobody,
+is replaced with an anonymous `[deleted-…]` placeholder that identifies nobody,
 and the placeholder can never be registered by anyone else. Your original
 username is retired at the same time — nobody can register it afterwards, so
 it cannot come to refer to someone else. That applies to you too: closing an
@@ -76,8 +76,19 @@ closing cannot do is remove the contributions themselves. Note also that it
 does not rewrite prose — if someone addressed you by name in a talk post, that
 text stays as written.
 
-Content can be removed from public view by moderators, and revisions can be
-suppressed from public history — but the underlying record is retained.
+Moderators can also remove content from public view: a talk post's text, a
+revision's text and edit summary, or a whole article. Two details cut in
+opposite directions, and both are worth knowing:
+
+- A removed **revision keeps your username** in the public history, alongside
+  the time of the edit. That entry is what credits you for work that may still
+  be part of the live article, so removing the content does not remove your
+  name from the record.
+- A removed **talk post does not keep your username**: publicly it shows no
+  author at all.
+
+In both cases the underlying record is retained and remains visible to
+moderators, so that a removal can be reviewed or undone.
 
 ## 5. Other services your browser contacts
 
