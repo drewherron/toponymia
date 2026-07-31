@@ -237,9 +237,7 @@ export const REPORT_CATEGORIES: { value: ReportCategory; label: string }[] = [
   { value: 'vandalism', label: 'Vandalism' },
   { value: 'harassment', label: 'Harassment' },
   { value: 'personal_info', label: 'Personal information' },
-  // Names the misconception the label has to defeat: reporters assume a
-  // citation makes copied wording fine (TERMS.md §2 says otherwise).
-  { value: 'copyright', label: 'Copyright — copied text' },
+  { value: 'copyright', label: 'Copyright' },
   { value: 'other', label: 'Other' },
 ]
 

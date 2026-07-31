@@ -78,6 +78,10 @@
   --amber-border: #c98a1a;
   --amber-border-soft: #f0dcc0; /* was #f0dcc0 + #eadfbc */
   --amber-underline: rgba(180, 83, 9, 0.4);
+  /* Text on an --amber-strong fill. White here, near-black in dark: that
+     token is a dark amber in light mode and a light one in dark, so what
+     reads against it flips with it. */
+  --on-amber: #fff;
 
   /* Success / present-tense green */
   --ok-text: #1d5c2e; /* was six near-identical greens */
@@ -184,6 +188,7 @@
   --amber-border: #7a5a1e;
   --amber-border-soft: #4a3a20;
   --amber-underline: rgba(224, 154, 74, 0.4);
+  --on-amber: #16181b;
 
   /* Success */
   --ok-text: #7cc98d;
@@ -2493,7 +2498,7 @@ body,
 .moderation-button.active:hover {
   background: var(--amber-strong);
   border-color: var(--amber-strong);
-  color: var(--on-accent);
+  color: var(--on-amber);
 }
 
 /* ---- Map navigation buttons in dark -------------------------------
