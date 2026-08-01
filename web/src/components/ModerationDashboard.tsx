@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   banUser,
   fetchModAudit,
@@ -369,6 +370,49 @@ function RestoreButton({
 
 // --- user detail ----------------------------------------------------
 
+/** One collapsible list in the user panel, matching the Talk tab's threads.
+ *
+ *  Collapsed to start: a busy account carries a hundred posts and a hundred
+ *  revisions, and the panel's job on open is to let a moderator see the
+ *  shape of the account — five counts — before choosing what to read. */
+function DetailSection({
+  title,
+  count,
+  children,
+}: {
+  title: string
+  count: number
+  children: ReactNode
+}) {
+  const bodyId = useId()
+  const [collapsed, setCollapsed] = useState(true)
+  return (
+    <section className="mod-detail-section">
+      <h4>
+        <button
+          type="button"
+          className="mod-section-toggle"
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          <span className="mod-section-caret" aria-hidden="true">
+            {collapsed ? '▸' : '▾'}
+          </span>
+          <span className="mod-section-title">{title}</span>
+          <span className="mod-section-count">{count}</span>
+        </button>
+      </h4>
+      {/* Unmounted rather than hidden, like a collapsed thread: these lists
+          carry the full body of every post and revision excerpt, which is
+          exactly the weight the collapse exists to avoid. */}
+      <div id={bodyId} hidden={collapsed}>
+        {!collapsed && children}
+      </div>
+    </section>
+  )
+}
+
 function UserDetail({
   userId,
   isAdmin,
@@ -428,8 +472,10 @@ function UserDetail({
       />
       <RolePanel user={detail} onChanged={refresh} />
 
-      <section>
-        <h4>Reports against them ({detail.reports_against.length})</h4>
+      <DetailSection
+        title="Reports against them"
+        count={detail.reports_against.length}
+      >
         {detail.reports_against.length === 0 ? (
           <p className="mod-note">None.</p>
         ) : (
@@ -449,10 +495,9 @@ function UserDetail({
             ))}
           </ul>
         )}
-      </section>
+      </DetailSection>
 
-      <section>
-        <h4>Talk posts ({detail.talk_posts.length})</h4>
+      <DetailSection title="Talk posts" count={detail.talk_posts.length}>
         <ul className="mod-detail-list">
           {detail.talk_posts.map((p) => (
             <li key={p.id} className={p.deleted ? 'mod-removed' : ''}>
@@ -470,10 +515,12 @@ function UserDetail({
             </li>
           ))}
         </ul>
-      </section>
+      </DetailSection>
 
-      <section>
-        <h4>Threads started ({detail.talk_threads.length})</h4>
+      <DetailSection
+        title="Threads started"
+        count={detail.talk_threads.length}
+      >
         {detail.talk_threads.length === 0 ? (
           <p className="mod-note">None.</p>
         ) : (
@@ -497,10 +544,9 @@ function UserDetail({
             ))}
           </ul>
         )}
-      </section>
+      </DetailSection>
 
-      <section>
-        <h4>Revisions ({detail.revisions.length})</h4>
+      <DetailSection title="Revisions" count={detail.revisions.length}>
         <ul className="mod-detail-list">
           {detail.revisions.map((r) => (
             <li key={r.id} className={r.suppressed ? 'mod-removed' : ''}>
@@ -519,10 +565,9 @@ function UserDetail({
             </li>
           ))}
         </ul>
-      </section>
+      </DetailSection>
 
-      <section>
-        <h4>Actions taken ({detail.audit.length})</h4>
+      <DetailSection title="Actions taken" count={detail.audit.length}>
         {detail.audit.length === 0 ? (
           <p className="mod-note">None.</p>
         ) : (
@@ -535,18 +580,60 @@ function UserDetail({
             ))}
           </ul>
         )}
-      </section>
+      </DetailSection>
     </div>
   )
 }
 
 // --- users tab ------------------------------------------------------
 
+type UserSort = 'recent' | 'username' | 'open' | 'reports' | 'removed'
+
+// Kept terse on purpose: a native select is as wide as its longest option,
+// and this one shares a 340px column with the "Show all" checkbox.
+const USER_SORTS: { key: UserSort; label: string }[] = [
+  { key: 'recent', label: 'Recent' },
+  { key: 'username', label: 'Name' },
+  { key: 'open', label: 'Open' },
+  { key: 'reports', label: 'Reports' },
+  { key: 'removed', label: 'Removed' },
+]
+
+/** Order the list by one column, alphabetically within ties — so a sort by
+ *  a count that most rows share still reads as a stable list rather than
+ *  whatever order the server happened to send. */
+function sortUsers(rows: ModUserRow[], sort: UserSort): ModUserRow[] {
+  const byName = (a: ModUserRow, b: ModUserRow) =>
+    a.username.toLowerCase().localeCompare(b.username.toLowerCase())
+  return [...rows].sort((a, b) => {
+    switch (sort) {
+      case 'username':
+        return byName(a, b)
+      case 'open':
+        return b.reports_open - a.reports_open || byName(a, b)
+      case 'reports':
+        return b.reports_total - a.reports_total || byName(a, b)
+      case 'removed':
+        return b.removed_count - a.removed_count || byName(a, b)
+      default:
+        // The server's own order: most recently reported first, with the
+        // never-reported (null timestamp) falling to the bottom.
+        return (
+          (b.last_report ?? '').localeCompare(a.last_report ?? '') ||
+          byName(a, b)
+        )
+    }
+  })
+}
+
 function UsersTab({ isAdmin }: { isAdmin: boolean }) {
   const [rows, setRows] = useState<ModUserRow[] | null>(null)
   const [truncated, setTruncated] = useState(false)
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<number | null>(null)
+  // Defaults to what the server already sends, so opening the tab looks
+  // exactly as it did before the control existed.
+  const [sort, setSort] = useState<UserSort>('recent')
   // The default list is moderation-shaped: only accounts with something
   // against them. An admin promoting a well-behaved contributor needs the
   // whole roster, which nothing else here would ever surface.
@@ -566,8 +653,11 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
   const shown = useMemo(() => {
     if (!rows) return []
     const q = filter.trim().toLowerCase()
-    return q ? rows.filter((r) => r.username.toLowerCase().includes(q)) : rows
-  }, [rows, filter])
+    const matched = q
+      ? rows.filter((r) => r.username.toLowerCase().includes(q))
+      : rows
+    return sortUsers(matched, sort)
+  }, [rows, filter, sort])
 
   return (
     <div className="mod-users">
@@ -578,16 +668,34 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
           placeholder="Filter users…"
           onChange={(e) => setFilter(e.target.value)}
         />
-        {isAdmin && (
-          <label className="mod-show-all">
-            <input
-              type="checkbox"
-              checked={showAll}
-              onChange={(e) => setShowAll(e.target.checked)}
-            />
-            Show all users
+        <div className="mod-list-controls">
+          {isAdmin && (
+            <label className="mod-show-all">
+              <input
+                type="checkbox"
+                checked={showAll}
+                onChange={(e) => setShowAll(e.target.checked)}
+              />
+              Show all
+            </label>
+          )}
+          {/* Not `mod-sort` — that class belongs to the Reporters table's
+              sortable column headers, whose rules sit later in the
+              stylesheet and would win. */}
+          <label className="mod-user-sort">
+            Sort
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as UserSort)}
+            >
+              {USER_SORTS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
-        )}
+        </div>
         {truncated && (
           <p className="mod-note mod-truncated">
             Showing the first {rows?.length ?? 0} accounts — filtering searches

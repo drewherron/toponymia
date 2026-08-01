@@ -174,16 +174,41 @@ function ModQueue({ onClose }: ModQueueProps) {
         {reports !== null && reports.length === 0 && (
           <p className="feature-pane-note">No open reports. All clear.</p>
         )}
+        {/* Every button here closes the report, so what separates them is
+            invisible from the labels: whether the content changes, and what
+            verdict goes on the reporter's record. Shown only alongside
+            actual reports — with an empty queue it explains nothing. */}
         {reports !== null && reports.length > 0 && (
-          <ul className="mod-report-list">
-            {reports.map((report) => (
-              <ReportCard
-                key={report.id}
-                report={report}
-                onDone={handleDone}
-              />
-            ))}
-          </ul>
+          <>
+            <dl className="mod-queue-legend">
+              <dt>Remove content / Suppress revision</dt>
+              <dd>
+                Takes it out of public view and closes the report. Reversible
+                from Moderation → the author’s page.
+              </dd>
+              <dt>Resolve</dt>
+              <dd>
+                Closes the report as a fair one, leaving the content as it is —
+                for when you’ve acted elsewhere (reverting a current revision)
+                or nothing further is needed.
+              </dd>
+              <dt>Dismiss</dt>
+              <dd>
+                Closes the report as unfounded. Dismissals are counted per
+                reporter under Moderation → Reporters, where a high tally is
+                the signature of report-button abuse.
+              </dd>
+            </dl>
+            <ul className="mod-report-list">
+              {reports.map((report) => (
+                <ReportCard
+                  key={report.id}
+                  report={report}
+                  onDone={handleDone}
+                />
+              ))}
+            </ul>
+          </>
         )}
       </div>
     </div>

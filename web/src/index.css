@@ -1630,6 +1630,32 @@ body,
   margin: 0;
 }
 
+/* What the three outcomes actually differ by. Set on a tinted panel so it
+   reads as guidance about the queue rather than as one more report in it. */
+.mod-queue-legend {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.mod-queue-legend dt {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.mod-queue-legend dd {
+  margin: 0 0 8px;
+}
+
+.mod-queue-legend dd:last-child {
+  margin-bottom: 0;
+}
+
 .mod-report-list {
   list-style: none;
   margin: 0;
@@ -2125,13 +2151,51 @@ body,
   width: 100%;
 }
 
+/* The list's own controls, on one line under the filter: "Show all users"
+   (admins only) at the left, the sort at the right whether or not the
+   checkbox is there to sit beside. */
+.mod-list-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
 .mod-show-all {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-top: 8px;
   font-size: 0.85rem;
   color: var(--warm-text-strong);
+  cursor: pointer;
+  /* Never let the select's width push this onto a second line — the row
+     is one line by design, and a wrapped label reads as a layout bug. */
+  white-space: nowrap;
+}
+
+/* Named apart from `.mod-sort` (the Reporters table's column headers),
+   which is defined later in this file and sets width: 100%. */
+.mod-user-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Right-aligned in the pane whether or not the admin-only checkbox is
+     there to sit beside. */
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--warm-text-strong);
+  white-space: nowrap;
+}
+
+.mod-user-sort select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-body);
   cursor: pointer;
 }
 
@@ -2208,6 +2272,46 @@ body,
 .mod-user-detail h4 {
   margin: 0 0 8px;
   font-size: 0.95rem;
+}
+
+/* Collapsible section headings in the user panel — the same caret/title/
+   count shape as a Talk thread, so the two read as one gesture. */
+.mod-section-toggle {
+  font: inherit;
+  color: inherit;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.mod-section-toggle:hover .mod-section-title {
+  color: var(--accent);
+}
+
+.mod-section-caret {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  flex: none;
+}
+
+/* Not flex: 1, unlike the Talk thread it borrows its shape from. That pane
+   is narrow, so pushing the count to the far edge keeps it near the title
+   anyway; this panel is wide enough that it would strand the number. */
+.mod-section-title {
+  flex: none;
+}
+
+.mod-section-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex: none;
 }
 
 .mod-detail-list {
