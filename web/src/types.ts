@@ -399,6 +399,16 @@ export interface ModAuditRow {
   place_slug: string | null
 }
 
+/** One page of the global audit feed. The log only grows, so this is a
+ *  browsable archive rather than a capped window — `total` is what lets the
+ *  client number the pages. */
+export interface ModAuditPage {
+  actions: ModAuditRow[]
+  total: number
+  offset: number
+  page_size: number
+}
+
 export interface BanInput {
   reason: string
   expires_days: number

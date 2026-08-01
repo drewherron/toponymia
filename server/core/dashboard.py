@@ -54,10 +54,11 @@ User = get_user_model()
 # fat payload and a lying search box.
 ALL_USERS_CAP = 500
 
-# Page size for the global audit feed. The feed's job is oversight — noticing
-# a burst of removals you didn't expect — so it is capped and newest-first
-# rather than paginated into a browsable archive.
-AUDIT_PAGE = 200
+# Page size for the global audit feed, which is now a browsable archive
+# rather than a capped window: the log only grows, and "what happened last
+# March" is a question oversight eventually asks. Sized for a screenful —
+# the old 200-row cap was a whole page's worth of scrolling on its own.
+AUDIT_PAGE = 50
 
 
 def _forbidden(request):
@@ -607,7 +608,8 @@ def mod_audit(request):
     account"; it can't answer "is a moderator quietly working through every
     article on the wiki", which is the question that needs a single stream.
     Optional `?actor=<id>` / `?target=<id>` narrow it; `?action=` filters to
-    one kind.
+    one kind; `?offset=` pages through it (AUDIT_PAGE rows at a time, with
+    `total` so the client can number the pages).
     """
     forbidden = _forbidden(request)
     if forbidden is not None:
@@ -635,19 +637,31 @@ def mod_audit(request):
     if 'action' in filters:
         rows = rows.filter(action=filters['action'])
     # Model Meta.ordering is already ['-created', '-id'].
-    rows = rows[:AUDIT_PAGE]
-    return Response({'actions': [{
-        'id': a.id,
-        'action': a.action,
-        'actor': a.actor.username if a.actor else None,
-        'target_user': a.target_user.username if a.target_user else None,
-        'reason': a.reason,
-        'created': _iso(a.created),
-        # Where the acted-on thing lives, so a row is clickable. Articles and
-        # revisions both resolve to a place; a talk post links to its place
-        # too (threads hang off the Place, not the Article).
-        'place_slug': (
-            a.article.place.slug if a.article_id
-            else None
-        ),
-    } for a in rows]})
+    total = rows.count()
+    # Clamped, so a page number past the end lands on the last rows rather
+    # than an empty list the client can't tell from "nothing matches".
+    offset = max(0, min(filters.get('offset', 0), max(total - 1, 0)))
+    window = rows[offset : offset + AUDIT_PAGE]
+    return Response({
+        'total': total,
+        'offset': offset,
+        'page_size': AUDIT_PAGE,
+        'actions': [{
+            'id': a.id,
+            'action': a.action,
+            'actor': a.actor.username if a.actor else None,
+            'target_user': (
+                a.target_user.username if a.target_user else None
+            ),
+            'reason': a.reason,
+            'created': _iso(a.created),
+            # Where the acted-on thing lives, so a row is clickable.
+            # Articles and revisions both resolve to a place; a talk post
+            # links to its place too (threads hang off the Place, not the
+            # Article).
+            'place_slug': (
+                a.article.place.slug if a.article_id
+                else None
+            ),
+        } for a in window],
+    })

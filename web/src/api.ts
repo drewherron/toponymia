@@ -7,7 +7,7 @@ import type {
   GeocodeHit,
   PlaceDetail,
   BanInput,
-  ModAuditRow,
+  ModAuditPage,
   ModReporter,
   ModUserDetail,
   ModUsersResult,
@@ -623,13 +623,14 @@ export async function fetchModReporters(
 }
 
 export async function fetchModAudit(
+  offset = 0,
   signal?: AbortSignal,
-): Promise<ModAuditRow[]> {
-  const response = await fetch('/api/mod/audit/', { signal })
+): Promise<ModAuditPage> {
+  const response = await fetch(`/api/mod/audit/?offset=${offset}`, { signal })
   if (!response.ok) {
     throw new Error(`audit fetch failed: ${response.status}`)
   }
-  return (await response.json()).actions
+  return response.json()
 }
 
 /** Restore a soft-deleted talk post (inverse of a queue delete). */

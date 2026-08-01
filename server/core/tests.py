@@ -3977,6 +3977,69 @@ class AuditFeedTests(ApiTestCase):
             self.client.get(reverse('core:mod-audit')).status_code, 403
         )
 
+    # --- paging ------------------------------------------------------
+    def _fill(self, count):
+        """`count` more actions, so the feed spans several pages."""
+        ModAction.objects.bulk_create([
+            ModAction(
+                actor=self.mod, action=ModAction.Action.DELETE_POST,
+                target_user=self.other, reason=f'row {n}',
+            )
+            for n in range(count)
+        ])
+
+    def test_feed_reports_its_own_size_and_position(self):
+        self.client.force_login(self.mod)
+        body = self.client.get(reverse('core:mod-audit')).json()
+        self.assertEqual(body['total'], 2)
+        self.assertEqual(body['offset'], 0)
+        self.assertEqual(body['page_size'], dashboard.AUDIT_PAGE)
+
+    def test_offset_pages_through_without_repeating_a_row(self):
+        self._fill(dashboard.AUDIT_PAGE)
+        self.client.force_login(self.mod)
+        first = self.client.get(reverse('core:mod-audit')).json()
+        second = self.client.get(
+            reverse('core:mod-audit'), {'offset': dashboard.AUDIT_PAGE}
+        ).json()
+        self.assertEqual(len(first['actions']), dashboard.AUDIT_PAGE)
+        self.assertEqual(len(second['actions']), 2)
+        self.assertEqual(second['offset'], dashboard.AUDIT_PAGE)
+        ids = [a['id'] for a in first['actions'] + second['actions']]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(len(ids), first['total'])
+
+    def test_offset_past_the_end_clamps_to_the_last_rows(self):
+        # An empty page is indistinguishable from "nothing matches", so a
+        # page number past the end lands on real rows instead.
+        self.client.force_login(self.mod)
+        body = self.client.get(
+            reverse('core:mod-audit'), {'offset': 9999}
+        ).json()
+        self.assertEqual(body['offset'], 1)
+        self.assertEqual(len(body['actions']), 1)
+
+    def test_offset_on_an_empty_feed_stays_at_zero(self):
+        ModAction.objects.all().delete()
+        self.client.force_login(self.mod)
+        body = self.client.get(
+            reverse('core:mod-audit'), {'offset': 40}
+        ).json()
+        self.assertEqual(body['total'], 0)
+        self.assertEqual(body['offset'], 0)
+        self.assertEqual(body['actions'], [])
+
+    def test_feed_rejects_a_bad_offset(self):
+        self.client.force_login(self.mod)
+        for value in ('abc', '-1'):
+            with self.subTest(offset=value):
+                self.assertEqual(
+                    self.client.get(
+                        reverse('core:mod-audit'), {'offset': value}
+                    ).status_code,
+                    400,
+                )
+
     def test_feed_rejects_non_numeric_ids(self):
         # A non-numeric id reached the queryset and raised ValueError, so a
         # hand-typed URL 500'd. Note '1 OR 1=1' is not an injection risk —

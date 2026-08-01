@@ -201,6 +201,10 @@ class AuditFilterSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
         choices=ModAction.Action.choices, required=False
     )
+    # Same treatment as the ids above: validated here so a hand-typed page
+    # number is a 400, not a slice on a string. Clamped to the feed's length
+    # by the view, which is the only thing that knows it.
+    offset = serializers.IntegerField(required=False, min_value=0)
 
 
 class ProtectionSerializer(serializers.Serializer):

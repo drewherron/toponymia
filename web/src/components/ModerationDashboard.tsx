@@ -14,7 +14,7 @@ import {
 } from '../api'
 import { REPORT_CATEGORIES } from '../types'
 import type {
-  ModAuditRow,
+  ModAuditPage,
   ModReporter,
   ModUserDetail,
   ModUserRow,
@@ -911,42 +911,162 @@ const ACTION_LABEL: Record<string, string> = {
 }
 
 /** The whole point of the feed: removals stand out when you scan it. */
-const DESTRUCTIVE = new Set([
-  'delete_post',
-  'suppress_revision',
-  'delete_thread',
-  'delete_article',
-  'revert_article',
-  'ban_user',
-])
+/** The whole point of the feed: what a row *did* should be legible before
+ *  you read it. Four tones on one axis, worst to best.
+ *
+ *  `severe` takes something (or someone) out of public view; `corrective`
+ *  changes or narrows without hiding — a revert is undoable and leaves the
+ *  history intact, which is why it sits below a removal rather than beside
+ *  one; `judgement` closes a report and touches no content at all;
+ *  `restorative` puts something back or grants something. */
+type ActionTone = 'severe' | 'corrective' | 'judgement' | 'restorative'
+
+const ACTION_TONE: Record<string, ActionTone> = {
+  ban_user: 'severe',
+  delete_article: 'severe',
+  delete_post: 'severe',
+  delete_thread: 'severe',
+  suppress_revision: 'severe',
+  revert_article: 'corrective',
+  demote_mod: 'corrective',
+  resolve_report: 'judgement',
+  dismiss_report: 'judgement',
+  restore_article: 'restorative',
+  restore_post: 'restorative',
+  restore_revision: 'restorative',
+  restore_thread: 'restorative',
+  unban_user: 'restorative',
+  promote_mod: 'restorative',
+}
+
+const TONE_LEGEND: { tone: ActionTone; label: string }[] = [
+  { tone: 'severe', label: 'Removed' },
+  { tone: 'corrective', label: 'Corrected' },
+  { tone: 'judgement', label: 'Report closed' },
+  { tone: 'restorative', label: 'Restored' },
+]
+
+/** Page numbers to show around `page`, with nulls standing for a gap.
+ *
+ *  Always the first and last page plus a window around the current one, so
+ *  the control keeps a fixed width however deep the log gets — jumping to
+ *  the end stays one click at page 3 and at page 300. */
+function pageItems(page: number, pages: number): (number | null)[] {
+  if (pages <= 7) {
+    return Array.from({ length: pages }, (_, i) => i + 1)
+  }
+  const items: (number | null)[] = [1]
+  const from = Math.max(2, Math.min(page - 1, pages - 4))
+  const to = Math.min(pages - 1, Math.max(page + 1, 5))
+  if (from > 2) items.push(null)
+  for (let n = from; n <= to; n += 1) items.push(n)
+  if (to < pages - 1) items.push(null)
+  items.push(pages)
+  return items
+}
+
+function Pagination({
+  page,
+  pages,
+  onGo,
+}: {
+  page: number
+  pages: number
+  onGo: (page: number) => void
+}) {
+  if (pages <= 1) return null
+  return (
+    <nav className="mod-pager" aria-label="Audit log pages">
+      <button
+        type="button"
+        className="mod-pager-step"
+        disabled={page === 1}
+        onClick={() => onGo(page - 1)}
+        aria-label="Previous page"
+      >
+        ‹
+      </button>
+      {pageItems(page, pages).map((n, i) =>
+        n === null ? (
+          // Index keys are wrong for anything reorderable, but a gap has no
+          // identity of its own and there are at most two.
+          <span key={`gap-${i}`} className="mod-pager-gap" aria-hidden="true">
+            …
+          </span>
+        ) : (
+          <button
+            key={n}
+            type="button"
+            className={`mod-pager-page${n === page ? ' active' : ''}`}
+            aria-current={n === page ? 'page' : undefined}
+            onClick={() => onGo(n)}
+          >
+            {n}
+          </button>
+        ),
+      )}
+      <button
+        type="button"
+        className="mod-pager-step"
+        disabled={page === pages}
+        onClick={() => onGo(page + 1)}
+        aria-label="Next page"
+      >
+        ›
+      </button>
+    </nav>
+  )
+}
 
 function AuditTab() {
-  const [rows, setRows] = useState<ModAuditRow[] | null>(null)
+  const [data, setData] = useState<ModAuditPage | null>(null)
   const [error, setError] = useState(false)
+  const [offset, setOffset] = useState(0)
 
   useEffect(() => {
-    fetchModAudit()
-      .then(setRows)
-      .catch(() => setError(true))
-  }, [])
+    const controller = new AbortController()
+    fetchModAudit(offset, controller.signal)
+      .then(setData)
+      .catch(() => {
+        if (!controller.signal.aborted) setError(true)
+      })
+    return () => controller.abort()
+  }, [offset])
 
   if (error) return <p className="mod-note">Could not load the audit log.</p>
-  if (!rows) return <p className="mod-note">Loading…</p>
-  if (rows.length === 0) {
+  if (!data) return <p className="mod-note">Loading…</p>
+  if (data.total === 0) {
     return <p className="mod-note">No moderator actions yet.</p>
   }
+
+  const pages = Math.max(1, Math.ceil(data.total / data.page_size))
+  // From the server's clamped offset, not our requested one, so the
+  // highlighted page always matches the rows on screen.
+  const page = Math.floor(data.offset / data.page_size) + 1
+  const first = data.offset + 1
+  const last = data.offset + data.actions.length
 
   return (
     <div className="mod-audit">
       <p className="mod-note">
         Every moderator action, newest first — the lens that catches a burst
-        of removals no single user’s history would reveal.
+        of removals no single user’s history would reveal. Showing{' '}
+        {first}–{last} of {data.total}.
       </p>
+      <ul className="mod-audit-key">
+        {TONE_LEGEND.map(({ tone, label }) => (
+          <li key={tone} className={`mod-audit-${tone}`}>
+            {label}
+          </li>
+        ))}
+      </ul>
       <ul className="mod-audit-list">
-        {rows.map((a) => (
+        {data.actions.map((a) => (
           <li
             key={a.id}
-            className={DESTRUCTIVE.has(a.action) ? 'mod-audit-destructive' : ''}
+            className={
+              ACTION_TONE[a.action] ? `mod-audit-${ACTION_TONE[a.action]}` : ''
+            }
           >
             <span className="mod-audit-when">{when(a.created)}</span>{' '}
             <strong>{a.actor ?? '—'}</strong>{' '}
@@ -962,6 +1082,11 @@ function AuditTab() {
           </li>
         ))}
       </ul>
+      <Pagination
+        page={page}
+        pages={pages}
+        onGo={(next) => setOffset((next - 1) * data.page_size)}
+      />
     </div>
   )
 }

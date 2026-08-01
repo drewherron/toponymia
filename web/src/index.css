@@ -90,6 +90,14 @@
 
   /* Danger / removal red */
   --danger: #b91c1c;
+
+  /* Audit-row tones, worst to best — the spectrum the moderation feed is
+     read by. Borders only, so these are chosen to be told apart at a
+     glance rather than to carry text. */
+  --audit-severe: #b91c1c;
+  --audit-corrective: #c2410c;
+  --audit-judgement: #ca8a04;
+  --audit-restorative: #15803d;
   --danger-link: #a11; /* was #a11 + #a12c00 */
   --danger-text: #7f1d1d; /* was #7f1d1d + #7a2422 */
   --danger-bg: #fef2f2; /* was #fef2f2 + #fff6f6 */
@@ -197,6 +205,12 @@
 
   /* Danger */
   --danger: #e06060;
+
+  /* Lifted off the dark surface, keeping the same four hues apart. */
+  --audit-severe: #e06060;
+  --audit-corrective: #f08a4b;
+  --audit-judgement: #e0b445;
+  --audit-restorative: #5cc47a;
   --danger-link: #e87070;
   --danger-text: #f0a0a0;
   --danger-bg: #33201f;
@@ -2515,6 +2529,15 @@ body,
   cursor: default;
 }
 
+/* Its own scroll box, like .mod-reporters. Without this the tab overflowed
+   .mod-dash-body (overflow: hidden) and the rows past the fold simply could
+   not be reached. */
+.mod-audit {
+  padding: 20px 28px;
+  overflow-y: auto;
+  height: 100%;
+}
+
 .mod-audit-list {
   list-style: none;
   margin: 12px 0 0;
@@ -2523,14 +2546,107 @@ body,
   line-height: 1.7;
 }
 
+/* Page control: ‹ 1 [2] 3 … 12 › */
+.mod-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 16px 0 4px;
+}
+
+.mod-pager-step,
+.mod-pager-page {
+  font: inherit;
+  font-size: 0.85rem;
+  min-width: 30px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--warm-text-strong);
+  cursor: pointer;
+}
+
+.mod-pager-step:hover:not(:disabled),
+.mod-pager-page:hover:not(.active) {
+  background: var(--warm-hover);
+}
+
+.mod-pager-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mod-pager-page.active {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.mod-pager-gap {
+  padding: 0 2px;
+  color: var(--text-faint);
+}
+
 .mod-audit-list li {
-  padding: 4px 0 4px 8px;
-  border-left: 3px solid transparent;
+  padding: 4px 0 4px 10px;
+  border-left: 5px solid transparent;
   border-bottom: 1px solid var(--warm-hairline);
 }
 
-.mod-audit-destructive {
-  border-left-color: var(--danger) !important;
+/* Qualified by the list, so these beat `.mod-audit-list li`'s own
+   border-left on specificity instead of on !important. */
+.mod-audit-list li.mod-audit-severe {
+  border-left-color: var(--audit-severe);
+}
+
+.mod-audit-list li.mod-audit-corrective {
+  border-left-color: var(--audit-corrective);
+}
+
+.mod-audit-list li.mod-audit-judgement {
+  border-left-color: var(--audit-judgement);
+}
+
+.mod-audit-list li.mod-audit-restorative {
+  border-left-color: var(--audit-restorative);
+}
+
+/* Key for those tones. Without it the colours are suggestive but not
+   readable — nothing else on screen says which end is which. */
+.mod-audit-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.mod-audit-key li {
+  border-left: 5px solid transparent;
+  padding-left: 8px;
+}
+
+.mod-audit-key .mod-audit-severe {
+  border-left-color: var(--audit-severe);
+}
+
+.mod-audit-key .mod-audit-corrective {
+  border-left-color: var(--audit-corrective);
+}
+
+.mod-audit-key .mod-audit-judgement {
+  border-left-color: var(--audit-judgement);
+}
+
+.mod-audit-key .mod-audit-restorative {
+  border-left-color: var(--audit-restorative);
 }
 
 .mod-audit-when {
