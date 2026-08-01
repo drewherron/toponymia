@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import shutil
 import tempfile
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 import requests
 from allauth.account.models import EmailAddress
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.gis.geos import (
     LineString,
@@ -21,7 +23,7 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -4479,6 +4481,76 @@ class ContentSecurityPolicyTests(TestCase):
         self.assertEqual(csp['form-action'], "form-action 'self'")
         self.assertNotIn('unsafe-inline', csp['script-src'])
         self.assertNotIn('unsafe-eval', csp['script-src'])
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class ErrorLoggingTests(TestCase):
+    """That an unhandled 500 leaves a trace on the server.
+
+    Django's own defaults lose exactly this: DEFAULT_LOGGING filters the
+    console handler on require_debug_true and mail_admins on
+    require_debug_false, so with DEBUG off and no ADMINS an unhandled
+    exception is reported nowhere. Nothing about that failure is visible from
+    the outside — the user gets the same generic 500 either way — which is why
+    it needs a test rather than a look at the log.
+    """
+
+    def _raise(self, *args, **kwargs):
+        raise RuntimeError('boom')
+
+    def _configured_handler(self):
+        """The live stderr handler off the configured logger.
+
+        Asserting through this rather than through assertLogs is the point:
+        assertLogs attaches a handler of its own, so it would report success
+        even with the whole LOGGING block deleted — the exact shape of
+        false pass this config exists to prevent.
+        """
+        handlers = logging.getLogger('django.request').handlers
+        stream_handlers = [
+            h for h in handlers if isinstance(h, logging.StreamHandler)
+        ]
+        self.assertTrue(stream_handlers, 'django.request has no stream handler')
+        return stream_handlers[0]
+
+    @override_settings(DEBUG=False)
+    def test_unhandled_exception_reaches_the_real_handler_with_debug_off(self):
+        handler = self._configured_handler()
+        captured = StringIO()
+        original, handler.stream = handler.stream, captured
+        # raise_request_exception=False lets the 500 be returned rather than
+        # re-raised into the test, so this exercises the path a real request
+        # takes — which is the path that does the logging.
+        client = Client(raise_request_exception=False)
+        try:
+            with patch('core.views.published_places', self._raise):
+                response = client.get('/api/highlights/?bbox=0,0,1,1')
+        finally:
+            handler.stream = original
+        self.assertEqual(response.status_code, 500)
+        written = captured.getvalue()
+        self.assertIn('RuntimeError', written)
+        self.assertIn('boom', written)
+        # The traceback, not just the one-line message: without exc_info a
+        # report tells you a 500 happened but not where.
+        self.assertIn('Traceback', written)
+
+    def test_handler_carries_no_debug_filter(self):
+        """The single line that makes the above work. A require_debug_true
+        filter here would pass every test that runs with DEBUG on and report
+        nothing in production."""
+        self.assertEqual(self._configured_handler().filters, [])
+
+    def test_request_errors_do_not_propagate(self):
+        """Otherwise the record also reaches the inherited 'django' logger and
+        its mail_admins handler, double-reporting once ADMINS is set."""
+        self.assertFalse(settings.LOGGING['loggers']['django.request']['propagate'])
+
+    def test_disallowed_host_stays_quiet(self):
+        """disable_existing_loggers=False is load-bearing: it keeps Django's
+        null handler for DisallowedHost, without which bots probing Host
+        headers bury real exceptions."""
+        self.assertFalse(settings.LOGGING['disable_existing_loggers'])
 
 
 class TermsAcceptanceTests(TestCase):

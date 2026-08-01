@@ -163,6 +163,21 @@ turns on secure cookies, and expects TLS + `X-Forwarded-Proto` from a
 reverse proxy. See `server/config/settings.py` for the full
 environment-variable contract.
 
+### Error logging
+
+Unhandled exceptions go to **stderr unconditionally**, so a deployment
+that configures nothing still records its own 500s wherever gunicorn
+sends its error log. This is a deliberate replacement for Django's
+default, which routes request errors to a console handler filtered on
+`DEBUG` being *on* and to `mail_admins` — meaning that with `DEBUG` off
+and no `ADMINS`, tracebacks are reported nowhere at all.
+
+Set `DJANGO_LOG_DIR` to also write them to `toponymia.log` in that
+directory, rotating at 10 MB with 4 backups (a 50 MB ceiling, because
+logs share the root volume with the database). `DJANGO_LOG_LEVEL`
+tunes the application logger only; request and security errors are
+always at `ERROR`.
+
 ### Content-Security-Policy
 
 `SECURE_CSP` in `server/config/settings.py` is the whole policy, sent by

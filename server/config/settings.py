@@ -302,6 +302,88 @@ REST_FRAMEWORK = {
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB
 
 
+# Logging — application exceptions, which nothing else reports.
+#
+# This exists because Django's default configuration loses them exactly when
+# they matter. DEFAULT_LOGGING gives the 'django' logger two handlers:
+# 'console', filtered by require_debug_true, and 'mail_admins', filtered by
+# require_debug_false. With DEBUG off and ADMINS unset — which is production —
+# the first is filtered out and the second has nowhere to send, so an
+# unhandled 500 raises, returns a generic error page, and leaves *no trace on
+# the server at all*. The user sees a broken page and leaves; you never learn.
+#
+# So: always log to stderr, unconditionally, with no debug filter. gunicorn
+# captures stderr into its error log, so a deployment that configures nothing
+# else still records its own exceptions. DJANGO_LOG_DIR additionally writes
+# them to a rotating file for a log shipper to tail — self-rotating rather
+# than relying on external logrotate, because unbounded logs share the root
+# volume with Postgres and a full disk takes down the database.
+#
+# Deliberately kept to the standard library: no vendor, no key, nothing to
+# expire, consistent with the rest of the project's dependencies.
+LOG_DIR = os.environ.get('DJANGO_LOG_DIR', '')
+LOG_LEVEL = os.environ.get('DJANGO_LOG_LEVEL', 'INFO').upper()
+
+LOGGING = {
+    'version': 1,
+    # False so Django's own DEFAULT_LOGGING entries survive — notably the
+    # 'django.security.DisallowedHost' logger it points at a null handler,
+    # which is what keeps bot traffic probing Host headers from filling the
+    # log with tracebacks that aren't bugs.
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        # Note the absence of a filter: this is the whole fix.
+        'stderr': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'level': 'DEBUG',
+        },
+    },
+    'loggers': {
+        # Unhandled exceptions land here: DRF re-raises anything its handler
+        # doesn't recognise, and Django's exception handler logs it to
+        # 'django.request' with exc_info before returning the 500.
+        'django.request': {
+            'handlers': ['stderr'],
+            'level': 'ERROR',
+            # Without this the record also reaches 'django' and its inherited
+            # mail_admins handler, double-reporting once ADMINS is ever set.
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['stderr'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'core': {
+            'handlers': ['stderr'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}
+
+if LOG_DIR:
+    Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
+    LOGGING['handlers']['file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(Path(LOG_DIR) / 'toponymia.log'),
+        'formatter': 'verbose',
+        'level': 'DEBUG',
+        # 50 MB ceiling, total. Bounded on purpose; see above.
+        'maxBytes': 10 * 1024 * 1024,
+        'backupCount': 4,
+    }
+    for _logger in LOGGING['loggers'].values():
+        _logger['handlers'].append('file')
+
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
