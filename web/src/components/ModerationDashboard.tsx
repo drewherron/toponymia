@@ -7,6 +7,7 @@ import {
   fetchModUsers,
   restoreRevision,
   restoreTalkPost,
+  restoreTalkThread,
   setUserRole,
   unbanUser,
 } from '../api'
@@ -472,6 +473,33 @@ function UserDetail({
       </section>
 
       <section>
+        <h4>Threads started ({detail.talk_threads.length})</h4>
+        {detail.talk_threads.length === 0 ? (
+          <p className="mod-note">None.</p>
+        ) : (
+          <ul className="mod-detail-list">
+            {detail.talk_threads.map((t) => (
+              <li key={t.id} className={t.deleted ? 'mod-removed' : ''}>
+                {t.deleted && (
+                  <>
+                    <span className="mod-removed-tag">removed</span>{' '}
+                    <RestoreButton
+                      onRestore={() => restoreTalkThread(t.id)}
+                      onDone={refresh}
+                    />{' '}
+                  </>
+                )}
+                <a href={`/place/${t.slug}`}>{t.place}</a> — “{t.title}”{' '}
+                <span className="mod-note">
+                  ({t.post_count === 1 ? '1 post' : `${t.post_count} posts`})
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
         <h4>Revisions ({detail.revisions.length})</h4>
         <ul className="mod-detail-list">
           {detail.revisions.map((r) => (
@@ -762,6 +790,7 @@ const ACTION_LABEL: Record<string, string> = {
   suppress_revision: 'suppressed a revision',
   restore_revision: 'restored a revision',
   delete_thread: 'removed a talk thread',
+  restore_thread: 'restored a talk thread',
   delete_article: 'deleted an article',
   restore_article: 'restored an article',
   revert_article: 'reverted an article',

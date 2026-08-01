@@ -15,7 +15,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -32,6 +32,7 @@ from .models import (
     Report,
     Revision,
     TalkPost,
+    TalkThread,
 )
 from .moderation import (
     active_ban,
@@ -85,6 +86,21 @@ def _report_author_id(report):
     return report.revision.author_id
 
 
+def _threads_by_starter():
+    """Threads annotated with `starter_id` — the author of the first post.
+
+    `TalkThread.starter()` in one query instead of one per thread, for the
+    two places that need it in bulk. Threads whose posts have all been
+    hard-deleted annotate to None and are simply not attributed.
+    """
+    first_author = (
+        TalkPost.objects.filter(thread=OuterRef('pk'))
+        .order_by('created', 'id')
+        .values('author_id')[:1]
+    )
+    return TalkThread.objects.annotate(starter_id=Subquery(first_author))
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def mod_users(request):
@@ -124,6 +140,13 @@ def mod_users(request):
         suppressed__isnull=False
     ).values_list('author_id', flat=True):
         removed[author_id] += 1
+    # A removed thread counts against whoever opened it. Without this a
+    # deleted thread was the one removal with nowhere to see or undo it.
+    for starter_id in _threads_by_starter().filter(
+        deleted__isnull=False
+    ).values_list('starter_id', flat=True):
+        if starter_id is not None:
+            removed[starter_id] += 1
 
     # Total upheld actions against each user — the chronic-offender column.
     upheld = defaultdict(int)
@@ -132,6 +155,7 @@ def mod_users(request):
         action__in=[
             ModAction.Action.DELETE_POST,
             ModAction.Action.SUPPRESS_REVISION,
+            ModAction.Action.DELETE_THREAD,
             ModAction.Action.BAN_USER,
         ],
     ).values_list('target_user_id', flat=True):
@@ -223,6 +247,29 @@ def mod_user_detail(request, user_id):
         'deleted': p.deleted is not None,
     } for p in posts]
 
+    # Threads this user opened. Listed apart from their posts because
+    # removal works at a different scale: deleting a thread takes the whole
+    # conversation — other people's replies included — out of public view,
+    # so it needs its own row and its own restore.
+    threads = (
+        _threads_by_starter()
+        .filter(starter_id=user.id)
+        .select_related('place')
+        .annotate(post_count=Count('posts'))
+        .order_by('-created')[:100]
+    )
+    talk_threads = [{
+        'id': t.id,
+        'title': t.title,
+        'slug': t.place.slug,
+        'place': t.place.display_name,
+        # How much goes with it — a removed thread of 30 posts is a very
+        # different act from a removed thread of one.
+        'post_count': t.post_count,
+        'created': _iso(t.created),
+        'deleted': t.deleted is not None,
+    } for t in threads]
+
     revisions = (
         Revision.objects.filter(author=user)
         .select_related('article__place', 'article__current_revision')
@@ -278,6 +325,7 @@ def mod_user_detail(request, user_id):
         'can_ban': can_ban(request.user, user),
         'can_set_role': can_set_role(request.user, user),
         'talk_posts': talk_posts,
+        'talk_threads': talk_threads,
         'revisions': revs,
         'reports_against': reports_against,
         'audit': audit,

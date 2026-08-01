@@ -2778,6 +2778,127 @@ class DashboardApiTests(ApiTestCase):
         row = next(r for r in rows if r['username'] == 'drew')
         self.assertEqual(row['removed_count'], 1)
 
+    # --- removed threads ---------------------------------------------
+    def _thread_by(self, user, title='t'):
+        thread = TalkThread.objects.create(place=self.place, title=title)
+        TalkPost.objects.create(thread=thread, author=user, body_md='hello')
+        return thread
+
+    def _row_for(self, username='drew'):
+        rows = self.client.get(reverse('core:mod-users')).json()['users']
+        return next((r for r in rows if r['username'] == username), None)
+
+    def test_removed_thread_counts_against_whoever_started_it(self):
+        # A thread has no author column; the opening post's author is who
+        # answers for it. Without this the deletion showed up nowhere.
+        thread = self._thread_by(self.author)
+        TalkPost.objects.create(
+            thread=thread, author=self.reporter, body_md='replying'
+        )
+        self.client.force_login(self.mod)
+        self.client.delete(
+            reverse('core:talk-thread-delete', args=[thread.id])
+        )
+        self.assertEqual(self._row_for('drew')['removed_count'], 1)
+        # The replier isn't answerable for a thread they only joined.
+        self.assertIsNone(self._row_for('sam'))
+
+    def test_live_thread_counts_against_nobody(self):
+        self._thread_by(self.author)
+        self.client.force_login(self.mod)
+        self.assertIsNone(self._row_for('drew'))
+
+    def test_user_detail_lists_threads_started_with_removal_state(self):
+        thread = self._thread_by(self.author, title='Where from?')
+        self.client.force_login(self.mod)
+        self.client.delete(
+            reverse('core:talk-thread-delete', args=[thread.id])
+        )
+        detail = self.client.get(
+            reverse('core:mod-user-detail', args=[self.author.id])
+        ).json()
+        self.assertEqual(len(detail['talk_threads']), 1)
+        row = detail['talk_threads'][0]
+        self.assertEqual(row['title'], 'Where from?')
+        self.assertEqual(row['post_count'], 1)
+        self.assertTrue(row['deleted'])
+
+    def test_user_detail_omits_threads_the_user_only_replied_to(self):
+        thread = self._thread_by(self.author)
+        TalkPost.objects.create(
+            thread=thread, author=self.reporter, body_md='replying'
+        )
+        self.client.force_login(self.mod)
+        detail = self.client.get(
+            reverse('core:mod-user-detail', args=[self.reporter.id])
+        ).json()
+        self.assertEqual(detail['talk_threads'], [])
+
+    def test_mod_restores_a_deleted_thread(self):
+        thread = self._thread_by(self.author)
+        self.client.force_login(self.mod)
+        self.client.delete(
+            reverse('core:talk-thread-delete', args=[thread.id])
+        )
+        response = self.client.post(
+            reverse('core:mod-talk-thread-restore', args=[thread.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        thread.refresh_from_db()
+        self.assertIsNone(thread.deleted)
+        self.assertIsNone(thread.deleted_by)
+        # And it's back in the public conversation, not merely un-flagged.
+        page = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()
+        self.assertEqual([t['id'] for t in page['threads']], [thread.id])
+
+    def test_restoring_a_thread_leaves_its_deleted_posts_removed(self):
+        # Deleting the thread hid the conversation wholesale; undoing that
+        # shouldn't quietly undo the narrower judgements inside it.
+        thread = self._thread_by(self.author)
+        buried = TalkPost.objects.create(
+            thread=thread, author=self.reporter, body_md='spam',
+            deleted=timezone.now(),
+        )
+        self.client.force_login(self.mod)
+        self.client.delete(
+            reverse('core:talk-thread-delete', args=[thread.id])
+        )
+        self.client.post(
+            reverse('core:mod-talk-thread-restore', args=[thread.id])
+        )
+        buried.refresh_from_db()
+        self.assertIsNotNone(buried.deleted)
+
+    def test_thread_restore_requires_moderator(self):
+        thread = self._thread_by(self.author)
+        TalkThread.objects.filter(pk=thread.pk).update(deleted=timezone.now())
+        self.client.force_login(self.reporter)
+        self.assertEqual(
+            self.client.post(
+                reverse('core:mod-talk-thread-restore', args=[thread.id])
+            ).status_code,
+            403,
+        )
+
+    def test_thread_removal_and_restore_land_in_the_users_audit_trail(self):
+        thread = self._thread_by(self.author)
+        self.client.force_login(self.mod)
+        self.client.delete(
+            reverse('core:talk-thread-delete', args=[thread.id])
+        )
+        self.client.post(
+            reverse('core:mod-talk-thread-restore', args=[thread.id])
+        )
+        detail = self.client.get(
+            reverse('core:mod-user-detail', args=[self.author.id])
+        ).json()
+        self.assertEqual(
+            [a['action'] for a in detail['audit']],
+            ['restore_thread', 'delete_thread'],
+        )
+
     # --- the ?all=1 roster -------------------------------------------
     def test_users_list_excludes_clean_users_by_default(self):
         User.objects.create_user('quiet', password='pw12345!')

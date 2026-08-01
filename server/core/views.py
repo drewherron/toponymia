@@ -1059,8 +1059,12 @@ def talk_thread_delete(request, thread_id):
         thread.deleted = timezone.now()
         thread.deleted_by = request.user
         thread.save(update_fields=['deleted', 'deleted_by'])
+        # Attributed to whoever opened it, like every other removal: an
+        # unattributed action never reaches the dashboard, so a deleted
+        # thread used to vanish with nothing anywhere to undo it from.
         log_action(
             request.user, ModAction.Action.DELETE_THREAD,
+            target_user=thread.starter(),
             reason=f'thread "{thread.title}"',
         )
     return Response({'ok': True})
@@ -1288,6 +1292,31 @@ def mod_talk_post_restore(request, post_id):
         log_action(
             request.user, ModAction.Action.RESTORE_POST,
             target_user=post.author, talk_post=post,
+        )
+    return Response({'ok': True})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mod_talk_thread_restore(request, thread_id):
+    """Put a soft-deleted thread back — the inverse of `talk_thread_delete`
+    (moderators only).
+
+    Posts removed individually stay removed: deleting the thread hid the
+    conversation wholesale, and undoing that shouldn't quietly undo the
+    narrower judgements made inside it.
+    """
+    if not is_moderator(request.user):
+        return Response(status=status.HTTP_403_FORBIDDEN)
+    thread = get_object_or_404(TalkThread, id=thread_id)
+    if thread.deleted is not None:
+        thread.deleted = None
+        thread.deleted_by = None
+        thread.save(update_fields=['deleted', 'deleted_by'])
+        log_action(
+            request.user, ModAction.Action.RESTORE_THREAD,
+            target_user=thread.starter(),
+            reason=f'thread "{thread.title}"',
         )
     return Response({'ok': True})
 

@@ -321,6 +321,18 @@ export interface ModUserPost {
   deleted: boolean
 }
 
+/** A thread this user opened. Removal here is coarser than a post's: it
+ *  hides everyone's replies too, hence its own list and its own restore. */
+export interface ModUserThread {
+  id: number
+  title: string
+  slug: string
+  place: string
+  post_count: number
+  created: string
+  deleted: boolean
+}
+
 export interface ModUserRevision {
   id: number
   slug: string
@@ -359,6 +371,7 @@ export interface ModUserDetail {
   can_ban: boolean
   can_set_role: boolean
   talk_posts: ModUserPost[]
+  talk_threads: ModUserThread[]
   revisions: ModUserRevision[]
   reports_against: ModUserReport[]
   audit: ModAuditEntry[]

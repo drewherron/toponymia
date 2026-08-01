@@ -203,6 +203,17 @@ class TalkThread(models.Model):
     class Meta:
         ordering = ['created', 'id']
 
+    def starter(self):
+        """Who opened the thread — the author of its first post.
+
+        A thread has no author column of its own: it's a title plus the
+        conversation under it, and the title is written with the opening
+        post in one action. Moderation still needs someone to hold
+        responsible for a removed thread, and that's whoever started it.
+        """
+        first = self.posts.order_by('created', 'id').first()
+        return first.author if first else None
+
     def __str__(self):
         return f'{self.title} ({self.place.display_name})'
 
@@ -535,6 +546,7 @@ class ModAction(models.Model):
         SUPPRESS_REVISION = 'suppress_revision'
         RESTORE_REVISION = 'restore_revision'
         DELETE_THREAD = 'delete_thread'
+        RESTORE_THREAD = 'restore_thread'
         DELETE_ARTICLE = 'delete_article'
         RESTORE_ARTICLE = 'restore_article'
         REVERT_ARTICLE = 'revert_article'

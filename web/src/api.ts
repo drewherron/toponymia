@@ -643,6 +643,18 @@ export async function restoreTalkPost(postId: number): Promise<void> {
   }
 }
 
+/** Put a soft-deleted talk thread back (inverse of a thread delete).
+ *  Posts removed individually inside it stay removed. */
+export async function restoreTalkThread(threadId: number): Promise<void> {
+  const response = await fetch(
+    `/api/mod/talk/threads/${threadId}/restore/`,
+    { method: 'POST', headers: jsonHeaders() },
+  )
+  if (!response.ok) {
+    throw new Error(`restore failed: ${response.status}`)
+  }
+}
+
 /** Un-suppress a revision (inverse of a queue suppress). */
 export async function restoreRevision(revisionId: number): Promise<void> {
   const response = await fetch(

@@ -92,6 +92,11 @@ urlpatterns = [
         views.mod_talk_post_restore,
         name='mod-talk-post-restore',
     ),
+    path(
+        'mod/talk/threads/<int:thread_id>/restore/',
+        views.mod_talk_thread_restore,
+        name='mod-talk-thread-restore',
+    ),
     path('mod/users/', dashboard.mod_users, name='mod-users'),
     path(
         'mod/users/<int:user_id>/',
