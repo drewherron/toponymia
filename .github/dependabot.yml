@@ -1,0 +1,62 @@
+# Dependabot — the CVE watch that CI doesn't provide. `ci.yml` proves the
+# code works; nothing in it notices that a dependency has a published
+# advisory, and Django and allauth both sit directly on the auth path.
+#
+# This file configures *version* updates only. Dependabot **security**
+# updates — the ones that open a PR because of a published advisory — are a
+# repository setting, not a file: Settings → Code security → enable
+# "Dependabot alerts" and "Dependabot security updates". Without those two
+# switches this config still keeps dependencies fresh, but nothing is
+# watching for CVEs, which was the point. Turning them on needs no further
+# configuration here.
+version: 2
+updates:
+  # server/requirements.txt declares ranges (Django>=6.0,<6.1) with no
+  # lockfile, so `pip install -r` already resolves to the newest release
+  # inside each range at install time — an in-range patch fix lands on the
+  # next deploy without a PR. What Dependabot adds is the updates that fall
+  # *outside* those ranges (Django 6.1), which otherwise go unnoticed
+  # indefinitely because nothing ever fails to tell you about them.
+  - package-ecosystem: pip
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine churn, individual PRs for majors — a major
+      # bump is a change worth reading on its own, and grouping it with
+      # unrelated updates is how it gets merged unread.
+      python-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # package-lock.json is a real lockfile, so npm gets the full benefit:
+  # exact resolved versions, transitive dependencies included.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The workflow's own actions (checkout, setup-python, setup-node) pin to
+  # major tags that stop receiving fixes once superseded. Easy to forget
+  # precisely because CI keeps passing.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch
