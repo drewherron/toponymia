@@ -1,0 +1,68 @@
+# Known-CVE gate for the dependencies that actually ship.
+#
+# Separate from ci.yml on purpose, for two reasons. A red audit means "a new
+# advisory was published", not "your change is broken" — a different signal
+# deserving a distinguishable job. And this workflow needs a `schedule`
+# trigger that ci.yml shouldn't inherit: an advisory against a dependency
+# lands with no commit to trigger on, so a repository that sits quiet is
+# exactly where a CVE would otherwise go unnoticed indefinitely.
+#
+# Overlaps deliberately with Dependabot security updates (see
+# .github/dependabot.yml). Dependabot *notifies*; this *blocks the merge*.
+name: Audit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Mondays, same cadence as the Dependabot version updates.
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install pip-audit
+      # requirements.txt only, not requirements-dev.txt: this gates what runs
+      # in production, and an advisory against ruff is not a reason to block a
+      # deploy. Auditing the file rather than an installed environment also
+      # means no GDAL/GEOS setup, so this job stays fast and independent of
+      # the server job in ci.yml.
+      #
+      # --strict makes a dependency that *can't be resolved* a failure rather
+      # than a warning. Without it, an unresolvable requirement is skipped and
+      # the job still passes green while auditing less than it claims to.
+      - run: pip-audit --strict -r requirements.txt
+        working-directory: server
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # --omit=dev is what keeps this signal worth having. The build toolchain
+      # (vite, esbuild, postcss and friends) draws a steady stream of
+      # advisories that are real for a dev server yet never reach a user: the
+      # deployed artifact is the static output of the build, not the build.
+      # Including them was tried and would have failed this workflow on day
+      # one over a postcss sourcemap path traversal — the precise dynamic that
+      # gets `npm audit` disabled with `|| true` in other repos.
+      #
+      # If a dev-dependency advisory ever does matter (a compromised package
+      # executing at build time), that's a Dependabot PR to act on, not a
+      # merge gate.
+      #
+      # No `npm ci` first: npm audit reads package-lock.json directly, so this
+      # needs no install.
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: web
