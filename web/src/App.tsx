@@ -13,6 +13,7 @@ import type { LegalDoc } from './legal'
 import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
+import { MapLanguageControl } from './components/MapLanguageControl'
 import ModerationDashboard from './components/ModerationDashboard'
 import ModQueue from './components/ModQueue'
 import SearchBox from './components/SearchBox'
@@ -110,6 +111,10 @@ function App() {
   // way to navigate.
   const [sheetDetent, setSheetDetent] = useState<SheetDetent>('half')
   const [menuOpen, setMenuOpen] = useState(false)
+  // The map's label drop-up. Held here, not in the control, so that crossing
+  // into the compact header — which swaps the control for the menu's select —
+  // doesn't leave an open menu to spring back on the way out.
+  const [langOpen, setLangOpen] = useState(false)
   // Whether the selected place has scrolled out of the map viewport — drives
   // the pane's recenter button. The ref mirrors it so viewport callbacks (not
   // in React's render flow) can read the current place without re-subscribing.
@@ -134,6 +139,14 @@ function App() {
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  // Both of these take the control off screen while its menu could be open:
+  // the compact header swaps it for the menu's select, and an article pane
+  // covers the corner it sits in. Neither should leave an open menu behind to
+  // spring back when the control returns.
+  useEffect(() => {
+    if (compactHeader || selected) setLangOpen(false)
+  }, [compactHeader, selected])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -463,22 +476,28 @@ function App() {
       >
         All articles
       </button>
-      <select
-        className="lang-select"
-        aria-label="Map label language"
-        title="Map label language"
-        value={labelLanguage}
-        onChange={(event) => {
-          storeLabelLanguage(event.target.value)
-          setLabelLanguage(event.target.value)
-        }}
-      >
-        {LABEL_LANGUAGES.map(({ code, label }) => (
-          <option key={code} value={code}>
-            {label}
-          </option>
-        ))}
-      </select>
+      {/* Wide screens get this as map chrome, overlaid bottom-left, where its
+          scope reads off its position. The ☰ menu is the one place that
+          framing isn't available, and a drop-up over a phone-sized map would
+          be in the way — so narrow keeps it here, as a plain select. */}
+      {compactHeader && (
+        <select
+          className="lang-select"
+          aria-label="Map label language"
+          title="Map label language"
+          value={labelLanguage}
+          onChange={(event) => {
+            storeLabelLanguage(event.target.value)
+            setLabelLanguage(event.target.value)
+          }}
+        >
+          {LABEL_LANGUAGES.map(({ code, label }) => (
+            <option key={code} value={code}>
+              {label}
+            </option>
+          ))}
+        </select>
+      )}
       {user?.is_moderator && (
         <button
           type="button"
@@ -636,6 +655,18 @@ function App() {
               ×
             </button>
           </div>
+        )}
+        {!compactHeader && (
+          <MapLanguageControl
+            value={labelLanguage}
+            open={langOpen}
+            covered={!!selected}
+            onOpenChange={setLangOpen}
+            onChange={(code) => {
+              storeLabelLanguage(code)
+              setLabelLanguage(code)
+            }}
+          />
         )}
         {picker && (
           <FeaturePicker
