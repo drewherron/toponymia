@@ -2650,6 +2650,48 @@ body,
   line-height: 1.7;
 }
 
+/* Narrowing controls, above the note that counts what they matched. */
+.mod-audit-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 0.85rem;
+}
+
+.mod-audit-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+}
+
+.mod-audit-filters select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-body);
+}
+
+.mod-audit-clear {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-body);
+  cursor: pointer;
+}
+
+.mod-audit-clear:hover {
+  background: var(--surface-hover);
+}
+
 /* Page control: ‹ 1 [2] 3 … 12 › */
 .mod-pager {
   display: flex;

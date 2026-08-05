@@ -409,6 +409,14 @@ export interface ModAuditPage {
   page_size: number
 }
 
+/** What the audit feed is narrowed to. Both optional — the unfiltered feed is
+ *  the default view. `actions` is a group of kinds, not one kind, because the
+ *  questions worth asking ("what has been removed") span several. */
+export interface ModAuditFilters {
+  target?: number
+  actions?: string[]
+}
+
 export interface BanInput {
   reason: string
   expires_days: number

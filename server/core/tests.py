@@ -3966,6 +3966,36 @@ class AuditFeedTests(ApiTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['reason'], 'spam')
 
+    def test_feed_filters_by_action_group(self):
+        # The dashboard's "Removed" filter is a group of kinds, sent as one
+        # param so `total` counts the same rows the page shows.
+        self.client.force_login(self.mod)
+        body = self.client.get(
+            reverse('core:mod-audit'), {'action': 'ban_user,delete_post'}
+        ).json()
+        self.assertEqual(body['total'], 2)
+        self.assertEqual(len(body['actions']), 2)
+
+    def test_feed_rejects_unknown_action_in_group(self):
+        # One bad member fails the whole group rather than being dropped —
+        # silently widening a filter would misreport what was matched.
+        self.client.force_login(self.mod)
+        response = self.client.get(
+            reverse('core:mod-audit'), {'action': 'ban_user,wizardry'}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_feed_filters_by_target(self):
+        self.client.force_login(self.mod)
+        rows = self.client.get(
+            reverse('core:mod-audit'), {'target': self.other.id}
+        ).json()['actions']
+        self.assertEqual(len(rows), 2)
+        rows = self.client.get(
+            reverse('core:mod-audit'), {'target': self.mod.id}
+        ).json()['actions']
+        self.assertEqual(rows, [])
+
     def test_feed_filters_by_actor(self):
         self.client.force_login(self.mod)
         rows = self.client.get(

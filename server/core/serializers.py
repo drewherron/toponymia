@@ -186,6 +186,23 @@ class RoleSerializer(serializers.Serializer):
     )
 
 
+class ActionGroupField(serializers.ListField):
+    """`?action=` as one kind or a comma-separated group of them.
+
+    The useful questions are about *kinds* of action — "what has been
+    removed", "what has been put back" — and each of those spans several
+    values (a removal is a post, a thread, an article or a revision). Doing
+    that grouping on the client would mean one request per member, or
+    filtering a page after the fact and reporting a `total` that doesn't
+    match the rows. A single value still works: it splits to a list of one.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            data = [part for part in data.split(',') if part]
+        return super().to_internal_value(data)
+
+
 class AuditFilterSerializer(serializers.Serializer):
     """Query-string filters for the global audit feed. All optional — the
     unfiltered feed is the default view.
@@ -198,8 +215,10 @@ class AuditFilterSerializer(serializers.Serializer):
 
     actor = serializers.IntegerField(required=False)
     target = serializers.IntegerField(required=False)
-    action = serializers.ChoiceField(
-        choices=ModAction.Action.choices, required=False
+    action = ActionGroupField(
+        child=serializers.ChoiceField(choices=ModAction.Action.choices),
+        required=False,
+        allow_empty=False,
     )
     # Same treatment as the ids above: validated here so a hand-typed page
     # number is a 400, not a slice on a string. Clamped to the feed's length

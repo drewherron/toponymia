@@ -608,8 +608,9 @@ def mod_audit(request):
     account"; it can't answer "is a moderator quietly working through every
     article on the wiki", which is the question that needs a single stream.
     Optional `?actor=<id>` / `?target=<id>` narrow it; `?action=` filters to
-    one kind; `?offset=` pages through it (AUDIT_PAGE rows at a time, with
-    `total` so the client can number the pages).
+    one kind, or to a comma-separated group of them ("everything that counts
+    as a removal"); `?offset=` pages through it (AUDIT_PAGE rows at a time,
+    with `total` so the client can number the pages).
     """
     forbidden = _forbidden(request)
     if forbidden is not None:
@@ -635,7 +636,7 @@ def mod_audit(request):
     if 'target' in filters:
         rows = rows.filter(target_user_id=filters['target'])
     if 'action' in filters:
-        rows = rows.filter(action=filters['action'])
+        rows = rows.filter(action__in=filters['action'])
     # Model Meta.ordering is already ['-created', '-id'].
     total = rows.count()
     # Clamped, so a page number past the end lands on the last rows rather

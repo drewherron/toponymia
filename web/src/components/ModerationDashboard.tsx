@@ -946,6 +946,19 @@ const TONE_LEGEND: { tone: ActionTone; label: string }[] = [
   { tone: 'restorative', label: 'Restored' },
 ]
 
+/** The action kinds behind each tone, so the filter can offer "Removed" as
+ *  one choice instead of four. Derived from ACTION_TONE rather than listed
+ *  again: a new action gets a tone once, and lands in the filter with it. */
+const TONE_ACTIONS = Object.entries(ACTION_TONE).reduce<
+  Record<ActionTone, string[]>
+>(
+  (groups, [action, tone]) => {
+    groups[tone].push(action)
+    return groups
+  },
+  { severe: [], corrective: [], judgement: [], restorative: [] },
+)
+
 /** Page numbers to show around `page`, with nulls standing for a gap.
  *
  *  Always the first and last page plus a window around the current one, so
@@ -1018,25 +1031,111 @@ function Pagination({
   )
 }
 
-function AuditTab() {
+function AuditTab({ user }: { user: User | null }) {
   const [data, setData] = useState<ModAuditPage | null>(null)
   const [error, setError] = useState(false)
   const [offset, setOffset] = useState(0)
+  const [tone, setTone] = useState<ActionTone | 'all'>('all')
+  const [mine, setMine] = useState(false)
+  const userId = user?.id ?? null
 
   useEffect(() => {
     const controller = new AbortController()
-    fetchModAudit(offset, controller.signal)
+    fetchModAudit(
+      offset,
+      {
+        target: mine && userId !== null ? userId : undefined,
+        actions: tone === 'all' ? undefined : TONE_ACTIONS[tone],
+      },
+      controller.signal,
+    )
       .then(setData)
       .catch(() => {
         if (!controller.signal.aborted) setError(true)
       })
     return () => controller.abort()
-  }, [offset])
+  }, [offset, tone, mine, userId])
 
-  if (error) return <p className="mod-note">Could not load the audit log.</p>
-  if (!data) return <p className="mod-note">Loading…</p>
+  const filtered = tone !== 'all' || mine
+
+  // Every state below still renders the controls. An empty result is the one
+  // that most needs them — a filter that hid its own way out would strand you
+  // on "nothing matches" with nothing to clear.
+  const filterBar = (
+    <div className="mod-audit-filters">
+      <label>
+        Action
+        <select
+          value={tone}
+          onChange={(event) => {
+            setTone(event.target.value as ActionTone | 'all')
+            setOffset(0) // page 4 of the old feed means nothing in the new one
+          }}
+        >
+          <option value="all">Everything</option>
+          {TONE_LEGEND.map(({ tone: value, label }) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Target
+        <select
+          value={mine ? 'me' : 'anyone'}
+          onChange={(event) => {
+            setMine(event.target.value === 'me')
+            setOffset(0)
+          }}
+        >
+          <option value="anyone">Anyone</option>
+          <option value="me">Me</option>
+        </select>
+      </label>
+      {filtered && (
+        <button
+          type="button"
+          className="mod-audit-clear"
+          onClick={() => {
+            setTone('all')
+            setMine(false)
+            setOffset(0)
+          }}
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  )
+
+  if (error) {
+    return (
+      <div className="mod-audit">
+        {filterBar}
+        <p className="mod-note">Could not load the audit log.</p>
+      </div>
+    )
+  }
+  if (!data) {
+    return (
+      <div className="mod-audit">
+        {filterBar}
+        <p className="mod-note">Loading…</p>
+      </div>
+    )
+  }
   if (data.total === 0) {
-    return <p className="mod-note">No moderator actions yet.</p>
+    return (
+      <div className="mod-audit">
+        {filterBar}
+        <p className="mod-note">
+          {filtered
+            ? 'No moderator actions match this filter.'
+            : 'No moderator actions yet.'}
+        </p>
+      </div>
+    )
   }
 
   const pages = Math.max(1, Math.ceil(data.total / data.page_size))
@@ -1048,10 +1147,13 @@ function AuditTab() {
 
   return (
     <div className="mod-audit">
+      {filterBar}
       <p className="mod-note">
-        Every moderator action, newest first — the lens that catches a burst
-        of removals no single user’s history would reveal. Showing{' '}
-        {first}–{last} of {data.total}.
+        {filtered
+          ? 'Moderator actions matching this filter, newest first.'
+          : `Every moderator action, newest first — the lens that catches a
+             burst of removals no single user’s history would reveal.`}{' '}
+        Showing {first}–{last} of {data.total}.
       </p>
       <ul className="mod-audit-key">
         {TONE_LEGEND.map(({ tone, label }) => (
@@ -1123,7 +1225,7 @@ function ModerationDashboard({ user }: { user: User | null }) {
       <div className="mod-dash-body">
         {tab === 'users' && <UsersTab isAdmin={!!user?.is_admin} />}
         {tab === 'reporters' && <ReportersTab />}
-        {tab === 'audit' && <AuditTab />}
+        {tab === 'audit' && <AuditTab user={user} />}
       </div>
     </div>
   )

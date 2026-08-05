@@ -7,6 +7,7 @@ import type {
   GeocodeHit,
   PlaceDetail,
   BanInput,
+  ModAuditFilters,
   ModAuditPage,
   ModReporter,
   ModUserDetail,
@@ -624,9 +625,15 @@ export async function fetchModReporters(
 
 export async function fetchModAudit(
   offset = 0,
+  filters: ModAuditFilters = {},
   signal?: AbortSignal,
 ): Promise<ModAuditPage> {
-  const response = await fetch(`/api/mod/audit/?offset=${offset}`, { signal })
+  const params = new URLSearchParams({ offset: String(offset) })
+  if (filters.target != null) params.set('target', String(filters.target))
+  // A group goes as one comma-separated param, so the server's `total` counts
+  // the same rows the page shows.
+  if (filters.actions?.length) params.set('action', filters.actions.join(','))
+  const response = await fetch(`/api/mod/audit/?${params}`, { signal })
   if (!response.ok) {
     throw new Error(`audit fetch failed: ${response.status}`)
   }
