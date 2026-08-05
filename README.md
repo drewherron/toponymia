@@ -45,7 +45,10 @@ to articles about how they got their names.
   as ISO 639-3 codes.
 - **Community tools.** Report affordances on revisions and talk posts,
   a moderator queue, soft-delete, per-article protection levels, and
-  rate limits on the expensive endpoints.
+  rate limits on the expensive endpoints. Filing a report emails the
+  moderators — plain SMTP, no transactional API key, BCC'd, and capped
+  at 20 an hour so a burst can't flood an inbox. In development that
+  goes to the console with everything else.
 
 ## Stack
 

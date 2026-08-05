@@ -28,7 +28,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from . import dashboard, overpass, views
+from . import dashboard, notify, overpass, views
 from .articles import save_edit
 from .models import (
     Article,
@@ -4103,6 +4103,120 @@ class AuditFeedTests(ApiTestCase):
             {'actor': '', 'target': '', 'action': ''},
         ).json()['actions']
         self.assertEqual(len(rows), 2)
+
+
+class ReportNotificationTests(ApiTestCase):
+    """Mail sent when a report is filed. The queue is the source of truth;
+    these tests are about the notification never getting in its way."""
+
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.author = User.objects.create_user('drew', password='pw12345!')
+        self.reporter = User.objects.create_user('sam', password='pw12345!')
+        self.mod = User.objects.create_user(
+            'mira', password='pw12345!', is_staff=True, email='mira@x.test'
+        )
+        self.client.force_login(self.author)
+        thread = self.client.post(
+            reverse('core:talk', args=[self.place.slug]),
+            {'title': 'Etymology dispute', 'body_md': 'Sources?'},
+            content_type='application/json',
+        ).json()['thread']
+        self.post_id = thread['posts'][0]['id']
+        self.client.force_login(self.reporter)
+        mail.outbox = []
+
+    def _report(self, reason='pasted from a book', category='copyright'):
+        return self.client.post(
+            reverse('core:report-create'),
+            {
+                'target_type': 'talk_post',
+                'target_id': self.post_id,
+                'category': category,
+                'reason': reason,
+            },
+            content_type='application/json',
+        )
+
+    def test_filing_a_report_mails_moderators(self):
+        self.assertEqual(self._report().status_code, 201)
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        # BCC, not To: moderators shouldn't learn each other's addresses.
+        self.assertEqual(message.to, [])
+        self.assertEqual(message.bcc, ['mira@x.test'])
+        self.assertIn('Copyright', message.subject)
+        self.assertIn('sam', message.body)
+        self.assertIn('pasted from a book', message.body)
+        self.assertIn(f'/place/{self.place.slug}', message.body)
+
+    def test_refiling_is_silent(self):
+        self._report()
+        self._report()
+        # Idempotent at the model, so the second POST creates nothing — and
+        # must therefore mail nothing.
+        self.assertEqual(Report.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_reporter_is_not_mailed_about_their_own_report(self):
+        self.reporter.is_staff = True
+        self.reporter.email = 'sam@x.test'
+        self.reporter.save(update_fields=['is_staff', 'email'])
+        self._report()
+        self.assertEqual(mail.outbox[0].bcc, ['mira@x.test'])
+
+    def test_moderators_without_an_address_are_skipped(self):
+        self.mod.email = ''
+        self.mod.save(update_fields=['email'])
+        self._report()
+        self.assertEqual(mail.outbox, [])
+
+    def test_ceiling_sends_a_pause_notice_then_nothing(self):
+        # Fill the window to one below the ceiling with reports from other
+        # accounts, so the one under test is the Nth.
+        for index in range(notify.REPORT_MAIL_CEILING - 1):
+            Report.objects.create(
+                reporter=User.objects.create_user(f'filer{index}'),
+                talk_post_id=self.post_id,
+                category=Report.Category.SPAM,
+            )
+        self._report()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('paused', mail.outbox[0].subject)
+
+        mail.outbox = []
+        self.client.force_login(User.objects.create_user('late'))
+        self._report()
+        self.assertEqual(mail.outbox, [])
+        # Past the ceiling the report is still recorded — only the mail stops.
+        self.assertEqual(
+            Report.objects.count(), notify.REPORT_MAIL_CEILING + 1
+        )
+
+    def test_old_reports_do_not_count_towards_the_ceiling(self):
+        old = timezone.now() - notify.REPORT_MAIL_WINDOW - timedelta(minutes=1)
+        for index in range(notify.REPORT_MAIL_CEILING + 5):
+            report = Report.objects.create(
+                reporter=User.objects.create_user(f'filer{index}'),
+                talk_post_id=self.post_id,
+                category=Report.Category.SPAM,
+            )
+            Report.objects.filter(pk=report.pk).update(created=old)
+        self._report()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertNotIn('paused', mail.outbox[0].subject)
+
+    def test_smtp_failure_does_not_break_the_report(self):
+        # No task queue, so this send is inline on the request. A dead mail
+        # host must cost the notification, not the report.
+        with patch(
+            'core.notify.EmailMessage.send', side_effect=OSError('no smtp')
+        ):
+            with self.assertLogs('core.notify', level='ERROR'):
+                response = self._report()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Report.objects.count(), 1)
 
 
 class SlugAliasTests(ApiTestCase):

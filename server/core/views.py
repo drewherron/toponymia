@@ -48,6 +48,7 @@ from .moderation import (
     is_moderator,
     log_action,
 )
+from .notify import notify_new_report
 from .overpass import QID_RE, OverpassError
 from .serializers import (
     ArticleDeleteSerializer,
@@ -1091,12 +1092,22 @@ def create_report(request):
             {'error': 'you cannot report your own content'},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    report, _ = Report.objects.get_or_create(
+    report, created = Report.objects.get_or_create(
         reporter=request.user,
         status=Report.Status.OPEN,
         **{target: obj},
         defaults={'reason': data['reason'], 'category': data['category']},
     )
+    # Only on creation: re-filing is idempotent above, and should be silent
+    # here too. notify_new_report never raises — the report is already saved,
+    # and a mail failure must not turn that into an error for the reporter.
+    if created:
+        place = (
+            obj.article.place if target == 'revision' else obj.thread.place
+        )
+        notify_new_report(
+            report, url=request.build_absolute_uri(f'/place/{place.slug}')
+        )
     return Response(
         {'report': {'id': report.id, 'status': report.status}},
         status=status.HTTP_201_CREATED,
