@@ -45,7 +45,7 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
-      - run: python manage.py test
+      - run: python manage.py test --parallel auto
 
   web:
     runs-on: ubuntu-latest
