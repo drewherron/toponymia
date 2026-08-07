@@ -140,7 +140,18 @@ def _render(request, *, title, description, path, og_type='website', status=200)
         html = html.replace('<!--seo-->', head)
     else:
         html = html.replace('</head>', head + '\n</head>', 1)
-    return HttpResponse(_nonced(request, html), status=status)
+    response = HttpResponse(_nonced(request, html), status=status)
+    # The shell must never be reused from cache. It carries a per-request CSP
+    # nonce, so a cached copy pairs yesterday's nonce with today's header and
+    # the inline script is dropped; it also names the content-hashed bundle,
+    # so a stale copy pins the browser to the previous build until someone
+    # thinks to hard-refresh. `no-cache` permits storing but forces
+    # revalidation on every use; with no ETag on this response that means a
+    # full refetch, which is the right trade for a document this small and
+    # this per-request. Assets under /assets/ are content-hashed and stay
+    # cacheable — WhiteNoise serves those, not this view.
+    response['Cache-Control'] = 'no-cache'
+    return response
 
 
 def index(request):
