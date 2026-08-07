@@ -423,7 +423,12 @@ SECURE_CSP = {
     # which core/spa.py stamps with this nonce as it renders the shell.
     # Without the nonce that script is blocked and returning dark-mode
     # readers get a white flash — silently, since nothing else depends on it.
-    'script-src': [CSP.SELF, CSP.NONCE],
+    # 'wasm-unsafe-eval' is for the RTL text shaper, which is WebAssembly:
+    # script-src governs WASM compilation, and without this Arabic and Hebrew
+    # labels don't render at all (the failure is a console error, nothing
+    # more). It permits WebAssembly only — not eval() — which is the whole
+    # reason CSP3 split it out from 'unsafe-eval'.
+    'script-src': [CSP.SELF, CSP.WASM_UNSAFE_EVAL, CSP.NONCE],
     # Needed for `style` attributes, not stylesheets: FeaturePicker positions
     # itself with one, and the sheet sets its height the same way. Narrow
     # risk (style injection only), and CSP3's style-src-attr isn't portable

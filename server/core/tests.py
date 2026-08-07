@@ -4605,7 +4605,17 @@ class ContentSecurityPolicyTests(TestCase):
         """LazyNonce only generates on access, so an API response shouldn't
         carry one. Guards the laziness, not just the header."""
         response = self.client.get('/api/highlights/?bbox=0,0,1,1')
-        self.assertEqual(self._csp(response)['script-src'], "script-src 'self'")
+        self.assertEqual(
+            self._csp(response)['script-src'],
+            "script-src 'self' 'wasm-unsafe-eval'",
+        )
+
+    def test_webassembly_is_allowed_for_the_rtl_shaper(self):
+        """MapLibre's RTL text plugin is WebAssembly, and script-src governs
+        WASM compilation. Drop this and Arabic and Hebrew labels vanish —
+        with a console error and nothing else, which is why it's pinned."""
+        csp = self._csp(self.client.get('/'))
+        self.assertIn("'wasm-unsafe-eval'", csp['script-src'])
 
     def test_map_and_geocoder_origins_are_allowed(self):
         """MapLibre and Photon are the only external origins. A too-strict
@@ -4624,7 +4634,10 @@ class ContentSecurityPolicyTests(TestCase):
         self.assertEqual(csp['base-uri'], "base-uri 'self'")
         self.assertEqual(csp['form-action'], "form-action 'self'")
         self.assertNotIn('unsafe-inline', csp['script-src'])
-        self.assertNotIn('unsafe-eval', csp['script-src'])
+        # Quoted, because 'wasm-unsafe-eval' is allowed and contains this as
+        # a substring. The two are not the same permission: one compiles
+        # WebAssembly, the other runs arbitrary source.
+        self.assertNotIn("'unsafe-eval'", csp['script-src'])
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
