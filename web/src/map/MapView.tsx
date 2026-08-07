@@ -2,7 +2,8 @@ import type { Feature, FeatureCollection } from 'geojson'
 // Relative path: the package's `exports` map hides its dist build, but
 // MapLibre's plugin loader needs the dist UMD file, served as an asset.
 import rtlTextUrl from '../../node_modules/@mapbox/mapbox-gl-rtl-text/dist/mapbox-gl-rtl-text.js?url'
-import maplibregl from 'maplibre-gl'
+// Namespace import: v6 dropped the default export in favour of named ones.
+import * as maplibregl from 'maplibre-gl'
 import type { ExpressionSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
@@ -340,7 +341,7 @@ function MapView({
         tokenMatches(lang, classExpr, tokens),
         LABEL_COLOR,
         originalColor,
-      ])
+      ] as ExpressionSpecification)
     }
   }
 
