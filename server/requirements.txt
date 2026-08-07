@@ -1,4 +1,4 @@
-Django>=6.0,<6.1
+Django>=6.0.7,<6.1
 djangorestframework>=3.17.1,<4
 django-allauth>=65.18,<66
 psycopg[binary]>=3.3.4,<4
