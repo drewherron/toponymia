@@ -2,7 +2,12 @@ import type { Feature, FeatureCollection } from 'geojson'
 // Relative path: the package's `exports` map hides its dist build, but
 // MapLibre's plugin loader needs the dist UMD file, served as an asset.
 import rtlTextUrl from '../../node_modules/@mapbox/mapbox-gl-rtl-text/dist/mapbox-gl-rtl-text.js?url'
-import maplibregl from 'maplibre-gl'
+// `?worker&url`, not `?url`: the worker imports maplibre-gl-shared.mjs, so it
+// has to be bundled rather than copied. MapLibre's `exports` map allows the
+// dist path directly, unlike the RTL plugin above.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
+// Namespace import: v6 dropped the default export in favour of named ones.
+import * as maplibregl from 'maplibre-gl'
 import type { ExpressionSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
@@ -167,9 +172,30 @@ function homeCamera(
   }
 }
 
+// v6 loads its tile-decoding worker as a separate module rather than v5's
+// inline blob, and derives the URL at runtime from `import.meta.url` — a
+// path the bundler can't see, so it resolves next to our hashed bundle and
+// 404s. Handing it the built worker's URL is the supported fix; without it
+// no tile ever decodes and the map renders empty.
+//
+// This has to come *first*: setRTLTextPlugin below reaches for the global
+// dispatcher, which spawns the worker pool on creation. Configure the URL
+// after that and it's read too late, silently, with the same empty map.
+maplibregl.setWorkerUrl(workerUrl)
+
 // Shapes Arabic/Hebrew label text (self-hosted; lazy = fetched only when
-// RTL text first appears in view). Without it RTL names render backward.
-maplibregl.setRTLTextPlugin(rtlTextUrl, true).catch(console.error)
+// RTL text first appears in view). Without it RTL names don't render at all.
+//
+// The `#.mjs` is load-bearing, not decoration. v6 picks how to load this by
+// sniffing the URL: `.mjs` is imported as a module, anything else is fetched
+// and handed to `eval` unless its source text starts with import/export. The
+// plugin ships as UMD, so it takes the eval branch — which SECURE_CSP blocks,
+// leaving RTL labels blank with only a console error. The fragment is ignored
+// by the server (same file is fetched) but satisfies the sniff, and a
+// same-origin dynamic import is allowed by `script-src 'self'`. The file
+// parses fine as a module: modules are strict, and this one has no sloppy
+// -mode dependencies.
+maplibregl.setRTLTextPlugin(`${rtlTextUrl}#.mjs`, true).catch(console.error)
 
 // Darker amber for label text (readability at small sizes), brighter for dots.
 const LABEL_COLOR = '#b45309'
@@ -340,7 +366,7 @@ function MapView({
         tokenMatches(lang, classExpr, tokens),
         LABEL_COLOR,
         originalColor,
-      ])
+      ] as ExpressionSpecification)
     }
   }
 

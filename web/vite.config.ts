@@ -14,4 +14,7 @@ export default defineConfig({
   // read it.
   server: { proxy: apiProxy, fs: { allow: ['..'] } },
   preview: { proxy: apiProxy },
+  // MapLibre 6 asks for its worker with `{ type: 'module' }`, so the bundled
+  // worker has to be an ES module; Vite's build default is IIFE.
+  worker: { format: 'es' },
 })
