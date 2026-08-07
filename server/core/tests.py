@@ -4596,6 +4596,14 @@ class ContentSecurityPolicyTests(TestCase):
         for tag in src_tags:
             self.assertNotIn('nonce=', tag)
 
+    def test_index_html_redirects_instead_of_being_served_raw(self):
+        """WhiteNoise's root is the Vite build, so without the exclusion in
+        core/statics.py it would serve index.html off disk — bypassing the
+        nonce stamping and the SEO meta, silently, on a URL that looks fine."""
+        response = self.client.get('/index.html')
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.headers['Location'], '/')
+
     def test_nonce_is_per_request(self):
         first = self._csp(self.client.get('/'))['script-src']
         second = self._csp(self.client.get('/'))['script-src']

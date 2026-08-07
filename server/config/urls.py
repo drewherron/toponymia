@@ -13,6 +13,7 @@ urlpatterns = [
     path('robots.txt', spa.robots, name='robots'),
     path('sitemap.xml', spa.sitemap, name='sitemap'),
     path('', spa.index, name='spa-index'),
+    path('index.html', spa.index_html, name='spa-index-html'),
     path('terms', spa.terms, name='spa-terms'),
     path('privacy', spa.privacy, name='spa-privacy'),
     path('place/<slug:slug>', spa.place, name='spa-place'),

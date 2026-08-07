@@ -163,6 +163,17 @@ def index(request):
     )
 
 
+def index_html(request):
+    """/index.html is the shell's name on disk, not a URL of this site.
+
+    core/statics.py stops WhiteNoise serving it so this view gets the
+    request instead; redirecting rather than rendering keeps one canonical
+    URL for the home page. robots.txt disallows it too, for the crawlers
+    that got the address from somewhere else.
+    """
+    return HttpResponsePermanentRedirect('/')
+
+
 def place(request, slug):
     try:
         found = place_by_slug(

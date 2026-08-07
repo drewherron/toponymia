@@ -87,7 +87,9 @@ MIDDLEWARE = [
     # enough that request.csp_nonce exists for every view (core/spa.py uses
     # it). Django 6 ships this; no third-party CSP package needed.
     'django.middleware.csp.ContentSecurityPolicyMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    # Subclassed to keep the SPA shell out of WhiteNoise's hands — see
+    # core/statics.py. Everything else about it is stock.
+    'core.statics.ShellExcludedWhiteNoise',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
