@@ -810,6 +810,72 @@ body,
   background: var(--amber-surface-hover);
 }
 
+/* ---- Site notice (top-centre of the map) ----
+
+   The launch notice, and whatever announcement replaces it later. Content
+   and the on/off switch are in src/notice.ts, not here.
+
+   Chrome rather than a dialog, and for the same reason as .contrib-chip: it
+   explains something about the map, so it has to be legible next to the map
+   it's describing. It borrows that banner's corner too — clear of the zoom
+   controls (top-right) and the sheet (bottom) — but is a card, not a chip,
+   because it carries paragraphs and an action. App drops it while the pane
+   or the lens is open, so the two never contend for the space. */
+.site-notice {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: 400px;
+  max-width: calc(100% - 24px);
+  padding: 12px 14px 14px;
+  border: 1px solid var(--amber-border-soft);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 2px 14px var(--shadow);
+}
+
+.site-notice-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.site-notice-header h2 {
+  font-size: 1rem;
+  color: var(--text-strong);
+}
+
+.site-notice-close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: -2px -4px 0 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.site-notice-close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.site-notice p {
+  margin-top: 8px;
+  color: var(--text-body);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 /* ---- Map label language (bottom-left map chrome) ----
    Wide screens only; the compact header keeps a plain .lang-select in the ☰
    menu. Bottom-left is the corner MapLibre leaves empty — its own attribution

@@ -38,6 +38,13 @@ function AboutDialog({ onClose, onOpenDoc }: AboutDialogProps) {
         </p>
 
         <p>
+          The wiki is new, and most places have no article yet — names drawn
+          in amber are the ones that do. Anywhere you click without finding an
+          article is a place-name nobody has explained yet, and you are
+          welcome to be the one who does.
+        </p>
+
+        <p>
           Using and contributing to the site are covered by the{' '}
           <button
             type="button"

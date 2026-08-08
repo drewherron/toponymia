@@ -30,6 +30,8 @@ import {
   storeLabelLanguage,
 } from './map/labels'
 import MapView from './map/MapView'
+import { dismissedNotice, dismissNotice, NOTICE } from './notice'
+import SiteNotice from './components/SiteNotice'
 import { applyTheme, storedTheme, storeTheme, type Theme } from './theme'
 import type {
   ClickContext,
@@ -99,6 +101,10 @@ function App() {
   // Mutually exclusive with allArticles: two sets of dots meaning different
   // things, with nothing on screen to tell them apart, is just noise.
   const [contributions, setContributions] = useState<Contributions | null>(null)
+  // Which notice this browser has dismissed (see notice.ts). Read once at
+  // mount; the card compares it against the *current* notice's id, so
+  // shipping a new announcement re-shows one to everybody.
+  const [dismissed, setDismissed] = useState(dismissedNotice)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
   const [theme, setTheme] = useState<Theme>(storedTheme)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
@@ -428,6 +434,12 @@ function App() {
       .catch(console.error)
   }, [])
 
+  const handleDismissNotice = useCallback(() => {
+    if (!NOTICE) return
+    dismissNotice(NOTICE.id)
+    setDismissed(NOTICE.id)
+  }, [])
+
   const getMapCenter = useCallback(
     () => mapApiRef.current?.getCenter() ?? null,
     [],
@@ -655,6 +667,14 @@ function App() {
               ×
             </button>
           </div>
+        )}
+        {/* Held back while anything else owns the map: an open pane or the
+            contributions lens both cover this corner, and both mean the
+            reader has already found their way around. It returns when they
+            close, until the × puts it away for good. */}
+        {NOTICE && dismissed !== NOTICE.id && !selected && !contributions
+          && !moderationOpen && (
+          <SiteNotice notice={NOTICE} onDismiss={handleDismissNotice} />
         )}
         {!compactHeader && (
           <MapLanguageControl

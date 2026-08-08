@@ -1,0 +1,51 @@
+/** The site-wide notice: one card over the map, shown until dismissed.
+ *
+ *  Everything about what it says lives in `NOTICE` below.
+ *
+ *  - **To change the wording** for a notice people are already dismissing,
+ *    edit the text and give it a **new `id`**. Dismissal is recorded against
+ *    the id, so a new one shows the notice again to everyone — including the
+ *    people who dismissed the last one. Reusing the id would leave them with
+ *    a stale dismissal of a notice they never saw.
+ *  - **To switch it off**, set `NOTICE` to `null`. Nothing else has to change;
+ *    the card stops rendering.
+ *
+ *  Dismissal is per-browser (localStorage, like the theme and the map's label
+ *  language), so a private window or a second device sees it again. That's the
+ *  accepted cost of not asking an anonymous visitor to have an account before
+ *  the site can remember anything about them — and a reason to keep whatever
+ *  goes here short and worth reading twice.
+ */
+export interface Notice {
+  /** Bump this whenever the text changes. See the note above. */
+  id: string
+  title: string
+  /** One string per paragraph. */
+  body: string[]
+}
+
+export const NOTICE: Notice | null = {
+  id: 'launch-2026',
+  title: 'Welcome to Toponymia',
+  body: [
+    'This is a map-based wiki of place-name etymologies. Click any label on' +
+      ' the map to read where that name came from, or to write the article' +
+      ' yourself. Labels in amber already have articles. Click “All' +
+      ' articles” to show where any existing articles are.',
+    "This site is brand new, so most places don't have an article yet. An" +
+      ' empty map is an invitation, not a fault. Anywhere you click without' +
+      ' finding an article is a place-name nobody has explained yet, and you' +
+      ' are welcome to be the one who does.',
+  ],
+}
+
+const STORAGE_KEY = 'toponymia:noticeDismissed'
+
+/** The id of the last notice this browser dismissed, if any. */
+export function dismissedNotice(): string | null {
+  return localStorage.getItem(STORAGE_KEY)
+}
+
+export function dismissNotice(id: string) {
+  localStorage.setItem(STORAGE_KEY, id)
+}
