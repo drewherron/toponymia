@@ -275,12 +275,41 @@ ALLAUTH_TRUSTED_PROXY_COUNT = int(
 )
 
 
+# Where throttle counters live. LocMemCache is per-process, so with
+# `--workers N` every limit below is really N buckets of the stated rate (and
+# all of them reset on restart). DJANGO_REDIS_URL points them at one shared
+# store instead; unset — which is every dev machine — keeps the in-memory
+# default so nothing new has to be running locally.
+#
+# Redis belongs *on the box*, not in ElastiCache: the only thing that needs to
+# share these counters is the gunicorn workers of a single instance, which a
+# unix socket does for free. A managed node would cost about as much as the
+# instance and add a network partition as a new way to fail. It becomes the
+# right answer the day there is more than one app instance to span.
+REDIS_URL = os.environ.get('DJANGO_REDIS_URL', '')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+
 # DRF — simple rate limits on anonymous-facing / expensive endpoints
 #. UserRateThrottle keys by user id when logged in, client
-# IP otherwise, so the per-endpoint scopes below cover both. The default
-# cache (LocMemCache) is per-process — fine for a single-VPS v1; a shared
-# cache (Redis) is the upgrade if we ever run multiple workers.
+# IP otherwise, so the per-endpoint scopes below cover both.
+#
+# NUM_PROXIES is the same trusted-hop count as ALLAUTH_TRUSTED_PROXY_COUNT
+# above, and matters for the same reason. Left unset, DRF uses the *whole*
+# X-Forwarded-For header as the client identity whenever one is present — so a
+# client that sends a different XFF on every request gets a fresh bucket every
+# time and is not throttled at all. Behind a proxy that is worse, not better:
+# Caddy, ALB and CloudFront all *append* to XFF rather than replacing it, so
+# the spoofed prefix survives. Setting the count makes DRF read the Nth entry
+# from the right, which only a proxy we trust can have written. 0 in dev means
+# REMOTE_ADDR is used and the header is ignored entirely.
 REST_FRAMEWORK = {
+    'NUM_PROXIES': ALLAUTH_TRUSTED_PROXY_COUNT,
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
