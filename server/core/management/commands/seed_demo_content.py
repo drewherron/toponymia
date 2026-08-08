@@ -9,9 +9,10 @@ do when they run out of room:
 
   reykjavik    140 revisions (history paginates at 100), 14 talk threads,
                one of them 80 posts deep, and a current revision that sits
-               at every content ceiling at once — 20 names, 30 references
-               each, 50 derivations, 50 see-also links, etymologies at the
-               10k-character limit.
+               at every content ceiling at once — 20 names, 5 competing
+               etymologies each with 12 elements and 30 references, 50
+               derivations, 50 see-also links, and every prose section at
+               the 10k-character limit.
   river-thames a merely large article: 24 revisions, 4 threads.
   ben-nevis    a stub with no article at all, but two talk threads — the
                "discussed before anyone wrote it" state.
@@ -57,9 +58,21 @@ END = datetime(2026, 7, 20, 17, 0, tzinfo=UTC)
 # deliberately, not silently start emitting 10x the content.
 MAX_MARKDOWN = 10_000
 MAX_NAMES = 20
+MAX_ETYMOLOGIES = 5
 MAX_REFERENCES = 30
+MAX_ELEMENTS = 12
 MAX_DERIVATIONS = 50
 MAX_SEE_ALSO = 50
+
+# Weighted so most seeded etymologies say nothing about confidence (the
+# realistic case, and the one the article pane must not clutter) while
+# every label still appears somewhere in the corpus — 'folk' especially,
+# since it is the one with its own rendering.
+CONFIDENCE_VALUES = [
+    '', '', '', 'attested', 'probable', 'proposed', 'disputed', 'folk',
+    'unknown',
+]
+ELEMENT_ROLES = ['generic', 'specific', 'affix', 'connective', '']
 
 # name, feature_class, lng, lat, zoom — the arguments a map click sends.
 # feature_class must be what web/src/map/features.ts kindOf() reports for
@@ -288,16 +301,43 @@ class Command(BaseCommand):
             return f'https://example.org/{self._words(2).replace(" ", "-")}'
         return self._sentence(self.rng.randint(6, 14))
 
+    def _element(self, from_languages):
+        return {
+            'form': self._words(1),
+            'language': (
+                self.rng.choice(from_languages) if from_languages else ''
+            ),
+            'gloss': (
+                self._words(self.rng.randint(1, 2))
+                if self.rng.random() < 0.85 else ''
+            ),
+            'role': self.rng.choice(ELEMENT_ROLES),
+            'script': '',
+            'transliteration': '',
+        }
+
+    def _etymology(self, etymology_chars, from_languages):
+        return {
+            'etymology_md': self._markdown(etymology_chars),
+            'confidence': self.rng.choice(CONFIDENCE_VALUES),
+            'from_languages': list(from_languages),
+            'elements': [
+                self._element(from_languages)
+                for _ in range(self.rng.randint(0, 3))
+            ],
+            'references': [
+                self._reference() for _ in range(self.rng.randint(0, 4))
+            ],
+        }
+
     def _name_entry(self, roster_row, etymology_chars):
         name, language, is_endonym, from_languages = roster_row
         return {
             'name': name,
             'language': language,
             'is_endonym': is_endonym,
-            'from_languages': list(from_languages),
-            'etymology_md': self._markdown(etymology_chars),
-            'references': [
-                self._reference() for _ in range(self.rng.randint(0, 4))
+            'etymologies': [
+                self._etymology(etymology_chars, from_languages)
             ],
         }
 
@@ -331,15 +371,37 @@ class Command(BaseCommand):
             revisions.append(revision)
         return revisions
 
+    def _primary(self, name_entry):
+        """The name's leading hypothesis — what a mutation edits unless it
+        is specifically about alternatives. Every seeded name is born with
+        one and no branch below removes the last, so this never indexes
+        into an empty list."""
+        return name_entry['etymologies'][0]
+
     def _mutate(self, content, roster):
         names = content['names']
         choice = self.rng.random()
-        if choice < 0.42:
+        if choice < 0.36:
             # The common edit: rewrite one section.
-            target = self.rng.choice(names)
-            target['etymology_md'] = self._markdown(
-                self.rng.randint(300, 2500)
+            self._primary(self.rng.choice(names))['etymology_md'] = (
+                self._markdown(self.rng.randint(300, 2500))
             )
+        elif choice < 0.42:
+            # The contested-name edit. Rarer than a rewrite, but it has to
+            # appear in the corpus: a second hypothesis is what the article
+            # pane and the diff view render differently, and a demo without
+            # one never shows that path.
+            target = self.rng.choice(names)
+            etymologies = target['etymologies']
+            if len(etymologies) < MAX_ETYMOLOGIES:
+                etymologies.append(
+                    self._etymology(
+                        self.rng.randint(200, 900),
+                        self.rng.choice(roster)[3],
+                    )
+                )
+            elif len(etymologies) > 1:
+                etymologies.pop()
         elif choice < 0.55 and len(names) < min(MAX_NAMES, len(roster)):
             # By first unused row, not by position: a removal earlier in
             # the history shortens the list, and indexing by length would
@@ -353,15 +415,27 @@ class Command(BaseCommand):
                 )
         elif choice < 0.62 and len(names) > 2:
             names.pop(self.rng.randrange(1, len(names)))
-        elif choice < 0.74:
+        elif choice < 0.70:
             # A word-level tweak — the diff case that has to stay readable.
-            target = self.rng.choice(names)
+            target = self._primary(self.rng.choice(names))
             words = target['etymology_md'].split(' ')
             if len(words) > 20:
                 words[self.rng.randrange(len(words))] = self.rng.choice(LOREM)
                 target['etymology_md'] = ' '.join(words)
+        elif choice < 0.76:
+            # Reclassifying a hypothesis — a one-field edit, which is the
+            # diff view's smallest interesting row.
+            target = self._primary(self.rng.choice(names))
+            target['confidence'] = self.rng.choice(CONFIDENCE_VALUES)
+        elif choice < 0.80:
+            target = self._primary(self.rng.choice(names))
+            elements = target['elements']
+            if elements and self.rng.random() < 0.3:
+                elements.pop()
+            elif len(elements) < MAX_ELEMENTS:
+                elements.append(self._element(target['from_languages']))
         elif choice < 0.84:
-            target = self.rng.choice(names)
+            target = self._primary(self.rng.choice(names))
             if target['references'] and self.rng.random() < 0.3:
                 target['references'].pop()
             elif len(target['references']) < MAX_REFERENCES:
@@ -382,18 +456,31 @@ class Command(BaseCommand):
     def _maxed_content(self, roster):
         """Every ceiling at once — the layout's worst case.
 
-        20 names each carrying a 10,000-character etymology and 30
-        references, plus 50 derivations and 50 see-also entries. This is
-        the largest snapshot the validators will accept, so if the article
-        pane survives it, it survives anything.
+        20 names, each with 5 competing etymologies, each of those
+        carrying a 10,000-character prose section, 12 elements and 30
+        references — plus 50 derivations and 50 see-also entries. That is
+        the largest snapshot the validators will accept (roughly a
+        megabyte), so if the article pane survives it, it survives
+        anything.
         """
         return {
             'body_md': self._markdown(MAX_MARKDOWN),
             'names': [
                 {
                     **self._name_entry(row, MAX_MARKDOWN),
-                    'references': [
-                        self._reference() for _ in range(MAX_REFERENCES)
+                    'etymologies': [
+                        {
+                            **self._etymology(MAX_MARKDOWN, row[3]),
+                            'elements': [
+                                self._element(row[3])
+                                for _ in range(MAX_ELEMENTS)
+                            ],
+                            'references': [
+                                self._reference()
+                                for _ in range(MAX_REFERENCES)
+                            ],
+                        }
+                        for _ in range(MAX_ETYMOLOGIES)
                     ],
                 }
                 for row in roster[:MAX_NAMES]

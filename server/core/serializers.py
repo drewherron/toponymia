@@ -15,8 +15,10 @@ from .models import ModAction
 # stay revertable whatever their size.
 MAX_MARKDOWN = 10_000       # one etymology (or a legacy body)
 MAX_NAMES = 20              # names on one article
-MAX_REFERENCES = 30         # references on one name
-MAX_FROM_LANGUAGES = 10     # source languages on one name
+MAX_ETYMOLOGIES = 5         # competing hypotheses under one name
+MAX_REFERENCES = 30         # references on one etymology
+MAX_FROM_LANGUAGES = 10     # source languages on one etymology
+MAX_ELEMENTS = 12           # etymon rows under one etymology
 MAX_DERIVATIONS = 50
 MAX_SEE_ALSO = 50
 
@@ -42,21 +44,82 @@ class LanguageCodeField(serializers.CharField):
         return code
 
 
-class NameSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=255)
+class ElementSerializer(serializers.Serializer):
+    """One etymon: the word a name is built from. `form` is the only
+    required field — an editor who knows *aqua* 'water' but not whether it
+    counts as generic or specific must not be blocked on the taxonomy.
+
+    `script` and `transliteration` are accepted but not offered by the
+    editor yet; unknown keys are dropped, so exposing them later (or adding
+    a Wikidata `lexeme_id`) is a form change, not a schema migration.
+    """
+
+    ROLES = ['generic', 'specific', 'affix', 'connective']
+
+    form = serializers.CharField(max_length=100)
     language = LanguageCodeField(allow_blank=True, default='')
-    from_languages = serializers.ListField(
-        child=LanguageCodeField(), default=list,
-        max_length=MAX_FROM_LANGUAGES,
+    gloss = serializers.CharField(max_length=200, allow_blank=True, default='')
+    role = serializers.ChoiceField(
+        choices=ROLES, allow_blank=True, default=''
     )
-    is_endonym = serializers.BooleanField(default=False)
+    script = serializers.CharField(
+        max_length=100, allow_blank=True, default=''
+    )
+    transliteration = serializers.CharField(
+        max_length=200, allow_blank=True, default=''
+    )
+
+
+class EtymologySerializer(serializers.Serializer):
+    """One *hypothesis* about where a name comes from. A name carries a
+    list of these: contested names are the normal case in toponymy, and
+    one blob per name forces editors to either edit-war over it or bury
+    the alternatives in prose.
+
+    `from_languages` and `references` live here rather than on the name
+    because rival hypotheses genuinely cite different languages and
+    different sources; hanging them off the name asserts one answer.
+
+    `confidence` distinguishes '' (nobody said) from 'unknown' (an
+    assertion that scholarship doesn't know). Collapsing the two would
+    poison the field the first time anyone trusted it.
+    """
+
+    CONFIDENCE = [
+        'attested', 'probable', 'proposed', 'disputed', 'folk', 'unknown',
+    ]
+
     etymology_md = serializers.CharField(
         allow_blank=True, trim_whitespace=False, default='',
         max_length=MAX_MARKDOWN,
     )
+    confidence = serializers.ChoiceField(
+        choices=CONFIDENCE, allow_blank=True, default=''
+    )
+    from_languages = serializers.ListField(
+        child=LanguageCodeField(), default=list,
+        max_length=MAX_FROM_LANGUAGES,
+    )
+    elements = ElementSerializer(
+        many=True, default=list, max_length=MAX_ELEMENTS
+    )
     references = serializers.ListField(
         child=serializers.CharField(max_length=1000), default=list,
         max_length=MAX_REFERENCES,
+    )
+
+
+class NameSerializer(serializers.Serializer):
+    """A name, plus every hypothesis about it. name / language /
+    is_endonym are facts about the name itself; everything contestable
+    hangs off `etymologies`, whose first entry is the primary one (order is
+    editorial — no separate flag to keep consistent)."""
+
+    name = serializers.CharField(max_length=255)
+    language = LanguageCodeField(allow_blank=True, default='')
+    is_endonym = serializers.BooleanField(default=False)
+    etymologies = EtymologySerializer(
+        many=True, default=list, max_length=MAX_ETYMOLOGIES
     )
 
 

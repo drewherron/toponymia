@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ArticleData } from '../types'
+import type { ArticleData, Confidence, ElementRole } from '../types'
 
 interface ArticleViewProps {
   article: ArticleData
@@ -13,6 +13,25 @@ interface ArticleViewProps {
 }
 
 const plugins = [remarkGfm]
+
+/** Wording is deliberate: "folk etymology" is a label *about* a tradition,
+ *  not an endorsement of it, and "not stated" would read as a gap in the
+ *  article rather than as a fact about the scholarship. */
+const CONFIDENCE_LABEL: Record<Exclude<Confidence, ''>, string> = {
+  attested: 'attested',
+  probable: 'probable',
+  proposed: 'proposed',
+  disputed: 'disputed',
+  folk: 'folk etymology',
+  unknown: 'origin unknown',
+}
+
+const ROLE_LABEL: Record<Exclude<ElementRole, ''>, string> = {
+  generic: 'generic',
+  specific: 'specific',
+  affix: 'affix',
+  connective: 'connective',
+}
 
 const SLUG_PATH = /^\/place\/([\w-]+)\/?$/
 
@@ -131,23 +150,74 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
                   <span className="name-endonym">endonym</span>
                 )}
               </h3>
-              {entry.from_languages.length > 0 && (
-                <p className="name-from">
-                  from {entry.from_languages.join(', ')}
-                </p>
-              )}
-              {entry.etymology_md && (
-                <Markdown remarkPlugins={plugins} components={components}>
-                  {entry.etymology_md}
-                </Markdown>
-              )}
-              {entry.references.length > 0 && (
-                <ul className="name-references">
-                  {entry.references.map((ref) => (
-                    <li key={ref}>{linkify(ref)}</li>
-                  ))}
-                </ul>
-              )}
+              {entry.etymologies.map((etymology, index) => (
+                <div className="name-etymology" key={index}>
+                  {/* Numbered only when there's something to tell apart —
+                      a single etymology reads as the article's answer, not
+                      as "theory 1 of 1". */}
+                  {entry.etymologies.length > 1 && (
+                    <h4 className="etymology-heading">
+                      {index === 0
+                        ? 'Etymology'
+                        : `Alternative etymology ${index}`}
+                    </h4>
+                  )}
+                  {etymology.confidence && (
+                    <p
+                      className={
+                        'etymology-confidence ' +
+                        `confidence-${etymology.confidence}`
+                      }
+                    >
+                      {CONFIDENCE_LABEL[etymology.confidence]}
+                    </p>
+                  )}
+                  {etymology.from_languages.length > 0 && (
+                    <p className="name-from">
+                      from {etymology.from_languages.join(', ')}
+                    </p>
+                  )}
+                  {etymology.elements.length > 0 && (
+                    <table className="etymology-elements">
+                      <tbody>
+                        {etymology.elements.map((element, i) => (
+                          <tr key={i}>
+                            <th scope="row">
+                              {element.form}
+                              {element.transliteration && (
+                                <span className="element-translit">
+                                  {element.transliteration}
+                                </span>
+                              )}
+                            </th>
+                            <td className="element-language">
+                              {element.language}
+                            </td>
+                            <td className="element-gloss">
+                              {element.gloss && `‘${element.gloss}’`}
+                            </td>
+                            <td className="element-role">
+                              {element.role && ROLE_LABEL[element.role]}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {etymology.etymology_md && (
+                    <Markdown remarkPlugins={plugins} components={components}>
+                      {etymology.etymology_md}
+                    </Markdown>
+                  )}
+                  {etymology.references.length > 0 && (
+                    <ul className="name-references">
+                      {etymology.references.map((ref) => (
+                        <li key={ref}>{linkify(ref)}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
             </div>
           ))}
         </section>

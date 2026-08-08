@@ -146,9 +146,16 @@ class Article(models.Model):
 
 class Revision(models.Model):
     """Full JSON snapshot per edit (wiki core). content:
-    { body_md, names: [ { name, language, from_languages[], is_endonym,
-      etymology_md, references[] } ], derivations: [ { term, note, url } ],
-      see_also: [] }"""
+    { body_md, names: [ { name, language, is_endonym, etymologies: [
+      { etymology_md, confidence, from_languages[], references[],
+        elements: [ { form, language, gloss, role, script,
+        transliteration } ] } ] } ],
+      derivations: [ { term, note, url } ], see_also: [] }
+
+    Validated by core.serializers on write only: revert copies an old
+    snapshot straight through save_edit, so every reader must tolerate any
+    shape this schema has ever had (see body_md, vestigial since the
+    free-form body left the editor)."""
 
     article = models.ForeignKey(
         Article, on_delete=models.CASCADE, related_name='revisions'

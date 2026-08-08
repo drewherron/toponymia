@@ -109,13 +109,46 @@ export interface ResolveResponse {
   created: boolean
 }
 
+/** How sure the field is that an etymology is right. '' means nobody
+ *  said, which is not the same claim as 'unknown'. */
+export type Confidence =
+  | ''
+  | 'attested'
+  | 'probable'
+  | 'proposed'
+  | 'disputed'
+  | 'folk'
+  | 'unknown'
+
+export type ElementRole = '' | 'generic' | 'specific' | 'affix' | 'connective'
+
+/** One etymon — a word the name is built from. */
+export interface Element {
+  form: string
+  language: string
+  gloss: string
+  role: ElementRole
+  script: string
+  transliteration: string
+}
+
+/** One hypothesis about where a name comes from. Source languages and
+ *  references hang off the hypothesis, not the name: rival theories cite
+ *  different languages and different sources. */
+export interface Etymology {
+  etymology_md: string
+  confidence: Confidence
+  from_languages: string[]
+  elements: Element[]
+  references: string[]
+}
+
 export interface NameEntry {
   name: string
   language: string
-  from_languages: string[]
   is_endonym: boolean
-  etymology_md: string
-  references: string[]
+  /** Editorial order — the first entry is the primary one. */
+  etymologies: Etymology[]
 }
 
 export interface Derivation {

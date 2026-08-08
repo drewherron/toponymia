@@ -1120,8 +1120,9 @@ def _revision_excerpt(content):
     if content.get('body_md', '').strip():
         return content['body_md'][:280]
     for entry in content.get('names', []):
-        if entry.get('etymology_md', '').strip():
-            return entry['etymology_md'][:280]
+        for etymology in entry.get('etymologies', []):
+            if etymology.get('etymology_md', '').strip():
+                return etymology['etymology_md'][:280]
     return ''
 
 

@@ -58,6 +58,8 @@ from .overpass import (
 from .resolve import representative_point, simplified
 from .serializers import (
     MAX_BAN_DAYS,
+    MAX_ELEMENTS,
+    MAX_ETYMOLOGIES,
     MAX_MARKDOWN,
     MAX_NAMES,
     MAX_REFERENCES,
@@ -1017,12 +1019,20 @@ def _content(**overrides):
                 'name': 'Testville',
                 'language': 'eng',
                 'is_endonym': True,
-                'etymology_md': '*test* + *-ville*',
+                'etymologies': [
+                    {'etymology_md': '*test* + *-ville*'},
+                ],
             },
         ],
     }
     content.update(overrides)
     return content
+
+
+def _primary(content, index=0):
+    """The first name's leading etymology — where prose, source languages,
+    elements and references live."""
+    return content['names'][index]['etymologies'][0]
 
 
 class ArticleApiTests(ApiTestCase):
@@ -1124,7 +1134,7 @@ class ArticleApiTests(ApiTestCase):
     def test_unknown_language_code_rejected(self):
         self.client.force_login(self.user)
         content = _content()
-        content['names'][0]['from_languages'] = ['lat', 'Latin']
+        _primary(content)['from_languages'] = ['lat', 'Latin']
         response = self._put(content=content)
         self.assertEqual(response.status_code, 400)
         self.assertIn('Latin', str(response.json()))
@@ -1135,15 +1145,128 @@ class ArticleApiTests(ApiTestCase):
         self.client.force_login(self.user)
         content = _content()
         content['names'][0]['language'] = 'FR'
-        content['names'][0]['from_languages'] = ['la', 'ang']
+        _primary(content)['from_languages'] = ['la', 'ang']
         response = self._put(content=content)
         self.assertEqual(response.status_code, 200)
         stored = response.json()['article']['content']['names'][0]
         self.assertEqual(stored['language'], 'fra')
-        self.assertEqual(stored['from_languages'], ['lat', 'ang'])
+        self.assertEqual(stored['etymologies'][0]['from_languages'],
+                         ['lat', 'ang'])
         row = PlaceName.objects.get(place=self.place)
         self.assertEqual(row.language, 'fra')
         self.assertEqual(row.from_languages, ['lat', 'ang'])
+
+    def test_element_language_codes_normalized_too(self):
+        # The etymon table is the point of the schema, so its language
+        # column has to be dataset-grade like the others, not free text.
+        self.client.force_login(self.user)
+        content = _content()
+        _primary(content)['elements'] = [
+            {'form': 'aqua', 'language': 'la', 'gloss': 'water',
+             'role': 'generic'},
+        ]
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 200)
+        stored = response.json()['article']['content']['names'][0]
+        self.assertEqual(stored['etymologies'][0]['elements'][0]['language'],
+                         'lat')
+
+    def test_unknown_element_language_rejected(self):
+        self.client.force_login(self.user)
+        content = _content()
+        _primary(content)['elements'] = [
+            {'form': 'aqua', 'language': 'Latin'},
+        ]
+        self.assertEqual(self._put(content=content).status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_element_needs_only_a_form(self):
+        # An editor who knows the word but not the taxonomy must not be
+        # blocked — everything except `form` defaults to blank.
+        self.client.force_login(self.user)
+        content = _content()
+        _primary(content)['elements'] = [{'form': 'nemos'}]
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 200)
+        element = (
+            response.json()['article']['content']
+            ['names'][0]['etymologies'][0]['elements'][0]
+        )
+        self.assertEqual(element['form'], 'nemos')
+        self.assertEqual(element['role'], '')
+        self.assertEqual(element['gloss'], '')
+
+    def test_bad_element_role_rejected(self):
+        self.client.force_login(self.user)
+        content = _content()
+        _primary(content)['elements'] = [
+            {'form': 'nemos', 'role': 'prefixish'},
+        ]
+        self.assertEqual(self._put(content=content).status_code, 400)
+
+    def test_confidence_choices_enforced(self):
+        self.client.force_login(self.user)
+        content = _content()
+        _primary(content)['confidence'] = 'probably-made-up'
+        self.assertEqual(self._put(content=content).status_code, 400)
+
+    def test_confidence_defaults_to_unset_not_unknown(self):
+        # '' means nobody said; 'unknown' asserts that scholarship doesn't
+        # know. Collapsing them would poison the label.
+        self.client.force_login(self.user)
+        response = self._put()
+        self.assertEqual(response.status_code, 200)
+        stored = response.json()['article']['content']['names'][0]
+        self.assertEqual(stored['etymologies'][0]['confidence'], '')
+
+    def test_competing_etymologies_round_trip(self):
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['etymologies'] = [
+            {'etymology_md': 'From Gaulish.', 'confidence': 'probable',
+             'from_languages': ['xtg']},
+            {'etymology_md': 'Sometimes said to honour a king.',
+             'confidence': 'folk', 'from_languages': ['lat']},
+        ]
+        response = self._put(content=content)
+        self.assertEqual(response.status_code, 200)
+        stored = response.json()['article']['content']['names'][0]
+        self.assertEqual(len(stored['etymologies']), 2)
+        self.assertEqual(stored['etymologies'][1]['confidence'], 'folk')
+
+    def test_source_languages_materialize_as_a_union(self):
+        # PlaceName.from_languages feeds map filtering and search, which
+        # want recall: a disputed Latin hypothesis should still make the
+        # place findable under Latin.
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['etymologies'] = [
+            {'etymology_md': 'a', 'from_languages': ['xtg', 'lat']},
+            {'etymology_md': 'b', 'from_languages': ['lat', 'ang']},
+        ]
+        self.assertEqual(self._put(content=content).status_code, 200)
+        row = PlaceName.objects.get(place=self.place)
+        # Primary first, deduplicated, order preserved.
+        self.assertEqual(row.from_languages, ['xtg', 'lat', 'ang'])
+
+    def test_too_many_etymologies_rejected(self):
+        self.client.force_login(self.user)
+        content = _content()
+        content['names'][0]['etymologies'] = [
+            {'etymology_md': f'theory {i}'}
+            for i in range(MAX_ETYMOLOGIES + 1)
+        ]
+        self.assertEqual(self._put(content=content).status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
+
+    def test_too_many_elements_rejected(self):
+        self.client.force_login(self.user)
+        content = _content()
+        _primary(content)['elements'] = [
+            {'form': f'w{i}'} for i in range(MAX_ELEMENTS + 1)
+        ]
+        self.assertEqual(self._put(content=content).status_code, 400)
+        self.assertEqual(Revision.objects.count(), 0)
 
     def test_blank_language_still_allowed(self):
         self.client.force_login(self.user)
@@ -1165,7 +1288,7 @@ class ArticleApiTests(ApiTestCase):
     def test_oversized_etymology_rejected(self):
         self.client.force_login(self.user)
         content = _content()
-        content['names'][0]['etymology_md'] = 'x' * (MAX_MARKDOWN + 1)
+        _primary(content)['etymology_md'] = 'x' * (MAX_MARKDOWN + 1)
         response = self._put(content=content)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Revision.objects.count(), 0)
@@ -1173,7 +1296,7 @@ class ArticleApiTests(ApiTestCase):
     def test_etymology_at_the_limit_accepted(self):
         self.client.force_login(self.user)
         content = _content()
-        content['names'][0]['etymology_md'] = 'x' * MAX_MARKDOWN
+        _primary(content)['etymology_md'] = 'x' * MAX_MARKDOWN
         self.assertEqual(self._put(content=content).status_code, 200)
 
     def test_too_many_names_rejected(self):
@@ -1191,7 +1314,7 @@ class ArticleApiTests(ApiTestCase):
     def test_too_many_references_rejected(self):
         self.client.force_login(self.user)
         content = _content()
-        content['names'][0]['references'] = [
+        _primary(content)['references'] = [
             f'ref {i}' for i in range(MAX_REFERENCES + 1)
         ]
         response = self._put(content=content)
@@ -1205,7 +1328,7 @@ class ArticleApiTests(ApiTestCase):
         self.client.force_login(self.user)
         self._put()
         oversized = _content()
-        oversized['names'][0]['etymology_md'] = 'x' * (MAX_MARKDOWN + 500)
+        _primary(oversized)['etymology_md'] = 'x' * (MAX_MARKDOWN + 500)
         old = Revision.objects.create(
             article=Article.objects.get(place=self.place),
             author=self.user,
@@ -1220,7 +1343,10 @@ class ArticleApiTests(ApiTestCase):
         )
         self.assertEqual(response.status_code, 200)
         restored = response.json()['article']['content']['names'][0]
-        self.assertEqual(len(restored['etymology_md']), MAX_MARKDOWN + 500)
+        self.assertEqual(
+            len(restored['etymologies'][0]['etymology_md']),
+            MAX_MARKDOWN + 500,
+        )
 
 
 class RevisionApiTests(ApiTestCase):
@@ -3071,7 +3197,8 @@ class DashboardApiTests(ApiTestCase):
             self.place, self.author,
             _content(names=[{
                 'name': 'Slurville', 'language': 'eng',
-                'is_endonym': True, 'etymology_md': 'x',
+                'is_endonym': True,
+                'etymologies': [{'etymology_md': 'x'}],
             }]),
             'bad',
         )
@@ -3902,7 +4029,7 @@ class RevertAuditTests(ApiTestCase):
         save_edit(
             self.place, self.author, _content(names=[{
                 'name': 'Testville', 'language': 'eng',
-                'etymology_md': 'rewritten',
+                'etymologies': [{'etymology_md': 'rewritten'}],
             }]), 'second',
         )
 
@@ -4909,8 +5036,8 @@ class AccountManagementTests(ApiTestCase):
         save_edit(
             place, self.user,
             {'names': [{'name': 'Anonplace', 'language': 'eng',
-                        'from_languages': [], 'is_endonym': False,
-                        'etymology_md': 'x', 'references': []}],
+                        'is_endonym': False,
+                        'etymologies': [{'etymology_md': 'x'}]}],
              'body_md': '', 'derivations': [], 'see_also': []},
             'first',
         )
@@ -4978,8 +5105,8 @@ class ClosedAccountReuseTests(ApiTestCase):
         save_edit(
             place, self.user,
             {'names': [{'name': 'Reuseplace', 'language': 'eng',
-                        'from_languages': [], 'is_endonym': False,
-                        'etymology_md': 'x', 'references': []}],
+                        'is_endonym': False,
+                        'etymologies': [{'etymology_md': 'x'}]}],
              'body_md': '', 'derivations': [], 'see_also': []},
             'first',
         )

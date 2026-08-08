@@ -1,9 +1,16 @@
 /** Revision comparison: body Markdown is diffed as text
- * into side-by-side rows, structured fields (names, derivations,
- * see_also) are diffed field-wise. Rendering lives in HistoryTab. */
+ * into side-by-side rows, structured fields (names, their etymologies,
+ * derivations, see_also) are diffed field-wise. Rendering lives in
+ * HistoryTab. */
 
 import { diffLines, diffWordsWithSpace } from 'diff'
-import type { ArticleContent, Derivation, NameEntry } from './types'
+import type {
+  ArticleContent,
+  Derivation,
+  Element,
+  Etymology,
+  NameEntry,
+} from './types'
 
 export interface DiffSpan {
   text: string
@@ -113,10 +120,86 @@ function nameKey(entry: NameEntry): string {
 function nameFields(entry: NameEntry): Record<string, string> {
   return {
     endonym: entry.is_endonym ? 'yes' : 'no',
+  }
+}
+
+function elementText(element: Element): string {
+  const parts = [element.form]
+  if (element.language) parts.push(`[${element.language}]`)
+  if (element.gloss) parts.push(`‘${element.gloss}’`)
+  if (element.role) parts.push(`(${element.role})`)
+  return parts.join(' ')
+}
+
+function etymologyFields(entry: Etymology): Record<string, string> {
+  return {
+    confidence: entry.confidence,
     'from languages': entry.from_languages.join(', '),
+    elements: entry.elements.map(elementText).join('\n'),
     etymology: entry.etymology_md,
     references: entry.references.join('\n'),
   }
+}
+
+/** A whole etymology as one blob, for when it is added or removed
+ *  outright rather than edited field by field. */
+function etymologyText(entry: Etymology): string {
+  const fields = etymologyFields(entry)
+  return Object.keys(fields)
+    .filter((field) => fields[field] !== '')
+    .map((field) => `${field}: ${fields[field]}`)
+    .join('\n')
+}
+
+/** Compare one name's hypotheses position-wise.
+ *
+ *  Index rather than content: an etymology has no stable identity, and
+ *  order is editorial (first = primary), so a reordering *is* a change
+ *  worth showing. The index is left out of the labels when both sides
+ *  have exactly one, so ordinary single-etymology diffs read exactly as
+ *  they did before competing hypotheses existed. */
+function diffEtymologies(
+  key: string,
+  oldList: Etymology[],
+  newList: Etymology[],
+): FieldChange[] {
+  const changes: FieldChange[] = []
+  const single = oldList.length === 1 && newList.length === 1
+  const count = Math.max(oldList.length, newList.length)
+  for (let i = 0; i < count; i++) {
+    const scope = single ? '' : `etymology ${i + 1} · `
+    const oldEntry = oldList[i]
+    const newEntry = newList[i]
+    if (!newEntry) {
+      changes.push({
+        label: `${key} · etymology ${i + 1}`,
+        kind: 'removed',
+        old: etymologyText(oldEntry),
+      })
+      continue
+    }
+    if (!oldEntry) {
+      changes.push({
+        label: `${key} · etymology ${i + 1}`,
+        kind: 'added',
+        new: etymologyText(newEntry),
+      })
+      continue
+    }
+    const before = etymologyFields(oldEntry)
+    const after = etymologyFields(newEntry)
+    for (const field of Object.keys(before)) {
+      if (before[field] !== after[field]) {
+        changes.push({
+          label: `${key} · ${scope}${field}`,
+          kind: 'changed',
+          old: before[field],
+          new: after[field],
+        })
+      }
+    }
+  }
+  return changes
 }
 
 function derivationText(d: Derivation): string {
@@ -151,6 +234,9 @@ export function diffStructured(
         })
       }
     }
+    changes.push(
+      ...diffEtymologies(key, oldEntry.etymologies, newEntry.etymologies),
+    )
   }
   for (const key of newNames.keys()) {
     if (!oldNames.has(key)) {

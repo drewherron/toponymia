@@ -43,6 +43,16 @@ to articles about how they got their names.
   *name* — a place's endonym and its exonyms each get their own
   etymology section within one article, with language fields validated
   as ISO 639-3 codes.
+- **Structured etymology, not just prose.** A name can carry more than
+  one etymology, because contested names are the normal case: each
+  hypothesis has its own sources, its own cited languages, and an
+  optional label saying how well established it is — including *folk
+  etymology*, so a traditional story can be recorded as one without
+  being asserted as true. Each also takes an optional word breakdown
+  (the etymon, its language, its meaning, its role), which is what makes
+  an etymology searchable rather than only readable. The prose box stays
+  the floor: everything structured is optional and folded away until
+  someone wants it.
 - **Community tools.** Report affordances on revisions and talk posts,
   a moderator queue, soft-delete, per-article protection levels, and
   rate limits on the expensive endpoints. Filing a report emails the

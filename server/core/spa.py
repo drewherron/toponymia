@@ -74,9 +74,14 @@ def _place_description(place):
     revision = article.current_revision if article else None
     content = revision.content if revision else {}
     for entry in content.get('names', []):
-        etymology = entry.get('etymology_md', '').strip()
-        if etymology:
-            return _truncate(f'{entry["name"]}: {_plain_text(etymology)}')
+        # The primary hypothesis — first entry with prose. A description
+        # that quoted a disputed alternative would misrepresent the article
+        # to exactly the audience (crawlers, link previews) that never
+        # reads the qualification next to it.
+        for etymology in entry.get('etymologies', []):
+            text = etymology.get('etymology_md', '').strip()
+            if text:
+                return _truncate(f'{entry["name"]}: {_plain_text(text)}')
     body = content.get('body_md', '').strip()
     if body:
         return _truncate(_plain_text(body))

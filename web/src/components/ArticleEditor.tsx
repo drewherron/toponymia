@@ -2,7 +2,15 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { saveArticle } from '../api'
 import { loadLanguages, normalizeCode } from '../languages'
-import type { ArticleContent, ArticleData, NameEntry } from '../types'
+import type {
+  ArticleContent,
+  ArticleData,
+  Confidence,
+  Element,
+  ElementRole,
+  Etymology,
+  NameEntry,
+} from '../types'
 import LanguageHelpDialog from './LanguageHelpDialog'
 import MarkdownHelpDialog from './MarkdownHelpDialog'
 import DocumentDialog from './DocumentDialog'
@@ -16,24 +24,107 @@ interface ArticleEditorProps {
   onCancel: () => void
 }
 
-/** Form-local shape: list fields flattened to text for editing. */
+const CONFIDENCE_OPTIONS: { value: Confidence; label: string }[] = [
+  { value: '', label: '— not specified —' },
+  { value: 'attested', label: 'Attested' },
+  { value: 'probable', label: 'Probable' },
+  { value: 'proposed', label: 'Proposed' },
+  { value: 'disputed', label: 'Disputed' },
+  { value: 'folk', label: 'Folk etymology' },
+  { value: 'unknown', label: 'Origin unknown' },
+]
+
+const ROLE_OPTIONS: { value: ElementRole; label: string }[] = [
+  { value: '', label: '—' },
+  { value: 'generic', label: 'Generic' },
+  { value: 'specific', label: 'Specific' },
+  { value: 'affix', label: 'Affix' },
+  { value: 'connective', label: 'Connective' },
+]
+
+/** Form-local shape: list fields flattened to text for editing.
+ *
+ *  `script` and `transliteration` have no inputs — six fields per element
+ *  row is more form than the feature is worth — but they ride along so
+ *  that editing an article that has them (a bot import, say) doesn't
+ *  silently strip them on save. */
+interface ElementDraft {
+  form: string
+  language: string
+  gloss: string
+  role: ElementRole
+  script: string
+  transliteration: string
+}
+
+interface EtymologyDraft {
+  etymology: string
+  confidence: Confidence
+  fromLanguages: string
+  elements: ElementDraft[]
+  references: string
+}
+
 interface NameDraft {
   name: string
   language: string
-  fromLanguages: string
   isEndonym: boolean
-  etymology: string
-  references: string
+  etymologies: EtymologyDraft[]
+}
+
+function emptyElement(): ElementDraft {
+  return {
+    form: '',
+    language: '',
+    gloss: '',
+    role: '',
+    script: '',
+    transliteration: '',
+  }
+}
+
+function toElementDraft(element: Element): ElementDraft {
+  return {
+    form: element.form,
+    language: element.language,
+    gloss: element.gloss,
+    role: element.role,
+    script: element.script,
+    transliteration: element.transliteration,
+  }
+}
+
+function emptyEtymology(): EtymologyDraft {
+  return {
+    etymology: '',
+    confidence: '',
+    fromLanguages: '',
+    elements: [],
+    references: '',
+  }
+}
+
+function toEtymologyDraft(entry: Etymology): EtymologyDraft {
+  return {
+    etymology: entry.etymology_md,
+    confidence: entry.confidence,
+    fromLanguages: entry.from_languages.join(', '),
+    elements: entry.elements.map(toElementDraft),
+    references: entry.references.join('\n'),
+  }
 }
 
 function toDraft(entry: NameEntry): NameDraft {
   return {
     name: entry.name,
     language: entry.language,
-    fromLanguages: entry.from_languages.join(', '),
     isEndonym: entry.is_endonym,
-    etymology: entry.etymology_md,
-    references: entry.references.join('\n'),
+    // A name saved with no etymology at all still needs one editable
+    // block, or the section would render as an uneditable bare heading.
+    etymologies:
+      entry.etymologies.length > 0
+        ? entry.etymologies.map(toEtymologyDraft)
+        : [emptyEtymology()],
   }
 }
 
@@ -41,10 +132,33 @@ function emptyDraft(name = ''): NameDraft {
   return {
     name,
     language: '',
-    fromLanguages: '',
     isEndonym: false,
-    etymology: '',
-    references: '',
+    etymologies: [emptyEtymology()],
+  }
+}
+
+function fromEtymologyDraft(draft: EtymologyDraft): Etymology {
+  return {
+    etymology_md: draft.etymology,
+    confidence: draft.confidence,
+    from_languages: draft.fromLanguages
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    elements: draft.elements
+      .filter((element) => element.form.trim())
+      .map((element) => ({
+        form: element.form.trim(),
+        language: element.language.trim(),
+        gloss: element.gloss.trim(),
+        role: element.role,
+        script: element.script,
+        transliteration: element.transliteration,
+      })),
+    references: draft.references
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean),
   }
 }
 
@@ -52,16 +166,8 @@ function fromDraft(draft: NameDraft): NameEntry {
   return {
     name: draft.name.trim(),
     language: draft.language.trim(),
-    from_languages: draft.fromLanguages
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
     is_endonym: draft.isEndonym,
-    etymology_md: draft.etymology,
-    references: draft.references
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean),
+    etymologies: draft.etymologies.map(fromEtymologyDraft),
   }
 }
 
@@ -90,6 +196,54 @@ function ArticleEditor({
     )
   }
 
+  const updateEtymology = (
+    nameIndex: number,
+    etymologyIndex: number,
+    patch: Partial<EtymologyDraft>,
+  ) => {
+    setNames((prev) =>
+      prev.map((draft, i) =>
+        i === nameIndex
+          ? {
+              ...draft,
+              etymologies: draft.etymologies.map((etymology, j) =>
+                j === etymologyIndex ? { ...etymology, ...patch } : etymology,
+              ),
+            }
+          : draft,
+      ),
+    )
+  }
+
+  const updateElement = (
+    nameIndex: number,
+    etymologyIndex: number,
+    elementIndex: number,
+    patch: Partial<ElementDraft>,
+  ) => {
+    setNames((prev) =>
+      prev.map((draft, i) =>
+        i === nameIndex
+          ? {
+              ...draft,
+              etymologies: draft.etymologies.map((etymology, j) =>
+                j === etymologyIndex
+                  ? {
+                      ...etymology,
+                      elements: etymology.elements.map((element, k) =>
+                        k === elementIndex
+                          ? { ...element, ...patch }
+                          : element,
+                      ),
+                    }
+                  : etymology,
+              ),
+            }
+          : draft,
+      ),
+    )
+  }
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     const entries = names.map(fromDraft).filter((entry) => entry.name)
@@ -107,16 +261,26 @@ function ArticleEditor({
         let checked = entries
         if (table) {
           const bad = new Set<string>()
-          checked = entries.map((entry) => {
-            const language = normalizeCode(entry.language, table)
-            if (language === null) bad.add(entry.language.trim())
-            const from_languages = entry.from_languages.map((code) => {
-              const normal = normalizeCode(code, table)
-              if (normal === null) bad.add(code)
-              return normal ?? code
-            })
-            return { ...entry, language: language ?? entry.language, from_languages }
-          })
+          const check = (code: string): string => {
+            const normal = normalizeCode(code, table)
+            if (normal === null) {
+              bad.add(code.trim())
+              return code
+            }
+            return normal
+          }
+          checked = entries.map((entry) => ({
+            ...entry,
+            language: check(entry.language),
+            etymologies: entry.etymologies.map((etymology) => ({
+              ...etymology,
+              from_languages: etymology.from_languages.map(check),
+              elements: etymology.elements.map((element) => ({
+                ...element,
+                language: check(element.language),
+              })),
+            })),
+          }))
           if (bad.size > 0) {
             setError(
               `Unknown language code${bad.size > 1 ? 's' : ''}: ` +
@@ -179,69 +343,228 @@ function ArticleEditor({
             />
             Endonym (local name)
           </label>
-          <label>
-            <span className="label-with-help">
-              Derived from languages
-              <button
-                type="button"
-                className="lang-help-button"
-                aria-label="How to choose language codes"
-                onClick={(e) => {
-                  // keep the label from focusing the input
-                  e.preventDefault()
-                  setHelpOpen(true)
-                }}
-              >
-                ?
-              </button>
-            </span>
-            <input
-              value={draft.fromLanguages}
-              onChange={(e) =>
-                updateName(index, { fromLanguages: e.target.value })
-              }
-              placeholder="oji, fra"
-            />
-          </label>
-          <label>
-            <span className="label-with-help">
-              Etymology (Markdown)
-              <button
-                type="button"
-                className="lang-help-button"
-                aria-label="Markdown formatting help"
-                onClick={(e) => {
-                  // keep the label from focusing the textarea
-                  e.preventDefault()
-                  setMdHelpOpen(true)
-                }}
-              >
-                ?
-              </button>
-            </span>
-            <textarea
-              value={draft.etymology}
-              onChange={(e) =>
-                updateName(index, { etymology: e.target.value })
-              }
-              rows={6}
-              placeholder={
-                index === 0
-                  ? 'What does this name mean? Where does it come from?'
-                  : undefined
-              }
-            />
-          </label>
-          <label>
-            References (one per line)
-            <textarea
-              value={draft.references}
-              onChange={(e) =>
-                updateName(index, { references: e.target.value })
-              }
-              rows={2}
-            />
-          </label>
+
+          {draft.etymologies.map((etymology, etyIndex) => (
+            <div className="etymology-editor" key={etyIndex}>
+              {/* Only labelled once there is more than one to tell apart,
+                  so the ordinary single-etymology form is unchanged. */}
+              {draft.etymologies.length > 1 && (
+                <div className="etymology-editor-head">
+                  <span>
+                    {etyIndex === 0
+                      ? 'Etymology'
+                      : `Alternative etymology ${etyIndex}`}
+                  </span>
+                  <button
+                    type="button"
+                    className="etymology-editor-remove"
+                    onClick={() =>
+                      updateName(index, {
+                        etymologies: draft.etymologies.filter(
+                          (_, j) => j !== etyIndex,
+                        ),
+                      })
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+              <label>
+                <span className="label-with-help">
+                  Derived from languages
+                  <button
+                    type="button"
+                    className="lang-help-button"
+                    aria-label="How to choose language codes"
+                    onClick={(e) => {
+                      // keep the label from focusing the input
+                      e.preventDefault()
+                      setHelpOpen(true)
+                    }}
+                  >
+                    ?
+                  </button>
+                </span>
+                <input
+                  value={etymology.fromLanguages}
+                  onChange={(e) =>
+                    updateEtymology(index, etyIndex, {
+                      fromLanguages: e.target.value,
+                    })
+                  }
+                  placeholder="oji, fra"
+                />
+              </label>
+              <label>
+                <span className="label-with-help">
+                  Etymology (Markdown)
+                  <button
+                    type="button"
+                    className="lang-help-button"
+                    aria-label="Markdown formatting help"
+                    onClick={(e) => {
+                      // keep the label from focusing the textarea
+                      e.preventDefault()
+                      setMdHelpOpen(true)
+                    }}
+                  >
+                    ?
+                  </button>
+                </span>
+                <textarea
+                  value={etymology.etymology}
+                  onChange={(e) =>
+                    updateEtymology(index, etyIndex, {
+                      etymology: e.target.value,
+                    })
+                  }
+                  rows={6}
+                  placeholder={
+                    index === 0 && etyIndex === 0
+                      ? 'What does this name mean? Where does it come from?'
+                      : undefined
+                  }
+                />
+              </label>
+              <label className="etymology-confidence-field">
+                How well established?
+                <select
+                  value={etymology.confidence}
+                  onChange={(e) =>
+                    updateEtymology(index, etyIndex, {
+                      confidence: e.target.value as Confidence,
+                    })
+                  }
+                >
+                  {CONFIDENCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {/* Collapsed by default: the prose box is the floor, and
+                  nobody should have to fill a table to write an article. */}
+              <details className="element-editor">
+                <summary>
+                  Word breakdown
+                  {etymology.elements.length > 0 &&
+                    ` (${etymology.elements.length})`}
+                </summary>
+                <p className="element-editor-hint">
+                  The words the name is built from — e.g. <em>nemos</em>,
+                  Gaulish, ‘sacred grove’. Optional, but it’s what makes the
+                  etymology searchable rather than just readable.
+                </p>
+                {etymology.elements.map((element, elIndex) => (
+                  <div className="element-editor-row" key={elIndex}>
+                    <label>
+                      Word
+                      <input
+                        value={element.form}
+                        onChange={(e) =>
+                          updateElement(index, etyIndex, elIndex, {
+                            form: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="element-editor-lang">
+                      Language
+                      <input
+                        value={element.language}
+                        onChange={(e) =>
+                          updateElement(index, etyIndex, elIndex, {
+                            language: e.target.value,
+                          })
+                        }
+                        placeholder="lat"
+                      />
+                    </label>
+                    <label>
+                      Meaning
+                      <input
+                        value={element.gloss}
+                        onChange={(e) =>
+                          updateElement(index, etyIndex, elIndex, {
+                            gloss: e.target.value,
+                          })
+                        }
+                        placeholder="water"
+                      />
+                    </label>
+                    <label className="element-editor-role">
+                      Role
+                      <select
+                        value={element.role}
+                        onChange={(e) =>
+                          updateElement(index, etyIndex, elIndex, {
+                            role: e.target.value as ElementRole,
+                          })
+                        }
+                      >
+                        {ROLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="element-editor-remove"
+                      aria-label="Remove word"
+                      onClick={() =>
+                        updateEtymology(index, etyIndex, {
+                          elements: etymology.elements.filter(
+                            (_, k) => k !== elIndex,
+                          ),
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="element-editor-add"
+                  onClick={() =>
+                    updateEtymology(index, etyIndex, {
+                      elements: [...etymology.elements, emptyElement()],
+                    })
+                  }
+                >
+                  + Add word
+                </button>
+              </details>
+              <label>
+                References (one per line)
+                <textarea
+                  value={etymology.references}
+                  onChange={(e) =>
+                    updateEtymology(index, etyIndex, {
+                      references: e.target.value,
+                    })
+                  }
+                  rows={2}
+                />
+              </label>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="etymology-editor-add"
+            onClick={() =>
+              updateName(index, {
+                etymologies: [...draft.etymologies, emptyEtymology()],
+              })
+            }
+          >
+            + Add a competing etymology
+          </button>
+
           {names.length > 1 && (
             <button
               type="button"
