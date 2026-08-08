@@ -136,16 +136,16 @@ function AboutDialog({ onClose, onOpenDoc }: AboutDialogProps) {
           <a href="https://www.drewherron.com" target="_blank" rel="noreferrer">
             Drew Herron
           </a>
-          . If you’d like to help cover server costs and support continued
-          development, you can buy me a coffee.
+          . I’d greatly appreciate any help in covering server costs and
+          continued development.
         </p>
         <a
           className="about-donate"
-          href="https://buymeacoffee.com/drewherron"
+          href="https://ko-fi.com/drewherron"
           target="_blank"
           rel="noreferrer"
         >
-          ☕ Buy me a coffee
+          ☕ Support me on Ko-fi
         </a>
       </div>
     </div>
