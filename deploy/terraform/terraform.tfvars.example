@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and edit. That filename is gitignored, because
+# tfvars is where identifying values (an operator IP, an address) end up.
+
+region = "us-east-1"
+domain = "toponymia.org"
+
+# Receives CloudWatch alarms and the billing alert. AWS mails a confirmation
+# link that must be clicked, or nothing is ever delivered.
+alert_email = ""
+
+# Leave both of these alone to manage the box over SSM Session Manager, which
+# needs no inbound port. Set them only if SSM is unavailable:
+# ssh_public_key    = "ssh-ed25519 AAAA..."
+# ssh_ingress_cidrs = ["203.0.113.4/32"]

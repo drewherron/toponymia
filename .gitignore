@@ -22,6 +22,17 @@ dist/
 .env
 .env.*
 
+# Terraform / OpenTofu
+# State holds resource attributes in the clear and tfvars holds identifying
+# values (an operator IP, an alert address). The .lock.hcl is deliberately NOT
+# ignored — provider version pinning belongs in the repo.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
 # Editors
 .idea/
 .vscode/
