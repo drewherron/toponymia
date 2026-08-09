@@ -16,14 +16,16 @@ from django.contrib.gis.geos import (
 from django.contrib.gis.measure import D
 from django.db.models import Q
 
-from . import overpass
+from . import feature_classes, overpass
 from .models import Place
 from .slugs import unique_slug
 
 
 def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
             qid=None, allow_create=True):
-    """Return (place, created). Raises overpass.OverpassError on outage.
+    """Return (place, created). Raises overpass.OverpassError on outage,
+    or feature_classes.DisallowedFeatureClass when a request that would
+    create a row names a category this wiki doesn't write articles about.
 
     `name` is the feature's native OSM name (what Overpass matches on);
     `name_en` is the English-first label the client displayed, preferred
@@ -68,6 +70,14 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
     )
     if cached:
         return cached, False
+
+    # Past the cache, so this request would mint a row. The category rule
+    # applies from here and not above it: an existing Place resolves whatever
+    # its class, so retiring a category never breaks an article already
+    # written. Checked ahead of the anonymous gate below so a bad class gets
+    # the same 400 whoever sends it, rather than a 401 that hides it behind a
+    # sign-in prompt.
+    feature_classes.check_allowed(feature_class)
 
     # Everything below here either calls Overpass or creates a row, so this
     # is where the anonymous path stops.

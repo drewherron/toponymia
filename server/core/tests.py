@@ -30,6 +30,7 @@ from django.utils import timezone
 
 from . import dashboard, notify, overpass, views
 from .articles import save_edit
+from .feature_classes import ALLOWED_FEATURE_CLASSES
 from .models import (
     Article,
     Ban,
@@ -4796,6 +4797,117 @@ class ResolvePermissionTests(ApiTestCase):
         """Validation order matters: a malformed body is a client error
         whether or not you're signed in, and shouldn't read as a login wall."""
         self.assertEqual(self._post(lngLat=[-91.0]).status_code, 400)
+
+
+class FeatureClassAllowlistTests(ApiTestCase):
+    """The server-side half of the POI rule.
+
+    `web/src/poi.ts` keeps commercial categories off the map and out of
+    search, but `feature_class` is a string the client picks — so until this
+    existed, a hand-written POST could still mint the restaurant that takes
+    the town's slug.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('drew', password='pw12345!')
+
+    def _post(self, **overrides):
+        payload = {
+            'name': 'Ojai',
+            'class': 'restaurant',
+            'lngLat': [14.44, 50.08],
+            'zoom': 16,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('core:resolve'), payload, content_type='application/json'
+        )
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_commercial_class_is_refused(self, fetch):
+        fetch.return_value = [_relation()]
+        self.client.force_login(self.user)
+        response = self._post()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['reason'], 'disallowed_class')
+        # Named, so a wrongly-rejected category produces a usable report.
+        self.assertIn('restaurant', response.json()['error'])
+        fetch.assert_not_called()
+        self.assertEqual(Place.objects.count(), 0)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_refusal_precedes_the_signin_wall(self, fetch):
+        """A bad class is a bad request whoever sends it. Answering 401 here
+        would tell an anonymous caller to sign in for a request that was
+        never going to work."""
+        fetch.return_value = [_relation()]
+        response = self._post()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['reason'], 'disallowed_class')
+        fetch.assert_not_called()
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_toponymic_class_still_resolves(self, fetch):
+        fetch.return_value = [_relation()]
+        self.client.force_login(self.user)
+        response = self._post(name='Mississippi River', **{'class': 'waterway'})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['created'])
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_existing_place_resolves_despite_its_class(self, fetch):
+        """Enforcement is on creation only. Retiring a category must not
+        strand articles already written under it — and the dev database has
+        rows predating this list."""
+        fetch.return_value = [_relation()]
+        Place.objects.create(
+            display_name='Ojai',
+            slug='ojai',
+            feature_class='restaurant',
+            centroid=Point(14.44, 50.08, srid=4326),
+            anchor_level=3,
+        )
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['created'])
+        self.assertEqual(response.json()['place']['slug'], 'ojai')
+        fetch.assert_not_called()
+
+    def test_client_fly_zoom_classes_are_all_allowed(self):
+        """`FLY_ZOOM_BY_CLASS` in MapView.tsx names classes the client expects
+        to frame after a resolve. Any of them missing from the allowlist is a
+        contradiction between the two halves — the client would be planning a
+        camera move for a place the server refuses to create.
+
+        Skipped when the frontend isn't beside the server: the deployed app
+        ships `web/dist`, not `web/src`.
+        """
+        source = (
+            Path(settings.BASE_DIR).parent / 'web' / 'src' / 'map'
+            / 'MapView.tsx'
+        )
+        if not source.exists():
+            self.skipTest('web/src not present next to the server')
+        text = source.read_text('utf-8')
+        block = re.search(
+            r'FLY_ZOOM_BY_CLASS: Record<string, number> = \{(.*?)\}',
+            text,
+            re.S,
+        )
+        self.assertIsNotNone(block, 'FLY_ZOOM_BY_CLASS moved or was renamed')
+        classes = re.findall(r'^\s*(\w+):', block.group(1), re.M)
+        self.assertTrue(classes)
+        missing = sorted(set(classes) - ALLOWED_FEATURE_CLASSES)
+        self.assertEqual(missing, [])
+
+    def test_seed_command_classes_are_all_allowed(self):
+        """The demo seeder posts the same shape a map click does, so a class
+        it uses is one a real click can produce."""
+        from .management.commands.seed_demo_content import TARGETS
+
+        used = {target[1] for target in TARGETS.values()}
+        self.assertEqual(sorted(used - ALLOWED_FEATURE_CLASSES), [])
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])

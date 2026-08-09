@@ -240,12 +240,41 @@ for (const [c, n] of Object.entries(tally).sort((a, b) => b[1] - a[1]))
 Fetch tiles with the recipe in the previous section; convert lat/lon to
 `z/x/y` with the standard slippy-map formula.
 
+## The server's backstop — a third list
+
+The two lists above govern the UI. They cannot govern the API:
+`feature_class` arrives as a string the client chose, so a direct
+`POST /api/resolve/` used to be able to create a place of any kind at all.
+
+[`server/core/feature_classes.py`](../server/core/feature_classes.py) is the
+enforcement. It allowlists the `feature_class` values that may **create** a
+Place, and `resolve()` raises `DisallowedFeatureClass` — a 400 with
+`reason: "disallowed_class"` — for anything else.
+
+Three things about it are worth knowing before you change either list here:
+
+- **It is a third vocabulary.** The map list filters tile `class`/`subclass`
+  and the Photon list filters raw OSM `key`/`value`, but the server sees only
+  what `kindOf()` (`web/src/map/features.ts`) and `kindFromPhoton()`
+  (`web/src/api.ts`) reduced those to. Adding a category to either list above
+  may need a matching entry there, under whatever name those functions emit.
+- **It is stricter than search, on purpose.** The Photon rule passes any key
+  it hasn't heard of; an allowlist can't. A real but unlisted category is
+  refused until someone adds it — a visible 400 rather than a bad Place
+  holding a good slug forever.
+- **It applies to creation only.** An existing Place still resolves whatever
+  its class, so retiring a category never breaks an article already written.
+
 ## Known gaps
 
-- **This is prevention, not enforcement.** `feature_class` is a free-form
-  string chosen by the client, so a direct `POST /api/resolve/` can still
-  create a place of any kind. The rule belongs in the server's `resolve()`
-  to be a rule; until then these lists only govern the UI.
+- **A map click on a POI reports `poi`, not the POI's class.**
+  `KIND_BY_SOURCE_LAYER` maps the whole `poi` source layer to one kind, so
+  the server allowlist has to permit `poi` wholesale and a hand-written POST
+  claiming `poi` says nothing about what kind of POI it is. The map itself is
+  still filtered, so this is only reachable by bypassing the UI. Closing it
+  means sending the real class and migrating existing rows, because the same
+  value is the label-highlight token (`labelClassExpr`).
 - `landuse=retail` and `building=*` still pass search. Neither is a
   collision risk — both carry distinct names — but neither is really a
-  toponym either.
+  toponym either. Both are now refused at creation by the server list, so
+  the gap is a confusing search result rather than a bad Place.
