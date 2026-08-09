@@ -1477,6 +1477,40 @@ class TalkApiTests(ApiTestCase):
             content_type='application/json',
         )
 
+    def _thread_count(self):
+        """The count the pane puts on the Talk tab."""
+        return self.client.get(
+            reverse('core:place-detail', args=[self.place.slug])
+        ).json()['talk_thread_count']
+
+    def test_thread_count_starts_at_zero(self):
+        self.assertEqual(self._thread_count(), 0)
+
+    def test_thread_count_follows_the_listing(self):
+        _talk(self.place, self.user)
+        _talk(self.place, self.user)
+        self.assertEqual(self._thread_count(), 2)
+
+    def test_deleted_thread_leaves_the_count(self):
+        post = _talk(self.place, self.user)
+        post.thread.deleted = timezone.now()
+        post.thread.save(update_fields=['deleted'])
+        self.assertEqual(self._thread_count(), 0)
+
+    def test_tombstoned_thread_still_counts(self):
+        # Its posts are deleted but the thread still lists, as a tombstone
+        # — so the number over the list has to agree with the list.
+        _talk(self.place, self.user, deleted=timezone.now())
+        self.assertEqual(self._thread_count(), 1)
+        threads = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()['threads']
+        self.assertEqual(len(threads), 1)
+
+    def test_thread_count_ignores_other_places(self):
+        _talk(_make_place('Elsewhere', 'elsewhere'), self.user)
+        self.assertEqual(self._thread_count(), 0)
+
     def test_get_empty(self):
         response = self.client.get(
             reverse('core:talk', args=[self.place.slug])

@@ -554,6 +554,18 @@ def place_detail(request, slug):
                 if article is not None and not hidden
                 else None
             ),
+            # Drives the count on the Talk tab, so a stub with discussion
+            # on it doesn't read as empty before you click through. Counts
+            # live threads only — the same filter the talk listing applies,
+            # since a number that disagrees with the list under it is worse
+            # than no number. Deliberately *not* the map's wanted-page test,
+            # which also demands a live post: a thread whose posts are all
+            # deleted still lists as a tombstone and still belongs in this
+            # count, while there's nothing readable there for the map to
+            # advertise.
+            'talk_thread_count': place.talk_threads.filter(
+                deleted__isnull=True
+            ).count(),
             # Top-level so a locked *stub* (Article row, no revision yet)
             # still reports its protection to gate the write button.
             'protection_level': (

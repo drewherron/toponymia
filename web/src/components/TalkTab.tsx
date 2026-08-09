@@ -17,6 +17,11 @@ interface TalkTabProps {
   slug: string
   user: User | null
   onRequestAuth: () => void
+  /** Keeps the tab's own count honest while the tab is open — starting or
+   *  deleting a thread here would otherwise leave the number the page load
+   *  reported. Null means "I don't know": the listing is capped, so a
+   *  truncated page can't speak for the whole count. */
+  onThreadCount: (count: number | null) => void
 }
 
 const plugins = [remarkGfm]
@@ -287,7 +292,12 @@ function ThreadView({
   )
 }
 
-function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
+function TalkTab({
+  slug,
+  user,
+  onRequestAuth,
+  onThreadCount,
+}: TalkTabProps) {
   const [threads, setThreads] = useState<TalkThread[] | null>(null)
   const [moreThreads, setMoreThreads] = useState(false)
   // Threads started in this session. They mount expanded — collapsing a
@@ -300,6 +310,14 @@ function TalkTab({ slug, user, onRequestAuth }: TalkTabProps) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // What this tab currently has loaded, once it can speak for the whole
+  // count. A truncated page reports null and leaves the server's number
+  // standing rather than replacing it with the page size.
+  useEffect(() => {
+    if (threads === null) return
+    onThreadCount(moreThreads ? null : threads.length)
+  }, [threads, moreThreads, onThreadCount])
 
   useEffect(() => {
     const controller = new AbortController()

@@ -359,6 +359,10 @@ function FeaturePane({
     status: 'loading',
   })
   const [detail, setDetail] = useState<Detail>({ status: 'loading' })
+  // Live thread count from the open Talk tab, overriding the one the
+  // detail fetch reported. Null until that tab has something better to
+  // say, which is also what it reports when its listing is truncated.
+  const [liveTalkCount, setLiveTalkCount] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>('article')
   const [wide, setWide] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -434,6 +438,7 @@ function FeaturePane({
     const controller = new AbortController()
     setResolution({ status: 'loading' })
     setDetail({ status: 'loading' })
+    setLiveTalkCount(null)
     setTab('article')
     // An article dot already knows its place: skip resolution entirely.
     const detailPromise = feature.slug
@@ -526,6 +531,12 @@ function FeaturePane({
   const deleted = detail.status === 'done' ? detail.detail.deleted : null
   const protection: ProtectionLevel =
     detail.status === 'done' ? detail.detail.protection_level : 'none'
+  // Discussion is easy to miss on a place whose article is empty — or
+  // absent entirely — so the tab carries its own count rather than making
+  // you click to find out there's anything there.
+  const talkCount =
+    liveTalkCount ??
+    (detail.status === 'done' ? detail.detail.talk_thread_count : 0)
   // `admin` protection restricts edits/reverts to moderators; anonymous
   // editing is disallowed everywhere, so other levels gate the same set.
   const canEdit = !!user && (protection !== 'admin' || user.is_moderator)
@@ -618,7 +629,7 @@ function FeaturePane({
               className={`pane-tab${tab === id ? ' active' : ''}`}
               onClick={() => setTab(id)}
             >
-              {label}
+              {id === 'talk' && talkCount > 0 ? `${label} (${talkCount})` : label}
             </button>
           ))}
           {canEdit && (
@@ -634,7 +645,12 @@ function FeaturePane({
       )}
 
       {place && tab === 'talk' && (
-        <TalkTab slug={place.slug} user={user} onRequestAuth={onRequestAuth} />
+        <TalkTab
+          slug={place.slug}
+          user={user}
+          onRequestAuth={onRequestAuth}
+          onThreadCount={setLiveTalkCount}
+        />
       )}
 
       {place && tab === 'history' && (

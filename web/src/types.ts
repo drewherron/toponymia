@@ -185,6 +185,9 @@ export interface ArticleDeletion {
 export interface PlaceDetail {
   place: ResolvedPlace
   article: ArticleData | null
+  /** Live threads on this place, for the Talk tab's count. Uncapped,
+   *  unlike the talk listing itself. */
+  talk_thread_count: number
   /** Present even for a locked stub with no article yet. */
   protection_level: ProtectionLevel
   /** Non-null only for an admin looking at a deleted article. */
