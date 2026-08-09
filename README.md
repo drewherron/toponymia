@@ -26,6 +26,14 @@ to articles about how they got their names.
   currently drawn. Signed in, "Map my contributions" in the account
   panel turns the same map into a view of everywhere you've written or
   discussed, framed on your own footprint.
+- **Wanted places get a quieter highlight.** A discussion can start
+  before anyone writes the article, so a place with talk and no article
+  lights up too — a much darker amber label, and a hollow ring rather
+  than a filled dot. Outline instead of fill, so the mark reads as a
+  lesser claim than an article and clicking it lands you somewhere
+  honest: the pane opens on the discussion, not on an empty article.
+  The Talk tab carries its thread count either way, so a written place
+  with an argument running under it doesn't look settled.
 - **English-first labels, one article per place.** Labels, the picker,
   and article titles resolve to an English name where one exists, so
   Greenland reads "Greenland", not "Kalaallit Nunaat" — while the
@@ -39,10 +47,12 @@ to articles about how they got their names.
   as. Clicked tile features are resolved server-side via the Overpass
   API.
 - **A true wiki.** Accounts, full revision history, side-by-side
-  diffs, revert, and threaded talk pages. Etymology is written per
-  *name* — a place's endonym and its exonyms each get their own
-  etymology section within one article, with language fields validated
-  as ISO 639-3 codes.
+  diffs, revert, and threaded talk pages. Talk attaches to the *place*
+  rather than the article, so you can argue about a name before anyone
+  has written a word about it. Etymology is written per *name* — a
+  place's endonym and its exonyms each get their own etymology section
+  within one article, with language fields validated as ISO 639-3
+  codes.
 - **Structured etymology, not just prose.** A name can carry more than
   one etymology, because contested names are the normal case: each
   hypothesis has its own sources, its own cited languages, and an
