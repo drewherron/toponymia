@@ -1864,6 +1864,31 @@ class ContributionsApiTests(ApiTestCase):
         self.client.force_login(self.user)
         self.assertEqual(len(self._get().json()['features']), 1)
 
+    def test_tags_a_written_place_as_an_article_dot(self):
+        _publish(_make_place(), self.user)
+        self.client.force_login(self.user)
+        features = self._get().json()['features']
+        self.assertEqual([f['properties']['kind'] for f in features],
+                         ['article'])
+
+    def test_tags_a_place_you_only_talked_on_as_a_wanted_page(self):
+        _talk(_make_place(), self.user)
+        self.client.force_login(self.user)
+        features = self._get().json()['features']
+        self.assertEqual([f['properties']['kind'] for f in features], ['talk'])
+
+    def test_the_tier_is_about_the_article_not_about_your_role(self):
+        # You only argued here; someone else wrote it up. That's a filled
+        # dot, because the ring means "nobody has written this" on every
+        # layer — it doesn't quietly mean "you only talked" on this one.
+        place = _make_place()
+        _talk(place, self.user)
+        _publish(place, self.other)
+        self.client.force_login(self.user)
+        features = self._get().json()['features']
+        self.assertEqual([f['properties']['kind'] for f in features],
+                         ['article'])
+
     def test_bbox_spans_every_dot(self):
         _publish(_make_place(), self.user)  # (10, 50)
         east = Place.objects.create(

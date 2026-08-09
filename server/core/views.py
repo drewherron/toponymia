@@ -131,6 +131,21 @@ def published_q():
     )
 
 
+def has_article_case():
+    """`published_q()` as an annotatable boolean, for tagging a dot's tier.
+
+    The two dot endpoints both need "does anyone's article stand here?" as
+    a value rather than a filter — highlights to order by it, both to name
+    the tier. One definition, so a hollow ring means the same thing under
+    "All articles" and under the contributions lens.
+    """
+    return Case(
+        When(published_q(), then=Value(True)),
+        default=Value(False),
+        output_field=BooleanField(),
+    )
+
+
 def live_talk(**extra):
     """Exists() over talk that's still standing, for a Place OuterRef.
 
@@ -149,7 +164,7 @@ def live_talk(**extra):
     )
 
 
-def _dot_feature(place, kind=None):
+def _dot_feature(place, kind):
     """One place as a point Feature, the shape the map's dot layers read.
 
     `names` carries every alias so the client can match the place against
@@ -157,25 +172,23 @@ def _dot_feature(place, kind=None):
     when we have one — a guaranteed-on-the-feature click — falling back to
     the bbox centroid, which for a long river can sit off it entirely.
 
-    `kind` distinguishes the two highlight tiers ('article' vs 'talk') and
-    is omitted where the distinction isn't drawn: the contributions lens
-    shows one amber for everywhere you've been, so tagging its dots would
-    be asserting a difference the layer doesn't make.
+    `kind` distinguishes the two highlight tiers ('article' vs 'talk'),
+    and means the same thing on every layer that reads it: whether anyone
+    has written the place, not what the viewer did there. A place you only
+    talked on that someone else has since written up is an 'article'.
     """
     names = {place.display_name}
     names.update(entry.name for entry in place.names.all())
-    properties = {
-        'slug': place.slug,
-        'display_name': place.display_name,
-        'feature_class': place.feature_class,
-        'names': sorted(names),
-    }
-    if kind:
-        properties['kind'] = kind
     return {
         'type': 'Feature',
         'geometry': json.loads((place.label_point or place.centroid).geojson),
-        'properties': properties,
+        'properties': {
+            'slug': place.slug,
+            'display_name': place.display_name,
+            'feature_class': place.feature_class,
+            'names': sorted(names),
+            'kind': kind,
+        },
     }
 
 
@@ -337,11 +350,11 @@ def highlights(request):
     Two tiers, told apart by each feature's `kind`. 'article' is a live
     article: amber label text, filled dot. 'talk' is a place someone has
     opened a discussion on without writing it yet — a wanted page. Those
-    get an amber *halo* on otherwise-normal label text and a hollow dot,
-    outlined where an article is filled, so the symbol promises discussion
-    rather than an article and clicking through to a stub isn't a
-    surprise. A place with both is an 'article': the article is the
-    stronger claim, and its talk is one tab away.
+    get much darker amber label text and a hollow dot, outlined where an
+    article is filled, so the symbol promises discussion rather than an
+    article and clicking through to a stub isn't a surprise. A place with
+    both is an 'article': the article is the stronger claim, and its talk
+    is one tab away.
     """
     raw = request.query_params.get('bbox', '')
     try:
@@ -383,13 +396,7 @@ def highlights(request):
         geometry_plane=Cast('geometry', planar),
         bbox_plane=Cast('bbox', planar),
         centroid_plane=Cast('centroid', planar),
-        # published_q() reused rather than restated, so the one definition
-        # of "has an article" still decides the tier.
-        has_article=Case(
-            When(published_q(), then=Value(True)),
-            default=Value(False),
-            output_field=BooleanField(),
-        ),
+        has_article=has_article_case(),
         has_talk=live_talk(),
     ).filter(
         Q(has_article=True) | Q(has_talk=True)
@@ -424,6 +431,13 @@ def contributions(request):
     stub counts and lands a dot on a place with nothing written yet —
     but an edit only counts while its article is actually live, so a
     deleted article stays out of this listing like every other one.
+
+    Dots carry the same `kind` as `highlights`, and it answers the same
+    question there as here: whether the place has been written, not what
+    you did on it. So a place you only argued about, that someone else has
+    since written up, is a filled dot — the ring means "still unwritten"
+    everywhere it appears, rather than quietly meaning "you only talked"
+    on this one layer.
     """
     user = request.user
     edited = Revision.objects.filter(
@@ -433,15 +447,17 @@ def contributions(request):
     # keep pinning a dot to the map either.
     talked = live_talk(author=user)
     places = (
-        Place.objects.filter(
-            (published_q() & Q(Exists(edited))) | Q(talked)
-        )
+        Place.objects.annotate(has_article=has_article_case())
+        .filter((Q(has_article=True) & Q(Exists(edited))) | Q(talked))
         .prefetch_related('names')
         .order_by('display_name', 'id')[: MAX_CONTRIBUTIONS + 1]
     )
     places = list(places)
     truncated = len(places) > MAX_CONTRIBUTIONS
-    features = [_dot_feature(place) for place in places[:MAX_CONTRIBUTIONS]]
+    features = [
+        _dot_feature(place, 'article' if place.has_article else 'talk')
+        for place in places[:MAX_CONTRIBUTIONS]
+    ]
 
     # Framing box over the dots themselves, so the client's fitBounds
     # lands on exactly what it's about to draw. Planar min/max: a set

@@ -8,7 +8,10 @@ import rtlTextUrl from '../../node_modules/@mapbox/mapbox-gl-rtl-text/dist/mapbo
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 // Namespace import: v6 dropped the default export in favour of named ones.
 import * as maplibregl from 'maplibre-gl'
-import type { ExpressionSpecification } from 'maplibre-gl'
+import type {
+  CircleLayerSpecification,
+  ExpressionSpecification,
+} from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
@@ -210,17 +213,15 @@ const TALK_LABEL_COLOR = '#7a3200'
 // Genuinely empty, not white: the ring sits over the basemap, so a white
 // fill would punch a hole in whatever it lands on.
 const TALK_DOT_FILL = 'rgba(0, 0, 0, 0)'
-// MapLibre draws circle strokes *outside* the radius, so a dot's real
-// extent is radius + stroke. An article's amber ends at DOT_RADIUS with
-// its white ring beyond that, reaching DOT_RADIUS + DOT_STROKE overall.
-// The wanted ring matches that full extent rather than the amber alone:
-// flush with the article's amber reads as too small, because a ring has
-// no fill to carry it.
+// The article dots, and the contributions lens a shade larger — the lens
+// narrows which places you see, it doesn't make them a different thing.
 const DOT_RADIUS = 5
 const DOT_STROKE = 1.5
+const CONTRIBUTION_DOT_RADIUS = 6
+const CONTRIBUTION_DOT_STROKE = 2
+// The wanted ring's weight, the same on both layers: it's one visual
+// device, not something that scales with the dot it replaces.
 const TALK_DOT_STROKE = 2
-const TALK_DOT_OUTER = DOT_RADIUS + DOT_STROKE
-const TALK_DOT_RADIUS = TALK_DOT_OUTER - TALK_DOT_STROKE
 
 const EMPTY_COLLECTION: FeatureCollection = {
   type: 'FeatureCollection',
@@ -270,6 +271,34 @@ const IS_TALK_DOT: ExpressionSpecification = [
   ['get', 'kind'],
   'talk',
 ]
+
+/** Paint for a dot layer at a given size: filled amber for an article, a
+ *  hollow amber ring for a wanted page. Both dot layers run through this,
+ *  so the two tiers stay one family at whatever size a layer draws them.
+ *
+ *  MapLibre draws circle strokes *outside* the radius, so a dot's real
+ *  extent is radius + stroke — amber out to `radius`, white ring beyond.
+ *  The wanted ring matches that full extent rather than the amber alone:
+ *  flush with the article's amber reads as too small, because a ring has
+ *  no fill to carry it. */
+function dotPaint(
+  radius: number,
+  stroke: number,
+  opacity: number,
+): CircleLayerSpecification['paint'] {
+  return {
+    'circle-color': ['case', IS_TALK_DOT, TALK_DOT_FILL, DOT_COLOR],
+    'circle-radius': [
+      'case',
+      IS_TALK_DOT,
+      radius + stroke - TALK_DOT_STROKE,
+      radius,
+    ],
+    'circle-opacity': opacity,
+    'circle-stroke-color': ['case', IS_TALK_DOT, DOT_COLOR, '#ffffff'],
+    'circle-stroke-width': ['case', IS_TALK_DOT, TALK_DOT_STROKE, stroke],
+  }
+}
 
 /** Recolor expression for a `place`-layer label, by the tier the spatial
  *  reconciler put it in. Article first: a label in both tiers is an
@@ -852,33 +881,7 @@ function MapView({
         layout: {
           visibility: propsRef.current.allArticles ? 'visible' : 'none',
         },
-        // Filled amber for an article, a hollow amber ring for a wanted
-        // page, so the two tiers read as one family whether or not the
-        // basemap drew the label. See the radius constants: both ambers
-        // end at the same distance from the point, so neither tier looks
-        // like the bigger claim.
-        paint: {
-          'circle-color': [
-            'case',
-            IS_TALK_DOT,
-            TALK_DOT_FILL,
-            DOT_COLOR,
-          ],
-          'circle-radius': ['case', IS_TALK_DOT, TALK_DOT_RADIUS, DOT_RADIUS],
-          'circle-opacity': 0.9,
-          'circle-stroke-color': [
-            'case',
-            IS_TALK_DOT,
-            DOT_COLOR,
-            '#ffffff',
-          ],
-          'circle-stroke-width': [
-            'case',
-            IS_TALK_DOT,
-            TALK_DOT_STROKE,
-            DOT_STROKE,
-          ],
-        },
+        paint: dotPaint(DOT_RADIUS, DOT_STROKE, 0.9),
       })
       map.addSource('contributions', {
         type: 'geojson',
@@ -887,8 +890,8 @@ function MapView({
       // Never subject to updateDotFilter, unlike the article dots: those
       // stand in for a label that isn't drawn, but a footprint that drops
       // the places whose label happens to be rendered is answering a
-      // different question. Same amber a shade larger — the lens narrows
-      // which articles you see, it doesn't make them a different thing.
+      // different question. Same two tiers, though — a place you argued
+      // about that nobody has written yet is a ring here too.
       map.addLayer({
         id: 'contribution-dots',
         type: 'circle',
@@ -896,13 +899,11 @@ function MapView({
         layout: {
           visibility: propsRef.current.contributions ? 'visible' : 'none',
         },
-        paint: {
-          'circle-color': DOT_COLOR,
-          'circle-radius': 6,
-          'circle-opacity': 0.95,
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 2,
-        },
+        paint: dotPaint(
+          CONTRIBUTION_DOT_RADIUS,
+          CONTRIBUTION_DOT_STROKE,
+          0.95,
+        ),
       })
       readyRef.current = true
       refreshHighlights(map)
