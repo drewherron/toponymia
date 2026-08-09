@@ -11,6 +11,7 @@ import type {
   Etymology,
   NameEntry,
 } from '../types'
+import { etymologyHeading } from '../etymology'
 import LanguageHelpDialog from './LanguageHelpDialog'
 import MarkdownHelpDialog from './MarkdownHelpDialog'
 import DocumentDialog from './DocumentDialog'
@@ -351,9 +352,7 @@ function ArticleEditor({
               {draft.etymologies.length > 1 && (
                 <div className="etymology-editor-head">
                   <span>
-                    {etyIndex === 0
-                      ? 'Etymology'
-                      : `Alternative etymology ${etyIndex}`}
+                    {etymologyHeading(etyIndex, draft.etymologies.length)}
                   </span>
                   <button
                     type="button"

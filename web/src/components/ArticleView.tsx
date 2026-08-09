@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { etymologyHeading } from '../etymology'
 import type { ArticleData, Confidence, ElementRole } from '../types'
 
 interface ArticleViewProps {
@@ -32,6 +33,7 @@ const ROLE_LABEL: Record<Exclude<ElementRole, ''>, string> = {
   affix: 'affix',
   connective: 'connective',
 }
+
 
 const SLUG_PATH = /^\/place\/([\w-]+)\/?$/
 
@@ -157,9 +159,7 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
                       as "theory 1 of 1". */}
                   {entry.etymologies.length > 1 && (
                     <h4 className="etymology-heading">
-                      {index === 0
-                        ? 'Etymology'
-                        : `Alternative etymology ${index}`}
+                      {etymologyHeading(index, entry.etymologies.length)}
                     </h4>
                   )}
                   {etymology.confidence && (
