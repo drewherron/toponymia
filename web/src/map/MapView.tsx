@@ -200,6 +200,27 @@ maplibregl.setRTLTextPlugin(`${rtlTextUrl}#.mjs`, true).catch(console.error)
 // Darker amber for label text (readability at small sizes), brighter for dots.
 const LABEL_COLOR = '#b45309'
 const DOT_COLOR = '#d97706'
+// The wanted-page tier: a place with discussion but nothing written. A much
+// darker amber than an article's, and a hollow dot rather than a filled one
+// — same family, plainly a lesser claim. An amber *halo* was the first try
+// and looked like the label was smouldering: the basemap's halo is there to
+// buy contrast against whatever is underneath, and spending it on meaning
+// costs legibility in exactly the places labels are hardest to read.
+const TALK_LABEL_COLOR = '#7a3200'
+// Genuinely empty, not white: the ring sits over the basemap, so a white
+// fill would punch a hole in whatever it lands on.
+const TALK_DOT_FILL = 'rgba(0, 0, 0, 0)'
+// MapLibre draws circle strokes *outside* the radius, so a dot's real
+// extent is radius + stroke. An article's amber ends at DOT_RADIUS with
+// its white ring beyond that, reaching DOT_RADIUS + DOT_STROKE overall.
+// The wanted ring matches that full extent rather than the amber alone:
+// flush with the article's amber reads as too small, because a ring has
+// no fill to carry it.
+const DOT_RADIUS = 5
+const DOT_STROKE = 1.5
+const TALK_DOT_STROKE = 2
+const TALK_DOT_OUTER = DOT_RADIUS + DOT_STROKE
+const TALK_DOT_RADIUS = TALK_DOT_OUTER - TALK_DOT_STROKE
 
 const EMPTY_COLLECTION: FeatureCollection = {
   type: 'FeatureCollection',
@@ -224,13 +245,42 @@ const SPATIAL_SOURCE_LAYER = 'place'
 // another state (Columbia SC vs DC, the Franklins — all ≥300 km apart).
 const SPATIAL_MATCH_DEG = 0.05
 
-/** Recolor expression for a `place`-layer label: amber iff feature-state
- *  marks it an article (set by the spatial reconciler). */
+/** Which highlight a place earns: a live article, or discussion on a place
+ *  nobody has written yet. Mirrors the `kind` the highlights API tags each
+ *  feature with; a place with both arrives as an 'article'. */
+type Tier = 'article' | 'talk'
+
+/** Feature-state tests for the two tiers on `place`-layer labels, set by
+ *  the spatial reconciler. */
+const IS_ARTICLE: ExpressionSpecification = [
+  'boolean',
+  ['feature-state', 'article'],
+  false,
+]
+const IS_TALK: ExpressionSpecification = [
+  'boolean',
+  ['feature-state', 'talk'],
+  false,
+]
+
+/** The same question for a dot, which carries its tier as a property
+ *  rather than as feature-state. */
+const IS_TALK_DOT: ExpressionSpecification = [
+  '==',
+  ['get', 'kind'],
+  'talk',
+]
+
+/** Recolor expression for a `place`-layer label, by the tier the spatial
+ *  reconciler put it in. Article first: a label in both tiers is an
+ *  article, matching the precedence the API applies. */
 function spatialColor(originalColor: unknown): ExpressionSpecification {
   return [
     'case',
-    ['boolean', ['feature-state', 'article'], false],
+    IS_ARTICLE,
     LABEL_COLOR,
+    IS_TALK,
+    TALK_LABEL_COLOR,
     originalColor,
   ] as ExpressionSpecification
 }
@@ -309,11 +359,14 @@ function MapView({
   })
   const labelLayersRef = useRef<LabelLayer[]>([])
   const articleTokensRef = useRef<string[]>([])
+  const talkTokensRef = useRef<string[]>([])
   const collectionRef = useRef<FeatureCollection>(EMPTY_COLLECTION)
   const hiddenDotsRef = useRef('')
   // Place-layer feature ids we've marked amber via feature-state (tier 2),
-  // so the reconciler knows what to clear when a label stops matching.
-  const litPlaceIdsRef = useRef<Set<string | number>>(new Set())
+  // and which tier each is flying — so the reconciler knows what to clear
+  // when a label stops matching, and can move a label between tiers when
+  // someone finally writes the wanted page.
+  const litPlaceIdsRef = useRef<Map<string | number, Tier>>(new Map())
   const focusAbortRef = useRef<AbortController | null>(null)
   // Slug of the place currently drawing its course — set only once
   // geometry is actually on the map, so a city (which has none) keeps its
@@ -348,57 +401,68 @@ function MapView({
     sheetDetent,
   ])
 
-  /** Wrap every label layer's text color: article labels go amber.
-   *  Matches `name|class` tokens against the displayed name, the raw
-   *  `name`, and the English name (article names are English by
+  /** Wrap every label layer's text color: article labels go amber, and
+   *  wanted pages (discussion, nothing written) a much darker amber.
+   *  Matches `name|class` tokens against the displayed name, the
+   *  raw `name`, and the English name (article names are English by
    *  construction), so places light up whatever the label language —
    *  while the class gate keeps a same-named feature of another kind
    *  (the country "Mexico" vs the city's article) dark. */
   const applyLabelColors = (map: maplibregl.Map) => {
-    const tokens = articleTokensRef.current
     const lang = propsRef.current.labelLanguage
-    for (const { id, originalColor, classExpr, spatial } of labelLayersRef.current) {
+    for (const layer of labelLayersRef.current) {
       // Spatial (place-layer) labels are colored by feature-state, set once
       // at load and driven by reconcilePlaceHighlights — skip them here.
-      if (spatial) continue
-      map.setPaintProperty(id, 'text-color', [
+      if (layer.spatial) continue
+      map.setPaintProperty(layer.id, 'text-color', [
         'case',
-        tokenMatches(lang, classExpr, tokens),
+        tokenMatches(lang, layer.classExpr, articleTokensRef.current),
         LABEL_COLOR,
-        originalColor,
+        tokenMatches(lang, layer.classExpr, talkTokensRef.current),
+        TALK_LABEL_COLOR,
+        layer.originalColor,
       ] as ExpressionSpecification)
     }
   }
 
   /**
-   * Tier 2: decide which *place*-layer labels are articles by
+   * Tier 2: decide which *place*-layer labels are highlights by
    * position, not just name+class — so Columbia SC stays dark while the
    * "Columbia" name on Washington D.C. lights only D.C.'s own label. For
-   * each rendered place label, match its name|class token to an article and
-   * require the label to sit within SPATIAL_MATCH_DEG of that article's
-   * label_point; mark the hits amber via feature-state (which persists
-   * across tile reloads, keyed by the tile's stable OSM feature id).
+   * each rendered place label, match its name|class token to a highlight and
+   * require the label to sit within SPATIAL_MATCH_DEG of that place's
+   * label_point; mark the hits via feature-state (which persists
+   * across tile reloads, keyed by the tile's stable OSM feature id) —
+   * `article` for amber text, `talk` for the wanted-page halo.
    */
   const reconcilePlaceHighlights = (map: maplibregl.Map) => {
     const spatialLayers = labelLayersRef.current
       .filter((layer) => layer.spatial)
       .map((layer) => layer.id)
     if (spatialLayers.length === 0) return
-    // token → the label_points of the articles bearing it.
-    const tokenPoints = new Map<string, [number, number][]>()
+    // token → the label_points of the places bearing it, per tier. Kept
+    // apart so a wanted page can't be matched by an article's point, which
+    // would light the wrong tier on a same-named neighbour.
+    const tokenPoints = {
+      article: new Map<string, [number, number][]>(),
+      talk: new Map<string, [number, number][]>(),
+    }
     for (const feature of collectionRef.current.features) {
       const props = feature.properties as {
         names?: string[]
         feature_class?: string
+        kind?: string
       } | null
       if (feature.geometry?.type !== 'Point') continue
       const point = feature.geometry.coordinates as [number, number]
       const cls = props?.feature_class ?? ''
+      const byToken =
+        props?.kind === 'talk' ? tokenPoints.talk : tokenPoints.article
       for (const name of props?.names ?? []) {
         const token = `${name}|${cls}`
-        const points = tokenPoints.get(token)
+        const points = byToken.get(token)
         if (points) points.push(point)
-        else tokenPoints.set(token, [point])
+        else byToken.set(token, [point])
       }
     }
     const keys = [
@@ -407,7 +471,7 @@ function MapView({
     const near = (a: [number, number], b: [number, number]) =>
       Math.abs(a[0] - b[0]) <= SPATIAL_MATCH_DEG &&
       Math.abs(a[1] - b[1]) <= SPATIAL_MATCH_DEG
-    const matched = new Set<string | number>()
+    const matched = new Map<string | number, Tier>()
     const rendered = new Set<string | number>()
     for (const feature of map.queryRenderedFeatures({ layers: spatialLayers })) {
       const id = feature.id
@@ -419,21 +483,31 @@ function MapView({
       for (const key of keys) {
         const value = props[key]
         if (typeof value !== 'string' || !value) continue
-        const points = tokenPoints.get(`${value}|${kind}`)
-        if (points?.some((point) => near(point, at))) {
-          matched.add(id)
+        const token = `${value}|${kind}`
+        // Article first: a label matching both tiers is an article, the
+        // same precedence the API applies to a place with an article and
+        // a discussion on it.
+        const tier: Tier | null = tokenPoints.article
+          .get(token)
+          ?.some((point) => near(point, at))
+          ? 'article'
+          : tokenPoints.talk.get(token)?.some((point) => near(point, at))
+            ? 'talk'
+            : null
+        if (tier) {
+          matched.set(id, tier)
           break
         }
       }
     }
     const lit = litPlaceIdsRef.current
-    for (const id of matched) {
-      if (lit.has(id)) continue
+    for (const [id, tier] of matched) {
+      if (lit.get(id) === tier) continue
       map.setFeatureState(
         { source: OMT_SOURCE, sourceLayer: SPATIAL_SOURCE_LAYER, id },
-        { article: true },
+        { article: tier === 'article', talk: tier === 'talk' },
       )
-      lit.add(id)
+      lit.set(id, tier)
     }
     // Clear a previously-lit label only once it's actually on screen and no
     // longer matching — off-screen ids keep their state (harmless) and are
@@ -442,7 +516,7 @@ function MapView({
       if (lit.has(id) && !matched.has(id)) {
         map.setFeatureState(
           { source: OMT_SOURCE, sourceLayer: SPATIAL_SOURCE_LAYER, id },
-          { article: false },
+          { article: false, talk: false },
         )
         lit.delete(id)
       }
@@ -519,17 +593,21 @@ function MapView({
         collectionRef.current = collection
         // `name|class` tokens: an article lights a label only when both
         // agree, so the country "Mexico" stays dark next to the city's
-        // "Mexico" article.
-        const tokens = new Set<string>()
+        // "Mexico" article. One set per tier — the same token can't be in
+        // both, since the API gives a place one `kind`.
+        const tokens = { article: new Set<string>(), talk: new Set<string>() }
         for (const feature of collection.features) {
           const props = feature.properties as {
             names?: string[]
             feature_class?: string
+            kind?: string
           } | null
           const cls = props?.feature_class ?? ''
-          for (const name of props?.names ?? []) tokens.add(`${name}|${cls}`)
+          const into = props?.kind === 'talk' ? tokens.talk : tokens.article
+          for (const name of props?.names ?? []) into.add(`${name}|${cls}`)
         }
-        articleTokensRef.current = [...tokens]
+        articleTokensRef.current = [...tokens.article]
+        talkTokensRef.current = [...tokens.talk]
         const source = map.getSource('highlights') as
           | maplibregl.GeoJSONSource
           | undefined
@@ -774,12 +852,32 @@ function MapView({
         layout: {
           visibility: propsRef.current.allArticles ? 'visible' : 'none',
         },
+        // Filled amber for an article, a hollow amber ring for a wanted
+        // page, so the two tiers read as one family whether or not the
+        // basemap drew the label. See the radius constants: both ambers
+        // end at the same distance from the point, so neither tier looks
+        // like the bigger claim.
         paint: {
-          'circle-color': DOT_COLOR,
-          'circle-radius': 5,
+          'circle-color': [
+            'case',
+            IS_TALK_DOT,
+            TALK_DOT_FILL,
+            DOT_COLOR,
+          ],
+          'circle-radius': ['case', IS_TALK_DOT, TALK_DOT_RADIUS, DOT_RADIUS],
           'circle-opacity': 0.9,
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 1.5,
+          'circle-stroke-color': [
+            'case',
+            IS_TALK_DOT,
+            DOT_COLOR,
+            '#ffffff',
+          ],
+          'circle-stroke-width': [
+            'case',
+            IS_TALK_DOT,
+            TALK_DOT_STROKE,
+            DOT_STROKE,
+          ],
         },
       })
       map.addSource('contributions', {

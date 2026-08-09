@@ -5,6 +5,7 @@ from django.contrib.auth import logout
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.geos import Polygon
 from django.db.models import (
+    BooleanField,
     Case,
     Exists,
     IntegerField,
@@ -130,25 +131,51 @@ def published_q():
     )
 
 
-def _dot_feature(place):
+def live_talk(**extra):
+    """Exists() over talk that's still standing, for a Place OuterRef.
+
+    "Discussed" means a live post in a live thread: deleting either takes
+    the discussion off every listing surface, the same way deleting an
+    article takes it out of `published_places`. `extra` narrows it further
+    (contributions passes `author=`).
+    """
+    return Exists(
+        TalkPost.objects.filter(
+            thread__place=OuterRef('pk'),
+            thread__deleted__isnull=True,
+            deleted__isnull=True,
+            **extra,
+        )
+    )
+
+
+def _dot_feature(place, kind=None):
     """One place as a point Feature, the shape the map's dot layers read.
 
     `names` carries every alias so the client can match the place against
     whatever the basemap happens to label it. The point is `label_point`
     when we have one — a guaranteed-on-the-feature click — falling back to
     the bbox centroid, which for a long river can sit off it entirely.
+
+    `kind` distinguishes the two highlight tiers ('article' vs 'talk') and
+    is omitted where the distinction isn't drawn: the contributions lens
+    shows one amber for everywhere you've been, so tagging its dots would
+    be asserting a difference the layer doesn't make.
     """
     names = {place.display_name}
     names.update(entry.name for entry in place.names.all())
+    properties = {
+        'slug': place.slug,
+        'display_name': place.display_name,
+        'feature_class': place.feature_class,
+        'names': sorted(names),
+    }
+    if kind:
+        properties['kind'] = kind
     return {
         'type': 'Feature',
         'geometry': json.loads((place.label_point or place.centroid).geojson),
-        'properties': {
-            'slug': place.slug,
-            'display_name': place.display_name,
-            'feature_class': place.feature_class,
-            'names': sorted(names),
-        },
+        'properties': properties,
     }
 
 
@@ -300,12 +327,21 @@ def resolve(request):
 
 @api_view(['GET'])
 def highlights(request):
-    """Places with articles in the viewport, as centroid GeoJSON.
+    """Places with articles — or only discussion — in the viewport.
 
     The client recolors basemap labels matching `names`
     and paints dots at the centroids in all-articles mode. Inclusion is
     tested against cached geometry/bbox too, so a river whose centroid is
     far away still lights its labels inside the viewport.
+
+    Two tiers, told apart by each feature's `kind`. 'article' is a live
+    article: amber label text, filled dot. 'talk' is a place someone has
+    opened a discussion on without writing it yet — a wanted page. Those
+    get an amber *halo* on otherwise-normal label text and a hollow dot,
+    outlined where an article is filled, so the symbol promises discussion
+    rather than an article and clicking through to a stub isn't a
+    surprise. A place with both is an 'article': the article is the
+    stronger claim, and its talk is one tab away.
     """
     raw = request.query_params.get('bbox', '')
     try:
@@ -343,17 +379,32 @@ def highlights(request):
     # lon/lat rectangle, but geography edges are great-circle arcs, which
     # misbehave for boxes wider than 180 degrees.
     planar = GeometryField(srid=4326)
-    places = published_places().annotate(
+    places = Place.objects.annotate(
         geometry_plane=Cast('geometry', planar),
         bbox_plane=Cast('bbox', planar),
         centroid_plane=Cast('centroid', planar),
+        # published_q() reused rather than restated, so the one definition
+        # of "has an article" still decides the tier.
+        has_article=Case(
+            When(published_q(), then=Value(True)),
+            default=Value(False),
+            output_field=BooleanField(),
+        ),
+        has_talk=live_talk(),
+    ).filter(
+        Q(has_article=True) | Q(has_talk=True)
     ).filter(
         Q(geometry_plane__intersects=viewport)
         | Q(bbox_plane__intersects=viewport)
         | Q(centroid_plane__intersects=viewport)
-    ).prefetch_related('names')[:MAX_HIGHLIGHTS]
+    # Articles first, so a dense viewport that hits the cap loses wanted
+    # pages rather than written ones. `id` only makes the cut deterministic.
+    ).prefetch_related('names').order_by('-has_article', 'id')[:MAX_HIGHLIGHTS]
 
-    features = [_dot_feature(place) for place in places]
+    features = [
+        _dot_feature(place, 'article' if place.has_article else 'talk')
+        for place in places
+    ]
     return Response({'type': 'FeatureCollection', 'features': features})
 
 
@@ -380,15 +431,10 @@ def contributions(request):
     )
     # A deleted post is withheld from the thread it's in, so it shouldn't
     # keep pinning a dot to the map either.
-    talked = TalkPost.objects.filter(
-        thread__place=OuterRef('pk'),
-        thread__deleted__isnull=True,
-        author=user,
-        deleted__isnull=True,
-    )
+    talked = live_talk(author=user)
     places = (
         Place.objects.filter(
-            (published_q() & Q(Exists(edited))) | Q(Exists(talked))
+            (published_q() & Q(Exists(edited))) | Q(talked)
         )
         .prefetch_related('names')
         .order_by('display_name', 'id')[: MAX_CONTRIBUTIONS + 1]

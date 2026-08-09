@@ -1549,6 +1549,14 @@ def _publish(place, user):
     article.save(update_fields=['current_revision'])
 
 
+def _talk(place, author, **overrides):
+    """Open a discussion on a place, making it a wanted page if unwritten."""
+    thread = TalkThread.objects.create(place=place, title='Where from?')
+    fields = {'thread': thread, 'author': author, 'body_md': 'hi'}
+    fields.update(overrides)
+    return TalkPost.objects.create(**fields)
+
+
 class HighlightApiTests(ApiTestCase):
     def setUp(self):
         super().setUp()
@@ -1576,11 +1584,61 @@ class HighlightApiTests(ApiTestCase):
             with self.subTest(bbox=bbox):
                 self.assertEqual(self._get(bbox).status_code, 400)
 
-    def test_place_without_article_excluded(self):
+    def test_place_without_article_or_talk_excluded(self):
         _make_place()
         body = self._get().json()
         self.assertEqual(body['type'], 'FeatureCollection')
         self.assertEqual(body['features'], [])
+
+    def test_article_tier_tagged(self):
+        _publish(_make_place(), self.user)
+        feature = self._get().json()['features'][0]
+        self.assertEqual(feature['properties']['kind'], 'article')
+
+    def test_discussed_stub_is_a_wanted_page(self):
+        # Talk attaches to the Place, so a discussion can precede the
+        # article. That place is a highlight in its own right — the
+        # hollow-dot/halo tier — rather than being lost in the sea of
+        # unwritten places.
+        _talk(_make_place(), self.user)
+        feature = self._get().json()['features'][0]
+        self.assertEqual(feature['properties']['slug'], 'testville')
+        self.assertEqual(feature['properties']['kind'], 'talk')
+
+    def test_article_wins_over_talk_on_the_same_place(self):
+        # The article is the stronger claim; its talk is one tab away.
+        place = _make_place()
+        _publish(place, self.user)
+        _talk(place, self.user)
+        features = self._get().json()['features']
+        self.assertEqual(len(features), 1)
+        self.assertEqual(features[0]['properties']['kind'], 'article')
+
+    def test_empty_thread_is_not_a_wanted_page(self):
+        # A thread with no posts is nobody discussing anything.
+        TalkThread.objects.create(place=_make_place(), title='Where from?')
+        self.assertEqual(self._get().json()['features'], [])
+
+    def test_deleted_talk_drops_out_of_highlights(self):
+        # Both soft deletes, mirroring how a deleted article leaves the
+        # article tier: the map must not keep advertising a discussion
+        # that no visitor can read.
+        buried = _talk(_make_place(slug='buried'), self.user)
+        buried.thread.deleted = timezone.now()
+        buried.thread.save(update_fields=['deleted'])
+        _talk(_make_place(), self.user, deleted=timezone.now())
+        self.assertEqual(self._get().json()['features'], [])
+
+    def test_deleted_article_falls_back_to_the_talk_tier(self):
+        # Soft-deleting the article leaves a stub — but the discussion on
+        # it is still live and still worth finding.
+        place = _make_place()
+        _publish(place, self.user)
+        _talk(place, self.user)
+        place.article.deleted = timezone.now()
+        place.article.save(update_fields=['deleted'])
+        feature = self._get().json()['features'][0]
+        self.assertEqual(feature['properties']['kind'], 'talk')
 
     def test_centroid_feature_with_materialized_names(self):
         place = _make_place()  # centroid (10, 50)
@@ -1690,12 +1748,6 @@ class ContributionsApiTests(ApiTestCase):
     def _get(self):
         return self.client.get(reverse('core:contributions'))
 
-    def _talk(self, place, author, **overrides):
-        thread = TalkThread.objects.create(place=place, title='Where from?')
-        fields = {'thread': thread, 'author': author, 'body_md': 'hi'}
-        fields.update(overrides)
-        return TalkPost.objects.create(**fields)
-
     def test_requires_sign_in(self):
         self.assertEqual(self._get().status_code, 403)
 
@@ -1734,7 +1786,7 @@ class ContributionsApiTests(ApiTestCase):
     def test_includes_a_stub_the_user_only_talked_on(self):
         # Talk attaches to the Place, not the Article, so a discussion
         # about a place nobody has written up yet still earns a dot.
-        self._talk(_make_place(), self.user)
+        _talk(_make_place(), self.user)
         self.client.force_login(self.user)
         features = self._get().json()['features']
         self.assertEqual(
@@ -1742,16 +1794,16 @@ class ContributionsApiTests(ApiTestCase):
         )
 
     def test_excludes_a_place_only_others_talked_on(self):
-        self._talk(_make_place(), self.other)
+        _talk(_make_place(), self.other)
         self.client.force_login(self.user)
         self.assertEqual(self._get().json()['features'], [])
 
     def test_excludes_deleted_talk_posts_and_threads(self):
-        withheld = self._talk(
+        withheld = _talk(
             _make_place('Gone', 'gone'), self.user, deleted=timezone.now()
         )
         self.assertIsNotNone(withheld)
-        buried = self._talk(_make_place('Buried', 'buried'), self.user)
+        buried = _talk(_make_place('Buried', 'buried'), self.user)
         TalkThread.objects.filter(pk=buried.thread_id).update(
             deleted=timezone.now()
         )
@@ -1774,7 +1826,7 @@ class ContributionsApiTests(ApiTestCase):
         Revision.objects.create(
             article=article, author=self.user, comment='', content=_content()
         )
-        self._talk(place, self.user)
+        _talk(place, self.user)
         self.client.force_login(self.user)
         self.assertEqual(len(self._get().json()['features']), 1)
 
@@ -4815,7 +4867,7 @@ class ErrorLoggingTests(TestCase):
         # takes — which is the path that does the logging.
         client = Client(raise_request_exception=False)
         try:
-            with patch('core.views.published_places', self._raise):
+            with patch('core.views.published_q', self._raise):
                 response = client.get('/api/highlights/?bbox=0,0,1,1')
         finally:
             handler.stream = original
