@@ -462,7 +462,19 @@ function FeaturePane({
             return getPlace(response.place.slug, controller.signal)
           })
     detailPromise
-      .then((placeDetail) => setDetail({ status: 'done', detail: placeDetail }))
+      .then((placeDetail) => {
+        setDetail({ status: 'done', detail: placeDetail })
+        // Nothing written, but people are talking: open on the discussion
+        // rather than on an empty article and a Write button. Only on this
+        // first load — a later refetch must not yank the tab out from
+        // under someone who has since chosen one.
+        if (!placeDetail.article && placeDetail.talk_thread_count > 0) {
+          // Still on the default tab only: resolution can take a moment on
+          // a first-time place, and someone who picked a tab while it ran
+          // has said where they want to be.
+          setTab((prev) => (prev === 'article' ? 'talk' : prev))
+        }
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           console.error(error)
