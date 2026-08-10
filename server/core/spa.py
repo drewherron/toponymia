@@ -301,6 +301,16 @@ def sitemap(request):
 
 
 def robots(request):
+    # Before launch, keep the whole site out of the index — and don't offer a
+    # sitemap, which would undercut the Disallow by advertising every URL. A
+    # half-seeded wiki is what gets crawled otherwise: the certificate puts the
+    # hostname in public CT logs as soon as Caddy issues one, so bots arrive
+    # without anything being announced, and a first impression in search
+    # results outlives the content that caused it.
+    if settings.PRELAUNCH:
+        return HttpResponse(
+            'User-agent: *\nDisallow: /\n', content_type='text/plain'
+        )
     sitemap_url = request.build_absolute_uri('/sitemap.xml')
     body = (
         'User-agent: *\n'

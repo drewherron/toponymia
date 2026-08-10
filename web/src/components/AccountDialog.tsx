@@ -94,7 +94,7 @@ function AccountDialog({
       verifyEmail(code)
         .then(() => fetchMe())
         .then((me) => {
-          onUserChange(me)
+          onUserChange(me.user)
           setCode('')
           setEmail('')
           setPanel('menu')

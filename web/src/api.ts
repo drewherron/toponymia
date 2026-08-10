@@ -5,6 +5,7 @@ import type {
   ClickContext,
   Contributions,
   GeocodeHit,
+  Me,
   PlaceDetail,
   BanInput,
   ModAuditFilters,
@@ -25,7 +26,6 @@ import type {
   TalkPage,
   TalkPost,
   TalkThread,
-  User,
 } from './types'
 import { isToponymicPhotonHit } from './poi'
 
@@ -273,13 +273,15 @@ export async function searchGeocoder(
 }
 
 /** Also plants the CSRF cookie — call once on app load, before any POST. */
-export async function fetchMe(signal?: AbortSignal): Promise<User | null> {
+export async function fetchMe(signal?: AbortSignal): Promise<Me> {
   const response = await fetch('/api/me/', { signal })
   if (!response.ok) {
     throw new Error(`me failed: ${response.status}`)
   }
   const body = await response.json()
-  return body.user
+  // Default open: an older server that doesn't send the field is one that
+  // never closes signups, and guessing "closed" would hide a working form.
+  return { user: body.user ?? null, signupsOpen: body.signups_open !== false }
 }
 
 export async function getPlace(

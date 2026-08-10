@@ -24,6 +24,7 @@ closed.
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core import context
+from django.conf import settings
 
 from .accounts import username_is_reserved
 from .moderation import active_email_ban
@@ -34,6 +35,16 @@ class AccountAdapter(DefaultAccountAdapter):
         **DefaultAccountAdapter.error_messages,
         'email_blocked': 'This email address can’t be used to register.',
     }
+
+    def is_open_for_signup(self, request):
+        """Closed while `PRELAUNCH` is set — see the setting for why.
+
+        allauth's headless signup checks this *before* creating anything and
+        answers 403, and reports it in the config endpoint, which is where
+        `/api/me/` picks it up for the SPA. Login and password reset are
+        untouched: an account that already exists still works.
+        """
+        return not settings.PRELAUNCH
 
     def clean_email(self, email):
         email = super().clean_email(email)

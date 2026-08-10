@@ -83,6 +83,10 @@ function App() {
   const [picker, setPicker] = useState<PickerState | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
   const [user, setUser] = useState<User | null>(null)
+  // Registration is closed during the pre-launch window (PRELAUNCH in
+  // settings.py). Assume open until /api/me/ says otherwise, so a slow
+  // probe never flashes a 'closed' notice at a site that is open.
+  const [signupsOpen, setSignupsOpen] = useState(true)
   const [authOpen, setAuthOpen] = useState(false)
   const [modOpen, setModOpen] = useState(false)
   const [moderationOpen, setModerationOpen] = useState(false)
@@ -158,7 +162,10 @@ function App() {
     const controller = new AbortController()
     // also plants the CSRF cookie needed for resolve/login/save
     fetchMe(controller.signal)
-      .then(setUser)
+      .then((me) => {
+        setUser(me.user)
+        setSignupsOpen(me.signupsOpen)
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) console.error(error)
       })
@@ -448,6 +455,7 @@ function App() {
   const authControl = (
     <AuthControl
       user={user}
+      signupsOpen={signupsOpen}
       onUserChange={(next) => {
         setUser(next)
         // Logging out takes the lens down with it: it's a view of who you

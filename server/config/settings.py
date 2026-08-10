@@ -50,6 +50,30 @@ ALLOWED_HOSTS = [
     h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h
 ]
 
+# The window between "the box serves the site" and "the site is open" — long,
+# because seed content has to be written and human-reviewed before anyone
+# should see it, and because a certificate publishes the hostname to public
+# Certificate Transparency logs the moment Caddy issues one, so crawlers
+# arrive whether or not anything was announced.
+#
+# It does two things, and they are one flag on purpose:
+#
+# 1. Closes signups (core.adapter.is_open_for_signup).
+# 2. Serves a Disallow-all robots.txt (core.spa.robots).
+#
+# The first is the one that matters, and it is not about tidiness. Seed content
+# is loaded by restoring a dump, which *replaces the whole database*. Anyone who
+# signed up in this window would have verified an email, accepted the Terms, and
+# released work under CC BY-SA — and the import would destroy the account and
+# the revision history that TERMS.md §2 names as the attribution mechanism. Not
+# a history to tidy up afterwards: an attribution promise broken, quietly,
+# possibly without anyone noticing one article had ever existed. So the window
+# is made empty by construction rather than watched.
+#
+# Coupled deliberately: "indexed but closed" and "open but hidden" are both
+# states you would only reach by forgetting one of two switches.
+PRELAUNCH = os.environ.get('DJANGO_PRELAUNCH', '0') == '1'
+
 # The Vite dev/preview proxy forwards to :8000 with the browser's Origin
 # intact, so those origins must be trusted for CSRF checks in dev.
 CSRF_TRUSTED_ORIGINS = [

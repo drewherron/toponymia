@@ -1,6 +1,7 @@
 import json
 from math import isfinite
 
+from django.conf import settings
 from django.contrib.auth import logout
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.geos import Polygon
@@ -218,11 +219,16 @@ def me(request):
     """Session probe for the SPA; also plants the CSRF cookie the client
     needs before it can POST to /api or /_allauth."""
     user = request.user
+    # Rides along on the probe the SPA already makes, rather than costing a
+    # second round trip to allauth's config endpoint for one boolean. Sent
+    # logged-out too — that's the reader who might try to register.
+    signups_open = not settings.PRELAUNCH
     if not user.is_authenticated:
-        return Response({'user': None})
+        return Response({'user': None, 'signups_open': signups_open})
     ban = active_ban(user)
     return Response(
         {
+            'signups_open': signups_open,
             'user': {
                 'id': user.id,
                 'username': user.username,

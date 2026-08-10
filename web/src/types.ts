@@ -202,6 +202,13 @@ export interface User {
   is_admin: boolean
 }
 
+/** `/api/me/`: the session probe, plus whether registration is open at all
+ *  (closed during the pre-launch window — see `PRELAUNCH` in settings.py). */
+export interface Me {
+  user: User | null
+  signupsOpen: boolean
+}
+
 export interface RevisionSummary {
   id: number
   author: string

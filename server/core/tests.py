@@ -1978,6 +1978,63 @@ class AuthApiTests(ApiTestCase):
             'drew',
         )
 
+    def test_signups_are_open_by_default(self):
+        """The flag defaults off, so nothing about dev or a normal deploy
+        changes — and /api/me/ says so to anyone, signed in or not."""
+        self.assertTrue(self.client.get(reverse('core:me')).json()['signups_open'])
+
+    @override_settings(PRELAUNCH=True)
+    def test_prelaunch_closes_signups(self):
+        """The window between "the box serves the site" and "the site is open"
+        has to be *empty*, not merely quiet.
+
+        Seed content is loaded by restoring a dump, which replaces the whole
+        database. An account created in that window would be destroyed by the
+        import along with its revisions — and TERMS.md §2 makes revision
+        history the attribution mechanism for the CC BY-SA grant, so that is a
+        broken licence promise, not untidy data. allauth checks this before
+        creating anything, so there is no half-made user to clean up.
+        """
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {
+                'username': 'stranger',
+                'email': 'stranger@example.com',
+                'password': 'sturdy-passphrase-9',
+                'terms': True,
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(username='stranger').exists())
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertFalse(
+            self.client.get(reverse('core:me')).json()['signups_open']
+        )
+
+    @override_settings(PRELAUNCH=True)
+    def test_prelaunch_leaves_existing_accounts_alone(self):
+        """Closed registration, not a closed site: the seeding account and the
+        superuser both have to keep working through the window."""
+        user = User.objects.create_user(
+            'topobot', email='bot@example.com', password='sturdy-passphrase-9'
+        )
+        # Verified, because mandatory verification would otherwise 401 this
+        # login for reasons that have nothing to do with the flag under test.
+        EmailAddress.objects.create(
+            user=user, email='bot@example.com', verified=True, primary=True
+        )
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/login',
+            {'username': 'topobot', 'password': 'sturdy-passphrase-9'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse('core:me')).json()['user']['username'],
+            'topobot',
+        )
+
     def test_signup_requires_email(self):
         response = self.client.post(
             '/_allauth/browser/v1/auth/signup',
@@ -4001,6 +4058,17 @@ class SpaTests(TestCase):
         body = response.content.decode()
         self.assertIn('Disallow: /api/', body)
         self.assertIn('Sitemap: http://testserver/sitemap.xml', body)
+
+    @override_settings(PRELAUNCH=True)
+    def test_robots_closes_the_site_before_launch(self):
+        """A certificate publishes the hostname to Certificate Transparency
+        logs the moment Caddy issues one, so crawlers arrive without anything
+        being announced — and a half-seeded wiki is what they would index.
+        The sitemap goes too: advertising every URL would undercut the
+        Disallow it sits next to."""
+        body = self.client.get('/robots.txt').content.decode()
+        self.assertIn('Disallow: /\n', body)
+        self.assertNotIn('Sitemap:', body)
 
 
 class ArticleDeleteTests(ApiTestCase):

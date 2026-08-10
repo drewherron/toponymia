@@ -25,6 +25,10 @@ interface AuthControlProps {
   onOpenTerms: () => void
   /** Open the account panel — the signed-in half of this control. */
   onOpenAccount: () => void
+  /** Whether new accounts can be created at all. False during the
+   *  pre-launch window; the server refuses the signup either way, so this
+   *  exists to say so plainly rather than let the form fail. */
+  signupsOpen: boolean
 }
 
 function AuthControl({
@@ -35,6 +39,7 @@ function AuthControl({
   inMenu,
   onOpenTerms,
   onOpenAccount,
+  signupsOpen,
 }: AuthControlProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   // Signup is two steps under mandatory verification: the form, then the code
@@ -76,6 +81,14 @@ function AuthControl({
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [open, onOpenChange])
 
+  // `signupsOpen` arrives a moment after mount (App defaults it to true so
+  // an open site never flickers 'closed'), so the signup tab can be clicked
+  // and then withdrawn underneath. Fall back to login rather than leaving a
+  // form on screen that the server will refuse.
+  useEffect(() => {
+    if (!signupsOpen) setMode('login')
+  }, [signupsOpen])
+
   const switchMode = (next: 'login' | 'signup') => {
     setMode(next)
     setStep('form')
@@ -106,7 +119,7 @@ function AuthControl({
     setBusy(true)
     setError(null)
     setNotice(null)
-    const done = () => fetchMe().then(finish)
+    const done = () => fetchMe().then((me) => finish(me.user))
     let work: Promise<void>
     if (step === 'forgot') {
       // Never branch on whether the address exists — allauth answers the same
@@ -251,14 +264,22 @@ function AuthControl({
             >
               Log in
             </button>
-            <button
-              type="button"
-              className={mode === 'signup' ? 'active' : ''}
-              onClick={() => switchMode('signup')}
-            >
-              Sign up
-            </button>
+            {signupsOpen && (
+              <button
+                type="button"
+                className={mode === 'signup' ? 'active' : ''}
+                onClick={() => switchMode('signup')}
+              >
+                Sign up
+              </button>
+            )}
           </div>
+          {!signupsOpen && (
+            <p className="auth-notice">
+              New accounts aren’t open yet — the wiki is still being seeded.
+              Check back soon.
+            </p>
+          )}
           <label>
             {/* Signing up this is strictly the username (it becomes the public
                 byline); logging in it is either identifier, and api.ts routes
