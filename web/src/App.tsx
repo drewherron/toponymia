@@ -30,7 +30,7 @@ import {
   storeLabelLanguage,
 } from './map/labels'
 import MapView from './map/MapView'
-import { dismissedNotice, dismissNotice, NOTICE } from './notice'
+import { dismissedNotice, dismissNotice, noticeFor } from './notice'
 import SiteNotice from './components/SiteNotice'
 import { applyTheme, storedTheme, storeTheme, type Theme } from './theme'
 import type {
@@ -441,11 +441,15 @@ function App() {
       .catch(console.error)
   }, [])
 
+  // Which card is on screen depends on whether signups are open, and the two
+  // carry different ids, so dismissal has to be recorded against the one the
+  // reader actually saw.
+  const notice = noticeFor(signupsOpen)
   const handleDismissNotice = useCallback(() => {
-    if (!NOTICE) return
-    dismissNotice(NOTICE.id)
-    setDismissed(NOTICE.id)
-  }, [])
+    if (!notice) return
+    dismissNotice(notice.id)
+    setDismissed(notice.id)
+  }, [notice])
 
   const getMapCenter = useCallback(
     () => mapApiRef.current?.getCenter() ?? null,
@@ -680,9 +684,9 @@ function App() {
             contributions lens both cover this corner, and both mean the
             reader has already found their way around. It returns when they
             close, until the × puts it away for good. */}
-        {NOTICE && dismissed !== NOTICE.id && !selected && !contributions
+        {notice && dismissed !== notice.id && !selected && !contributions
           && !moderationOpen && (
-          <SiteNotice notice={NOTICE} onDismiss={handleDismissNotice} />
+          <SiteNotice notice={notice} onDismiss={handleDismissNotice} />
         )}
         {!compactHeader && (
           <MapLanguageControl

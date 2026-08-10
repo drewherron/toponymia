@@ -39,6 +39,37 @@ export const NOTICE: Notice | null = {
   ],
 }
 
+/**
+ * Shown instead while registration is closed (`PRELAUNCH` in settings.py).
+ *
+ * The card above invites the reader to write an article, which is the right
+ * thing to say to everyone except someone who cannot make an account yet —
+ * being told an empty map is an invitation, and then finding no way in, is
+ * worse than an empty map on its own.
+ *
+ * **A separate id, not edited text.** Dismissal is recorded per id, so a
+ * reader who dismisses this one still gets the real welcome when the site
+ * opens — which is the point, because by then it says something new.
+ */
+export const PRELAUNCH_NOTICE: Notice | null = {
+  id: 'prelaunch-2026',
+  title: 'Toponymia is being written',
+  body: [
+    'This is a map-based wiki of place-name etymologies. Click any label on' +
+      ' the map to read where that name came from. Labels in amber already' +
+      ' have articles. Click “All articles” to show where any existing' +
+      ' articles are.',
+    'The wiki is still being seeded, so most places don’t have an article' +
+      ' yet and new accounts aren’t open. Both change shortly — have a look' +
+      ' around in the meantime.',
+  ],
+}
+
+/** The notice for the site's current state. */
+export function noticeFor(signupsOpen: boolean): Notice | null {
+  return signupsOpen ? NOTICE : PRELAUNCH_NOTICE
+}
+
 const STORAGE_KEY = 'toponymia:noticeDismissed'
 
 /** The id of the last notice this browser dismissed, if any. */
