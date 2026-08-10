@@ -2010,6 +2010,74 @@ class AuthApiTests(ApiTestCase):
         )
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_signup_with_an_existing_email_does_not_500(self):
+        """allauth answers a signup for a known address by sending "you
+        already have an account" rather than admitting the address is taken —
+        and that mail links to the reset flow, which needs
+        HEADLESS_FRONTEND_URLS['account_reset_password'].
+
+        HEADLESS_ONLY raises rather than defaulting, so the key being absent
+        turned every signup by a returning user into a 500. The response must
+        also stay indistinguishable from a fresh signup, or the enumeration
+        resistance it exists for is gone.
+        """
+        existing = User.objects.create_user(
+            'taken', email='taken@example.com', password='pw12345!'
+        )
+        EmailAddress.objects.create(
+            user=existing,
+            email='taken@example.com',
+            verified=True,
+            primary=True,
+        )
+
+        def signup(username, email):
+            return self.client.post(
+                '/_allauth/browser/v1/auth/signup',
+                {
+                    'username': username,
+                    'email': email,
+                    'password': 'sturdy-passphrase-9',
+                    'terms': True,
+                },
+                content_type='application/json',
+            )
+
+        taken = signup('fresh', 'taken@example.com')
+        self.assertEqual(taken.status_code, 401)
+        # No second account, and the address owner is told.
+        self.assertFalse(User.objects.filter(username='fresh').exists())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['taken@example.com'])
+
+        self.client.logout()
+        fresh = signup('fresh2', 'fresh2@example.com')
+        self.assertEqual(fresh.status_code, taken.status_code)
+        self.assertEqual(fresh.json(), taken.json())
+
+    def test_signup_with_an_existing_username_is_refused_plainly(self):
+        """The deliberate asymmetry with the test above.
+
+        Usernames are public on this wiki — they sign every revision and talk
+        post — so there is nothing to protect by hiding that one is taken, and
+        a vague error would only strand someone at the signup form. Email is
+        different, and is handled differently.
+        """
+        User.objects.create_user('taken', password='pw12345!')
+        response = self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {
+                'username': 'taken',
+                'email': 'fresh@example.com',
+                'password': 'sturdy-passphrase-9',
+                'terms': True,
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        codes = {e['code'] for e in response.json()['errors']}
+        self.assertIn('username_taken', codes)
+
     def test_account_email_is_branded_not_hostnamed(self):
         """The verification mail is the first thing a new account ever sees.
 

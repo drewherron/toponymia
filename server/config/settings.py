@@ -229,15 +229,28 @@ HEADLESS_CLIENTS = ('browser',)
 ACCOUNT_PASSWORD_RESET_BY_CODE_ENABLED = True
 ACCOUNT_PASSWORD_RESET_BY_CODE_TIMEOUT = 15 * 60
 
-# Required by the enumeration-resistant reset path, and *only* by it: a reset
-# requested for an address with no account still sends mail ("someone asked to
-# reset a password here; you have no account") so the response can't be told
-# apart from the real one, and that mail links to signup. HEADLESS_ONLY raises
-# ImproperlyConfigured rather than defaulting, so without this the request 500s
-# — on typo'd addresses only, which is exactly the case no one tests by hand.
-# Signup is a header popover, not a route, so the site root is the honest
-# target; relative URLs are made absolute against the request.
-HEADLESS_FRONTEND_URLS = {'account_signup': '/'}
+# Required by the two enumeration-resistant flows, and *only* by them. Both
+# work the same way: the request that would reveal whether an account exists
+# sends mail instead of erroring, and that mail needs a link into the SPA.
+# HEADLESS_ONLY raises ImproperlyConfigured rather than defaulting, so a
+# missing key here is a 500 on the exact path nobody tests by hand.
+#
+# - `account_signup` — a reset requested for an address with no account still
+#   sends mail ("someone asked to reset a password here; you have no
+#   account"), and that mail links to signup.
+# - `account_reset_password` — the mirror case, and the one that was missing
+#   until 2026-08-09: signing up with an address that *already* has an account
+#   sends "you already have an account" instead of admitting the address is
+#   taken, and that mail links to the reset flow. Every signup by a returning
+#   user who forgot they had an account hit a 500 without it.
+#
+# Neither is a route: auth is a header popover, and only /terms and /privacy
+# are real paths. So the site root is the honest target for both; relative
+# URLs are made absolute against the request.
+HEADLESS_FRONTEND_URLS = {
+    'account_signup': '/',
+    'account_reset_password': '/',
+}
 
 
 # Email — verification and password-reset codes. Dev defaults to the
