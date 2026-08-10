@@ -53,7 +53,11 @@ right direction to be wrong.
    its `class` / `subclass`.
 2. Add it to `POI_CLASS_ALLOWLIST` in `web/src/poi.ts`.
 3. Mirror it in the Photon lists so search agrees.
-4. Rebuild and eyeball it (`npm run build`, then a screenshot check).
+4. Add it to `CONSTRUCTED_CLASSES` in `server/core/feature_classes.py` —
+   the class is forwarded to the API verbatim, so without this the map
+   invites a click the server then refuses with a 400. A test asserts the
+   two lists agree.
+5. Rebuild and eyeball it (`npm run build`, then a screenshot check).
 
 See [the class reference](#reference-the-class-vocabulary) below for what
 exists and what's worth considering.
@@ -172,7 +176,7 @@ truth; regenerate them with the script at the end of this section.
 |---|---|---|
 | `castle` | 19 | subclasses `castle`, `ruins` |
 | `attraction` | 163 | subclasses `attraction`, `viewpoint` |
-| `railway` | 142 | **`subclass=station` only** — see the `halt` warning |
+| `railway` | 142 | **`subclass=station` only** — see the `halt` warning. Stored as `station`, not `railway` (see [the server's backstop](#the-servers-backstop--a-third-list)) |
 | `lighthouse` | 0 | coastal, so absent from these eight urban tiles; it is a real class (it appears in the style's sprite sheet) |
 
 **Plausible additions** — things that carry a name of their own, roughly in
@@ -257,7 +261,15 @@ Three things about it are worth knowing before you change either list here:
   and the Photon list filters raw OSM `key`/`value`, but the server sees only
   what `kindOf()` (`web/src/map/features.ts`) and `kindFromPhoton()`
   (`web/src/api.ts`) reduced those to. Adding a category to either list above
-  may need a matching entry there, under whatever name those functions emit.
+  needs a matching entry there, under whatever name those functions emit —
+  for POIs that is the tile `class` itself, forwarded verbatim, with one
+  rename: `railway` is emitted as **`station`**, the word Photon's
+  `railway=station` already produces. The rename exists so a map click and a
+  search pick on one station agree; they are two paths to the same Place, and
+  the kind is half of both the resolve cache key and the label highlight
+  token. It is safe because a `railway` POI only reaches the map when its
+  subclass is `station`. Keep `KIND_ALIASES` and `labelClassExpr` in step:
+  the first decides what gets stored, the second what gets highlighted.
 - **It is stricter than search, on purpose.** The Photon rule passes any key
   it hasn't heard of; an allowlist can't. A real but unlisted category is
   refused until someone adds it — a visible 400 rather than a bad Place
@@ -267,13 +279,6 @@ Three things about it are worth knowing before you change either list here:
 
 ## Known gaps
 
-- **A map click on a POI reports `poi`, not the POI's class.**
-  `KIND_BY_SOURCE_LAYER` maps the whole `poi` source layer to one kind, so
-  the server allowlist has to permit `poi` wholesale and a hand-written POST
-  claiming `poi` says nothing about what kind of POI it is. The map itself is
-  still filtered, so this is only reachable by bypassing the UI. Closing it
-  means sending the real class and migrating existing rows, because the same
-  value is the label-highlight token (`labelClassExpr`).
 - `landuse=retail` and `building=*` still pass search. Neither is a
   collision risk — both carry distinct names — but neither is really a
   toponym either. Both are now refused at creation by the server list, so

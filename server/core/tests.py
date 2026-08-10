@@ -4994,6 +4994,45 @@ class FeatureClassAllowlistTests(ApiTestCase):
         missing = sorted(set(classes) - ALLOWED_FEATURE_CLASSES)
         self.assertEqual(missing, [])
 
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_the_poi_source_layer_name_is_not_a_class(self, fetch):
+        """A map click used to report the `poi` source layer rather than the
+        POI's own class, so 'poi' had to be permitted wholesale and told the
+        server nothing about what was being created. `kindOf()` now sends the
+        class; nothing should ever again post the layer's name."""
+        self.client.force_login(self.user)
+        response = self._post(**{'class': 'poi'})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['reason'], 'disallowed_class')
+        fetch.assert_not_called()
+        self.assertEqual(Place.objects.count(), 0)
+
+    def test_client_poi_allowlist_classes_are_all_allowed(self):
+        """`POI_CLASS_ALLOWLIST` in poi.ts is exactly what the map lets you
+        click on the `poi` layer, and `kindOf()` now forwards those classes
+        verbatim. One missing here is a category the map invites you to click
+        and the server then refuses.
+
+        Skipped when the frontend isn't beside the server: the deployed app
+        ships `web/dist`, not `web/src`.
+        """
+        source = Path(settings.BASE_DIR).parent / 'web' / 'src' / 'poi.ts'
+        if not source.exists():
+            self.skipTest('web/src not present next to the server')
+        text = source.read_text('utf-8')
+        block = re.search(r'POI_CLASS_ALLOWLIST = \[(.*?)\]', text, re.S)
+        self.assertIsNotNone(
+            block, 'POI_CLASS_ALLOWLIST moved or was renamed'
+        )
+        classes = re.findall(r"'([^']+)'", block.group(1))
+        self.assertTrue(classes)
+        self.assertEqual(sorted(set(classes) - ALLOWED_FEATURE_CLASSES), [])
+        # Stations are the fourth clickable POI class and the one exception:
+        # `kindOf()` renames the tile schema's `railway` to `station`, the
+        # word `kindFromPhoton()` already produces for the same feature.
+        self.assertIn('station', ALLOWED_FEATURE_CLASSES)
+        self.assertNotIn('railway', ALLOWED_FEATURE_CLASSES)
+
     def test_seed_command_classes_are_all_allowed(self):
         """The demo seeder posts the same shape a map click does, so a class
         it uses is one a real click can produce."""

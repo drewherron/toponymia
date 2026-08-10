@@ -58,8 +58,12 @@ export const POI_CLASS_ALLOWLIST = ['castle', 'lighthouse', 'attraction']
  * tagged `station` (Cantley, Norfolk), so the small-station case the name
  * suggests is already covered. `subway`, `tram_stop` and platforms are out
  * for the same reason.
+ *
+ * Exported because `kindOf()` (`map/features.ts`) renames this one class on
+ * the way out: everything that survives the subclass narrowing below *is* a
+ * station, and `station` is the word the geocoder half already produces.
  */
-const RAILWAY_CLASS = 'railway'
+export const RAILWAY_CLASS = 'railway'
 const RAILWAY_SUBCLASSES = ['station']
 
 /**

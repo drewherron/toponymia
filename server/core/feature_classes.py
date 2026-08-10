@@ -108,7 +108,11 @@ NATURAL_CLASSES = {
 
 # Human-made features that carry names of their own. `road` covers every
 # `highway=*` pick because `kindFromPhoton()` collapses them, and `boundary`
-# arrives from the boundary source layer.
+# arrives from the boundary source layer. `castle`, `lighthouse`, `attraction`
+# and `station` are the whole of what the `poi` layer can produce:
+# `POI_CLASS_ALLOWLIST` in `web/src/poi.ts` keeps every other POI off the map,
+# and the tile schema's `railway` is renamed `station` by `kindOf()` so a map
+# click and a search pick on one station agree.
 CONSTRUCTED_CLASSES = {
     'road',
     'boundary',
@@ -135,21 +139,8 @@ CONSTRUCTED_CLASSES = {
     'tunnel',
 }
 
-# A map click on a POI reports the source layer, not the POI's class:
-# `KIND_BY_SOURCE_LAYER` in features.ts maps the whole `poi` layer to 'poi'.
-# So this entry has to be allowed for castles and lighthouses to be clickable
-# at all — and it is the one weak spot in this list, because a hand-written
-# POST claiming 'poi' says nothing about *what kind* of POI. Closing it means
-# making the client send the POI's real class, which also changes the label
-# highlight token (`labelClassExpr`) and so needs the existing rows migrated.
-# Cheap before launch, not after.
-POI_PASSTHROUGH = {'poi'}
-
 ALLOWED_FEATURE_CLASSES = (
-    SETTLEMENT_CLASSES
-    | NATURAL_CLASSES
-    | CONSTRUCTED_CLASSES
-    | POI_PASSTHROUGH
+    SETTLEMENT_CLASSES | NATURAL_CLASSES | CONSTRUCTED_CLASSES
 )
 
 
