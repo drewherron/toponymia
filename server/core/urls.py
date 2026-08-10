@@ -1,11 +1,12 @@
 from django.urls import path
 
-from . import dashboard, views
+from . import csp, dashboard, views
 
 app_name = 'core'
 
 urlpatterns = [
     path('health/', views.health, name='health'),
+    path('csp-report/', csp.csp_report, name='csp-report'),
     path('me/', views.me, name='me'),
     path('resolve/', views.resolve, name='resolve'),
     path('highlights/', views.highlights, name='highlights'),

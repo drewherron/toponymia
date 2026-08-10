@@ -3,6 +3,7 @@ import logging
 import re
 import shutil
 import tempfile
+from contextlib import contextmanager
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
@@ -30,6 +31,7 @@ from django.utils import timezone
 
 from . import dashboard, notify, overpass, views
 from .articles import save_edit
+from .csp import MAX_REPORTS, REPORT_ROUTE
 from .feature_classes import ALLOWED_FEATURE_CLASSES
 from .models import (
     Article,
@@ -5128,6 +5130,181 @@ class ContentSecurityPolicyTests(TestCase):
         # a substring. The two are not the same permission: one compiles
         # WebAssembly, the other runs arbitrary source.
         self.assertNotIn("'unsafe-eval'", csp['script-src'])
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class CspReportingTests(ApiTestCase):
+    """The endpoint that makes a broken policy visible.
+
+    A CSP violation is blocked in the browser and reported nowhere else, so
+    without this the only symptom is a page that renders subtly wrong for
+    someone you never hear from. Every test here is about that silence: the
+    two wire formats, the noise filter that keeps the log worth reading, and
+    the path/group names that would report into a void if they drifted.
+    """
+
+    URI_REPORT = {
+        'csp-report': {
+            'document-uri': 'https://toponymia.org/place/paris',
+            'effective-directive': 'script-src',
+            'blocked-uri': 'https://evil.example/x.js',
+            'source-file': 'https://toponymia.org/assets/index.js',
+            'line-number': 42,
+        }
+    }
+    API_REPORT = [
+        {
+            'type': 'csp-violation',
+            'url': 'https://toponymia.org/place/paris',
+            'body': {
+                'effectiveDirective': 'img-src',
+                'blockedURL': 'https://evil.example/pixel.png',
+                'sourceFile': 'https://toponymia.org/assets/index.js',
+                'lineNumber': 7,
+            },
+        }
+    ]
+
+    def _post(self, body, content_type='application/csp-report', **kwargs):
+        return self.client.post(
+            reverse('core:csp-report'),
+            json.dumps(body),
+            content_type=content_type,
+            **kwargs,
+        )
+
+    def _capture(self):
+        """Swap the *configured* handler's stream, as ErrorLoggingTests does.
+
+        assertLogs would attach a handler of its own and so pass even if the
+        LOGGING block were deleted — which is the failure this endpoint is
+        supposed to make impossible.
+        """
+        handlers = logging.getLogger('core').handlers
+        stream_handlers = [
+            h for h in handlers if isinstance(h, logging.StreamHandler)
+        ]
+        self.assertTrue(stream_handlers, 'core has no stream handler')
+        return stream_handlers[0]
+
+    @contextmanager
+    def _logged(self):
+        handler = self._capture()
+        captured = StringIO()
+        original, handler.stream = handler.stream, captured
+        try:
+            yield captured
+        finally:
+            handler.stream = original
+
+    def test_report_uri_format_is_logged(self):
+        with self._logged() as log:
+            response = self._post(self.URI_REPORT)
+        self.assertEqual(response.status_code, 204)
+        written = log.getvalue()
+        self.assertIn('script-src', written)
+        self.assertIn('https://evil.example/x.js', written)
+        self.assertIn('/place/paris', written)
+
+    def test_reporting_api_format_is_logged(self):
+        """The camelCase, batched, `application/reports+json` shape Chrome
+        sends. Handling only the deprecated format would lose these with no
+        sign that anything was missing."""
+        with self._logged() as log:
+            response = self._post(
+                self.API_REPORT, content_type='application/reports+json'
+            )
+        self.assertEqual(response.status_code, 204)
+        written = log.getvalue()
+        self.assertIn('img-src', written)
+        self.assertIn('https://evil.example/pixel.png', written)
+
+    def test_extension_violations_are_dropped(self):
+        """Browser extensions inject scripts into every page and their
+        blocked loads are reported as violations of our policy. This is the
+        usual reason CSP reporting gets switched off as noise."""
+        body = {'csp-report': dict(self.URI_REPORT['csp-report'])}
+        body['csp-report']['blocked-uri'] = 'chrome-extension://abcd/inject.js'
+        with self._logged() as log:
+            response = self._post(body)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(log.getvalue(), '')
+
+    def test_an_unrecognised_body_is_accepted_and_ignored(self):
+        """The browser discards the response, so there is nobody to tell.
+        Answering 400 would only mean a retry loop."""
+        with self._logged() as log:
+            response = self._post({'not': 'a report'})
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(log.getvalue(), '')
+
+    def test_a_batch_is_capped(self):
+        """`report-to` posts an array whose length the client picks."""
+        with self._logged() as log:
+            response = self._post(
+                self.API_REPORT * 50,
+                content_type='application/reports+json',
+            )
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(log.getvalue().count('CSP violation'), MAX_REPORTS)
+
+    def test_long_fields_are_clipped(self):
+        """A blocked `data:` URL can be megabytes, and this is a write path
+        anyone can reach — so what it can put in the log is bounded."""
+        body = {'csp-report': dict(self.URI_REPORT['csp-report'])}
+        body['csp-report']['blocked-uri'] = 'data:image/png;base64,' + 'A' * 5000
+        with self._logged() as log:
+            self._post(body)
+        self.assertLess(len(log.getvalue()), 1000)
+
+    def test_no_authentication_or_csrf_token_is_needed(self):
+        """The browser posts these with no credentials and no token. DRF's
+        SessionAuthentication would demand CSRF of a session cookie that rode
+        along on the same-origin post, which is why the view declares no
+        authentication at all."""
+        self.client = Client(enforce_csrf_checks=True)
+        response = self._post(self.URI_REPORT)
+        self.assertEqual(response.status_code, 204)
+
+    def test_get_is_not_allowed(self):
+        response = self.client.get(reverse('core:csp-report'))
+        self.assertEqual(response.status_code, 405)
+
+    def test_reports_are_throttled(self):
+        """The only write path on the site reachable without an account."""
+        limit = int(
+            settings.REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'][
+                'csp-report'
+            ].split('/')[0]
+        )
+        # Captured only to keep 30 real log lines out of the suite's output.
+        with self._logged():
+            for _ in range(limit):
+                self.assertEqual(self._post(self.URI_REPORT).status_code, 204)
+            self.assertEqual(self._post(self.URI_REPORT).status_code, 429)
+
+    def test_the_policy_reports_to_the_route_that_exists(self):
+        """`SECURE_CSP` spells the path as a literal because the policy is
+        built before the URLConf loads. A rename on either side would send
+        every report into a 404 that nothing would ever notice."""
+        self.assertEqual(
+            settings.SECURE_CSP['report-uri'],
+            [reverse(REPORT_ROUTE)],
+        )
+
+    def test_report_to_is_not_declared(self):
+        """Pinning a measurement, not a preference.
+
+        Adding `report-to` beside `report-uri` reads as the forwards-compatible
+        move and is the reverse: in Chromium 151 it makes Chrome ignore
+        `report-uri` and then deliver nothing at all, over HTTP and over real
+        HTTPS alike. Since CSP reporting fails silently, turning it off that
+        way would look exactly like a policy with no violations. The reasoning
+        is in settings.SECURE_CSP; this is the tripwire.
+        """
+        self.assertNotIn('report-to', settings.SECURE_CSP)
+        response = self.client.get('/')
+        self.assertNotIn('report-to', response.headers['Content-Security-Policy'])
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])

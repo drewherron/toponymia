@@ -21,6 +21,17 @@ class ReportThrottle(UserRateThrottle):
     scope = 'report'
 
 
+class CspReportThrottle(UserRateThrottle):
+    """The one endpoint the *browser* posts to, unauthenticated.
+
+    Deliberately tight. A violation repeats on every page load, so one report
+    teaches as much as a thousand, and this is the only write path on the site
+    that anyone can reach without an account.
+    """
+
+    scope = 'csp-report'
+
+
 class TalkThrottle(UserRateThrottle):
     # New threads, replies, and post edits.
     scope = 'talk'

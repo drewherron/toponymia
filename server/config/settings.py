@@ -349,6 +349,10 @@ REST_FRAMEWORK = {
         'write': '40/min',
         'report': '15/min',
         'talk': '40/min',
+        # Diagnostics, not content: a broken policy reports on every page
+        # load and the tenth report says nothing the first didn't. Low
+        # because this is the only write path reachable without an account.
+        'csp-report': '30/hour',
     },
 }
 
@@ -504,6 +508,28 @@ SECURE_CSP = {
     # by XHR, so they fall under connect-src rather than here.
     'font-src': [CSP.SELF],
     'manifest-src': [CSP.SELF],
+    # Violation reports. `report-uri` only — deliberately, and *not* an
+    # oversight to be corrected by adding `report-to` alongside it.
+    #
+    # `report-uri` is the deprecated directive and `report-to` is its
+    # Reporting API replacement, so declaring both looks like the obvious
+    # forwards-compatible move. Measured in Chromium 151 (2026-08-09), it is
+    # the opposite: adding `report-to` makes Chrome ignore `report-uri`, and
+    # then no report is delivered at all — verified over both plain HTTP and
+    # real HTTPS through Caddy, with a genuine img-src violation and a 70s
+    # wait. With `report-uri` alone, the same violation posts immediately.
+    # Firefox and Safari implement only `report-uri` regardless.
+    #
+    # So `report-to` is a switch that turns reporting off in most browsers
+    # while looking like an upgrade — and CSP reporting fails silently by
+    # nature, so nothing would have told us. Re-measure before adding it;
+    # core/csp.py already parses the Reporting API's payload shape, so the
+    # change is this one line when it's real.
+    #
+    # The path is a literal because the policy is built here, at import time,
+    # before the URLConf exists. core.csp.REPORT_ROUTE names the route it has
+    # to match, and a test asserts they agree.
+    'report-uri': ['/api/csp-report/'],
 }
 
 
