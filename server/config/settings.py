@@ -247,6 +247,12 @@ ACCOUNT_PASSWORD_RESET_BY_CODE_TIMEOUT = 15 * 60
 # Neither is a route: auth is a header popover, and only /terms and /privacy
 # are real paths. So the site root is the honest target for both; relative
 # URLs are made absolute against the request.
+#
+# allauth asks for two further keys, `account_reset_password_from_key` and
+# `account_confirm_email`, on its *by-link* flows only. Both are unreachable
+# while the two ACCOUNT_*_BY_CODE_ENABLED settings above are on — but turning
+# either off reintroduces exactly the 500 described here, on a path that only
+# real users walk. Add the key in the same commit if that ever changes.
 HEADLESS_FRONTEND_URLS = {
     'account_signup': '/',
     'account_reset_password': '/',
