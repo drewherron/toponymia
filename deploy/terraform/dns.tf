@@ -106,6 +106,35 @@ resource "aws_route53_record" "ses_mail_from_spf" {
   records = ["v=spf1 include:amazonses.com ~all"]
 }
 
+# Inbound mail. **This zone is authoritative the moment the registrar's
+# nameservers change**, so anything the old zone served and this one omits stops
+# working then — silently, from our side, as bounces on the sender's.
+#
+# The apex MX is the case that matters: TERMS.md publishes support@toponymia.org
+# as the DMCA designated agent and PRIVACY.md as the privacy contact, and SES
+# only *sends*. Without these records a copyright notice we are obliged to
+# receive would bounce. Nothing else in the pre-migration zone needed carrying
+# over — it was a parking page.
+resource "aws_route53_record" "mx" {
+  count = length(var.mx_records) > 0 ? 1 : 0
+
+  zone_id = local.zone_id
+  name    = var.domain
+  type    = "MX"
+  ttl     = 3600
+  records = var.mx_records
+}
+
+# One SPF record per domain — a second TXT starting `v=spf1` is a permerror
+# rather than a merge — so every sender has to be listed here together. SES is
+# not the only one: replies sent *from* the published contact address go out
+# through the mail provider, and they fail SPF the day this record appears
+# unless it is listed too. DMARC below is p=none so nothing would reject them,
+# but a softfail still costs deliverability, and a DMCA reply landing in spam
+# is its own kind of failure.
+#
+# Watch SPF's ten-lookup limit when adding to spf_includes: the default two cost
+# three, because mailbox.org's own record contains an `mx` mechanism.
 resource "aws_route53_record" "spf" {
   count = var.enable_ses ? 1 : 0
 
@@ -113,7 +142,9 @@ resource "aws_route53_record" "spf" {
   name    = var.domain
   type    = "TXT"
   ttl     = 600
-  records = ["v=spf1 include:amazonses.com ~all"]
+  records = [
+    "v=spf1 ${join(" ", [for host in var.spf_includes : "include:${host}"])} ~all"
+  ]
 }
 
 # p=none: monitor only, and with no rua= there is nowhere for reports to go

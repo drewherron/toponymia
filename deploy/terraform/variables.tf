@@ -72,6 +72,35 @@ variable "monthly_budget_usd" {
   default     = 30
 }
 
+variable "mx_records" {
+  description = <<-EOT
+    Apex MX records, carried over from whatever zone served the domain before.
+    Route 53 becomes authoritative the moment the registrar's nameservers
+    change, so a record that isn't here stops resolving then — and inbound mail
+    failing is invisible from this side. The default is what was live at
+    migration time (mailbox.org); re-check it against the mail provider rather
+    than trusting this default, and empty it if the domain receives no mail.
+  EOT
+  type        = list(string)
+  default = [
+    "10 mxext1.mailbox.org",
+    "10 mxext2.mailbox.org",
+    "10 mxext3.mailbox.org",
+    "10 mxext4.mailbox.org",
+  ]
+}
+
+variable "spf_includes" {
+  description = <<-EOT
+    Every domain allowed to send as this one, in SPF `include:` form. There can
+    only be one SPF record, so this is the whole list: SES for the app's own
+    mail, plus the provider that sends replies from the published contact
+    address. Keep the total DNS lookups under ten.
+  EOT
+  type        = list(string)
+  default     = ["amazonses.com", "mailbox.org"]
+}
+
 variable "create_hosted_zone" {
   description = "Create the Route 53 zone. Set false if the zone already exists in the account and should be looked up instead — recreating a zone changes its nameservers and breaks DNS until the registrar is updated again."
   type        = bool
