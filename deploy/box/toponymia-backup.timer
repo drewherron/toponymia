@@ -1,0 +1,26 @@
+# Nightly trigger for toponymia-backup.service.
+#
+#     sudo install -m 0644 deploy/box/toponymia-backup.timer \
+#         /etc/systemd/system/toponymia-backup.timer
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now toponymia-backup.timer
+#
+# Check it with `systemctl list-timers toponymia-backup` — but note that a
+# healthy timer is not a healthy backup. The thing to believe is the object
+# list in S3 and the CloudWatch alarm on BackupSucceeded; both of those go
+# quiet on their own if this stops, which is why they exist.
+
+[Unit]
+Description=Nightly Toponymia database backup
+
+[Timer]
+# 03:17 UTC rather than a round hour: everyone's cron job runs at 03:00, and
+# S3 does not care, but the box's own CPU and the site's quietest hour do.
+OnCalendar=*-*-* 03:17:00 UTC
+# A box that was off at 03:17 still gets its backup when it comes back, rather
+# than skipping a day in silence.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

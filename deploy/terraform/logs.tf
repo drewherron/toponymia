@@ -75,6 +75,30 @@ resource "aws_cloudwatch_metric_alarm" "disk" {
   alarm_actions     = [aws_sns_topic.alerts.arn]
 }
 
+# The one alarm that fires on *silence*. deploy/box/backup.sh publishes this
+# metric only after a dump has been verified and uploaded, so no data point
+# means no backup — whether the timer was never enabled, the script was never
+# installed, the database refused the connection, or the disk filled. Each of
+# those looks identical from here, and all of them look identical to a healthy
+# system if you are watching for an error instead of for a heartbeat.
+#
+# 26 hours: a nightly job plus the timer's randomized delay, with enough slack
+# that a reboot at the wrong moment doesn't page.
+resource "aws_cloudwatch_metric_alarm" "backup_missing" {
+  alarm_name          = "toponymia-backup-missing"
+  namespace           = "Toponymia"
+  metric_name         = "BackupSucceeded"
+  statistic           = "Sum"
+  period              = 93600
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+
+  alarm_description = "No verified database backup in the last 26 hours."
+  alarm_actions     = [aws_sns_topic.alerts.arn]
+}
+
 resource "aws_cloudwatch_metric_alarm" "status_check" {
   alarm_name          = "toponymia-status-check"
   namespace           = "AWS/EC2"

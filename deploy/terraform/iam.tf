@@ -28,12 +28,19 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 }
 
 data "aws_iam_policy_document" "app" {
-  # Backups: write-and-list only. The box never needs to delete a dump — the
-  # bucket's lifecycle rule does that — so a compromised instance cannot erase
-  # the backups it just wrote.
+  # Backups: read and write, never delete. The box never needs to remove a
+  # dump — the bucket's lifecycle rule does that — so a compromised instance
+  # still cannot erase the backups it wrote, which is the restriction that was
+  # actually worth having.
+  #
+  # GetObject is here because a restore happens *on the box*, and without it
+  # the recovery path fails at the download step, on the worst day, with an
+  # AccessDenied that reads like a bug in the procedure. It grants no real
+  # secrecy either way: the instance already holds the live database these
+  # dumps are copies of.
   statement {
-    sid       = "WriteBackups"
-    actions   = ["s3:PutObject"]
+    sid       = "ReadWriteBackups"
+    actions   = ["s3:PutObject", "s3:GetObject"]
     resources = ["${aws_s3_bucket.backups.arn}/*"]
   }
 

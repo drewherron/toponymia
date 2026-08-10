@@ -1,0 +1,31 @@
+# Nightly pg_dump to S3. Triggered by toponymia-backup.timer, not enabled
+# directly.
+#
+#     sudo install -m 0644 deploy/box/toponymia-backup.service \
+#         /etc/systemd/system/toponymia-backup.service
+
+[Unit]
+Description=Toponymia database backup to S3
+Documentation=https://github.com/drewherron/toponymia
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=toponymia
+Group=toponymia
+# The database credentials and TOPONYMIA_BACKUP_BUCKET / AWS_DEFAULT_REGION.
+EnvironmentFile=/etc/toponymia/env
+ExecStart=/usr/local/bin/toponymia-backup
+
+# The dump is written to a mktemp directory under /tmp, so a private one is
+# all the write access this needs.
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes

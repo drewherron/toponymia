@@ -9,15 +9,34 @@ configure what runs on it.
 |---|---|
 | `Caddyfile` | `/etc/caddy/Caddyfile` |
 | `toponymia.service` | `/etc/systemd/system/toponymia.service` |
+| `backup.sh` | `/usr/local/bin/toponymia-backup` |
+| `toponymia-backup.service` | `/etc/systemd/system/toponymia-backup.service` |
+| `toponymia-backup.timer` | `/etc/systemd/system/toponymia-backup.timer` |
 
 ```sh
 sudo install -m 0644 deploy/box/Caddyfile /etc/caddy/Caddyfile
 sudo install -m 0644 deploy/box/toponymia.service \
     /etc/systemd/system/toponymia.service
+sudo install -m 0755 deploy/box/backup.sh /usr/local/bin/toponymia-backup
+sudo install -m 0644 deploy/box/toponymia-backup.service \
+    /etc/systemd/system/toponymia-backup.service
+sudo install -m 0644 deploy/box/toponymia-backup.timer \
+    /etc/systemd/system/toponymia-backup.timer
 sudo mkdir -p /var/log/caddy && sudo chown caddy:caddy /var/log/caddy
 sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl daemon-reload
-sudo systemctl enable --now toponymia caddy
+sudo systemctl enable --now toponymia caddy toponymia-backup.timer
+```
+
+The backup script needs two variables in `/etc/toponymia/env` that the app
+itself doesn't use: `TOPONYMIA_BACKUP_BUCKET` (the `backup_bucket` output from
+`tofu apply`) and `AWS_DEFAULT_REGION`. It needs no credentials — the instance
+profile supplies them.
+
+Run it once by hand before trusting the timer:
+
+```sh
+sudo systemctl start toponymia-backup && journalctl -u toponymia-backup -n 30
 ```
 
 Neither file contains a secret. Everything sensitive — `DJANGO_SECRET_KEY`, the
@@ -65,5 +84,10 @@ whole client-supplied `X-Forwarded-For` as the throttle identity, so rotating
 that header defeats every rate limit including the one protecting the Overpass
 budget. Putting anything else in front (CloudFront, an ALB) makes it `2`.
 
-**Backups.** The nightly `pg_dump` timer that writes to the S3 bucket isn't
-written yet.
+**Anything that decides.** `backup.sh` takes and verifies a dump; restoring is
+a judgement call and stays a documented procedure rather than a script that
+could run by accident.
+
+**EBS snapshots.** `pg_dump` covers the data. Nothing here covers the box
+itself — the packages, the env file, this config — so a lost instance is still
+a rebuild rather than a restore.
