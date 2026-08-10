@@ -1,6 +1,6 @@
 Django>=6.1,<6.2
 djangorestframework>=3.18.0,<4
-django-allauth>=65.18,<66
+django-allauth>=65.19.0,<66
 psycopg[binary]>=3.3.4,<4
 requests>=2.34.2,<3
 whitenoise>=6.12.0,<7
