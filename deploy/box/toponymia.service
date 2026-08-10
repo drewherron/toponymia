@@ -1,0 +1,69 @@
+# gunicorn unit for the Django app.
+#
+#     sudo install -m 0644 deploy/box/toponymia.service \
+#         /etc/systemd/system/toponymia.service
+#     sudo systemctl daemon-reload && sudo systemctl enable --now toponymia
+#
+# Expects the layout the bootstrap creates: the repo at /srv/toponymia, a venv
+# at /srv/toponymia/.venv, and a root-owned 0600 environment file at
+# /etc/toponymia/env. The environment file is where every secret lives; none of
+# it belongs in this file, which is world-readable.
+
+[Unit]
+Description=Toponymia (gunicorn)
+Documentation=https://github.com/drewherron/toponymia
+# Postgres is on the same box. Not a hard dependency: gunicorn starting a few
+# seconds early is a couple of failed requests, while Requires= would take the
+# app down for good on a transient database restart.
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+User=toponymia
+Group=toponymia
+WorkingDirectory=/srv/toponymia/server
+EnvironmentFile=/etc/toponymia/env
+
+# --workers 3 suits 2 vCPU / 2 GB. Note that without DJANGO_REDIS_URL every
+# throttle in settings.py is per-process, so the effective limit is this number
+# times the configured rate — including the 20/hour report-email cap. Set the
+# Redis URL (and keep redis-server running) or keep this number small; do not
+# lower the rates in settings.py to compensate, which hides the cause.
+#
+# No --access-logfile: Caddy already logs every request with the real client
+# address, and gunicorn's copy would only ever say 127.0.0.1 while duplicating
+# a log that carries personal data. Errors go to stderr, which the journal
+# captures; DJANGO_LOG_DIR additionally gives the log shipper a self-rotating
+# file, and the CloudWatch metric filter keys on the `ERROR django.request`
+# lines that appear in both.
+ExecStart=/srv/toponymia/.venv/bin/gunicorn config.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 3
+
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=3
+
+# Creates /var/log/toponymia owned by this unit's user, which is what
+# DJANGO_LOG_DIR should point at.
+LogsDirectory=toponymia
+LogsDirectoryMode=0750
+
+# The app writes nothing at runtime: no media uploads, sessions live in
+# Postgres, and staticfiles is populated by collectstatic during deploys rather
+# than by the running service. So the whole filesystem can be read-only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# Outbound HTTPS to Overpass and SES, plus localhost to Postgres and Redis.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

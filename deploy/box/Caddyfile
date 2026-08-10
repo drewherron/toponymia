@@ -1,0 +1,92 @@
+# Caddy config for the box that serves toponymia.org.
+#
+#     sudo install -m 0644 deploy/box/Caddyfile /etc/caddy/Caddyfile
+#     sudo systemctl reload caddy
+#
+# Caddy provisions the certificate itself over ACME, redirects 80 -> 443, and
+# forwards X-Forwarded-Proto — which is load-bearing rather than cosmetic: with
+# DEBUG off Django marks its session and CSRF cookies secure, so without that
+# header every login silently fails.
+#
+# This file will not start until the ADMIN placeholder below is replaced. That
+# is deliberate: an unreplaced placeholder is a Caddy parse error, which is a
+# service that refuses to come up, which is louder than an admin page quietly
+# open to the internet.
+{
+	# Where ACME failures show up. Not otherwise used.
+	email noreply@toponymia.org
+}
+
+# PRIVACY.md §2 publishes a 30-day retention window for access logs, and this is
+# the log that actually holds visitor IP addresses. Caddy's own defaults keep
+# roughly 90 days, so leaving this out would make the published policy untrue —
+# the same reason log_retention_days is set explicitly on the CloudWatch side in
+# deploy/terraform/logs.tf. Keep the two numbers equal.
+#
+# A file rather than the journal because the CloudWatch agent tails files, and
+# because the roll settings are the retention control. A snippet because *both*
+# site blocks need it: the www redirect logs client addresses just as the apex
+# does, and a site without its own `log` writes to the journal instead, where
+# nothing here bounds it.
+(accesslog) {
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 10
+			roll_keep_for 720h # 30 days.
+		}
+		format json
+	}
+}
+
+# The apex is the canonical origin; www redirects to it (both A records exist,
+# so both must be answered here or www gets a certificate error rather than a
+# redirect).
+www.toponymia.org {
+	import accesslog
+	redir https://toponymia.org{uri} permanent
+}
+
+toponymia.org {
+	encode gzip zstd
+
+	header {
+		# HSTS lives here rather than in Django on purpose: settings.py
+		# leaves SECURE_HSTS_SECONDS unset so that the proxy owns it, and
+		# so a dev box can never emit it.
+		#
+		# includeSubDomains is a commitment for every present and future
+		# subdomain of toponymia.org — anything served under one has to be
+		# HTTPS from the day this ships. No `preload`: that is effectively
+		# irreversible and wants a deliberate decision, not a default.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# Django's admin is the biggest target on the box and nothing about the
+	# site needs it reachable from the internet.
+	#
+	# `remote_ip`, NOT `client_ip`: client_ip reads X-Forwarded-For, which is
+	# a header the client writes, so it would let anyone claim an allowed
+	# address. remote_ip is the address that actually opened the connection,
+	# and Caddy is the edge here.
+	#
+	# 127.0.0.1 is allowed so the documented fallback works: reach the admin
+	# over an SSM port-forward rather than opening it up. Replace the second
+	# entry with the operator's address (a /32), or delete it and use the
+	# tunnel only.
+	@admin_denied {
+		path /admin/*
+		not remote_ip 127.0.0.1/32 REPLACE_WITH_ADMIN_IP/32
+	}
+	handle @admin_denied {
+		respond 403
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	import accesslog
+}
