@@ -139,6 +139,15 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # The SPA shell gets its nonce stamped in core/spa.py, not
+                # here — but the admin renders Django templates, and its
+                # inline scripts carry `nonce="{{ csp_nonce }}"`. Without
+                # this the variable resolves empty, the browser drops those
+                # scripts under `script-src 'nonce-…'`, and the admin's
+                # add/change forms quietly stop working. Cheap and lazy: the
+                # processor stashes the LazyNonce without forcing it, so a
+                # template that never prints it still mints nothing.
+                'django.template.context_processors.csp',
             ],
         },
     },
