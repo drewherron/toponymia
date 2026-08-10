@@ -1,0 +1,22 @@
+{% comment %}
+Overrides allauth's own base_message.txt, which every account email extends.
+
+The stock version greets with `current_site.name`. Without
+django.contrib.sites installed allauth falls back to RequestSite, whose name
+is the request's *host* — so the mail read "Hello from www.toponymia.org!"
+rather than naming the site. Installing contrib.sites would fix it by putting
+the brand in a database row that every deployment then has to set correctly,
+which is a new way for a deploy to be wrong in exchange for a greeting.
+Hardcoding the name here has neither problem.
+
+The domain stays dynamic on purpose: it is the host the reader actually used,
+so a staging or local deploy points at itself instead of claiming to be
+production.
+{% endcomment %}
+{% load i18n %}{% autoescape off %}{% blocktrans %}Hello from Toponymia!{% endblocktrans %}
+
+{% block content %}{% endblock content %}
+
+{% blocktrans with site_domain=current_site.domain %}Thank you for using Toponymia!
+{{ site_domain }}{% endblocktrans %}
+{% endautoescape %}

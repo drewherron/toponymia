@@ -2010,6 +2010,31 @@ class AuthApiTests(ApiTestCase):
         )
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_account_email_is_branded_not_hostnamed(self):
+        """The verification mail is the first thing a new account ever sees.
+
+        allauth builds both the greeting and the subject prefix from
+        `current_site.name`, and with django.contrib.sites deliberately not
+        installed that name is the request's *host* — so unbranded output
+        here means the override in templates/ or the subject-prefix setting
+        has been lost, not merely that the wording changed.
+        """
+        self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {
+                'username': 'newuser',
+                'email': 'newuser@example.com',
+                'password': 'sturdy-passphrase-9',
+                'terms': True,
+            },
+            content_type='application/json',
+        )
+        message = mail.outbox[0]
+        self.assertTrue(message.subject.startswith('[Toponymia] '))
+        self.assertIn('Hello from Toponymia!', message.body)
+        self.assertNotIn('testserver', message.subject)
+        self.assertNotIn('Hello from testserver', message.body)
+
     def test_signup_verify_by_code_authenticates(self):
         self.client.post(
             '/_allauth/browser/v1/auth/signup',

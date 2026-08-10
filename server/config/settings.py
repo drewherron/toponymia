@@ -104,7 +104,11 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Searched before APP_DIRS, which is the point: the only templates
+        # here override allauth's, and 'core' sits after 'allauth' in
+        # INSTALLED_APPS, so an app-level copy would lose. See
+        # templates/account/email/base_message.txt.
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -201,6 +205,11 @@ ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*']
 # acceptance (core/forms.py). Server-side, so the agreement holds for
 # direct API calls too, not just the React form.
 ACCOUNT_SIGNUP_FORM_CLASS = 'core.forms.TermsSignupForm'
+# Subjects otherwise take allauth's default prefix of "[<site name>] ", and
+# with contrib.sites absent the site name is the request host — so every
+# subject line read "[www.toponymia.org] ...". Same reasoning as the body
+# override in templates/account/email/base_message.txt.
+ACCOUNT_EMAIL_SUBJECT_PREFIX = '[Toponymia] '
 ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED = True
 ACCOUNT_UNIQUE_EMAIL = True
