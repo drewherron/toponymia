@@ -5142,7 +5142,9 @@ class ContentSecurityPolicyTests(TestCase):
     def test_bundle_script_tag_is_left_alone(self):
         """Only inline scripts need stamping; Vite's tags carry src=."""
         html = self.client.get('/').content.decode()
-        tags = re.findall(r'<script[^>]*>', html)
+        # Case-insensitive so a tag the shell emitted as <SCRIPT> would fail
+        # this test rather than quietly fall out of the sample it inspects.
+        tags = re.findall(r'<script[^>]*>', html, re.IGNORECASE)
         src_tags = [t for t in tags if ' src=' in t]
         self.assertTrue(src_tags)
         for tag in src_tags:
