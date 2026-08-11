@@ -117,6 +117,14 @@ function AboutDialog({ onClose, onOpenDoc }: AboutDialogProps) {
             >
               GNU Affero GPL v3
             </a>
+            . The complete source is on{' '}
+            <a
+              href="https://github.com/drewherron/toponymia"
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub
+            </a>
             .
           </li>
         </ul>
@@ -132,7 +140,7 @@ function AboutDialog({ onClose, onOpenDoc }: AboutDialogProps) {
 
         <h3>Donating</h3>
         <p>
-          Toponymia is free, ad-free, and run by one person,{' '}
+          Toponymia is free, ad-free, open-source, and run by one person:{' '}
           <a href="https://www.drewherron.com" target="_blank" rel="noreferrer">
             Drew Herron
           </a>
