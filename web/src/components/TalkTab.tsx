@@ -1,7 +1,6 @@
-import { useEffect, useId, useState } from 'react'
+import { Suspense, useEffect, useId, useState } from 'react'
 import type { FormEvent } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import MarkdownBody from './MarkdownBody'
 import {
   createTalkThread,
   deleteTalkPost,
@@ -23,8 +22,6 @@ interface TalkTabProps {
    *  truncated page can't speak for the whole count. */
   onThreadCount: (count: number | null) => void
 }
-
-const plugins = [remarkGfm]
 
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -139,7 +136,7 @@ function PostView({
         </form>
       ) : (
         <div className="talk-post-body">
-          <Markdown remarkPlugins={plugins}>{post.body_md}</Markdown>
+          <MarkdownBody>{post.body_md}</MarkdownBody>
         </div>
       )}
     </div>
@@ -376,7 +373,7 @@ function TalkTab({
     return <p className="feature-pane-note">Loading discussions…</p>
   }
 
-  return (
+  const talk = (
     <div className="talk">
       {threads.length === 0 && (
         <p className="feature-pane-note">
@@ -442,6 +439,13 @@ function TalkTab({
         </button>
       )}
     </div>
+  )
+  // One boundary for the tab, not one per post — a thread of eighty posts
+  // shares a single renderer fetch.
+  return (
+    <Suspense fallback={<p className="feature-pane-note">Loading…</p>}>
+      {talk}
+    </Suspense>
   )
 }
 

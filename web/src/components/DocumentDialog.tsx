@@ -1,9 +1,8 @@
-import { useMemo } from 'react'
-import Markdown from 'react-markdown'
+import { Suspense, useMemo } from 'react'
 import type { Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { DOC_BODIES, DOC_TITLES, docForPath } from '../legal'
 import type { LegalDoc } from '../legal'
+import MarkdownBody from './MarkdownBody'
 
 interface DocumentDialogProps {
   doc: LegalDoc
@@ -11,8 +10,6 @@ interface DocumentDialogProps {
   /** Follow a cross-link to the other document, in place. */
   onOpenDoc: (doc: LegalDoc) => void
 }
-
-const plugins = [remarkGfm]
 
 /** Terms of Use / Privacy Policy, rendered from the Markdown sources in the
  *  same chrome as AboutDialog. Also what /terms and /privacy render. */
@@ -77,9 +74,9 @@ function DocumentDialog({ doc, onClose, onOpenDoc }: DocumentDialogProps) {
           </button>
         </div>
 
-        <Markdown remarkPlugins={plugins} components={components}>
-          {DOC_BODIES[doc]}
-        </Markdown>
+        <Suspense fallback={<p>Loading…</p>}>
+          <MarkdownBody components={components}>{DOC_BODIES[doc]}</MarkdownBody>
+        </Suspense>
       </div>
     </div>
   )

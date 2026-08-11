@@ -1,9 +1,8 @@
-import { useMemo } from 'react'
-import Markdown from 'react-markdown'
+import { Suspense, useMemo } from 'react'
 import type { Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { etymologyHeading } from '../etymology'
 import type { ArticleData, Confidence, ElementRole } from '../types'
+import MarkdownBody from './MarkdownBody'
 
 interface ArticleViewProps {
   article: ArticleData
@@ -12,8 +11,6 @@ interface ArticleViewProps {
    *  that navigate normally. */
   onSelectSlug?: (slug: string) => void
 }
-
-const plugins = [remarkGfm]
 
 /** Wording is deliberate: "folk etymology" is a label *about* a tradition,
  *  not an endorsement of it, and "not stated" would read as a gap in the
@@ -123,15 +120,13 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
     }),
     [onSelectSlug],
   )
-  return (
+  const body = (
     <div className="article">
       {/* Free-form bodies aren't written anymore; render only legacy
           revisions that still carry one (history must stay honest). */}
       {content.body_md.trim() !== '' && (
         <div className="article-body">
-          <Markdown remarkPlugins={plugins} components={components}>
-            {content.body_md}
-          </Markdown>
+          <MarkdownBody components={components}>{content.body_md}</MarkdownBody>
         </div>
       )}
 
@@ -205,9 +200,9 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
                     </table>
                   )}
                   {etymology.etymology_md && (
-                    <Markdown remarkPlugins={plugins} components={components}>
+                    <MarkdownBody components={components}>
                       {etymology.etymology_md}
-                    </Markdown>
+                    </MarkdownBody>
                   )}
                   {etymology.references.length > 0 && (
                     <ul className="name-references">
@@ -260,6 +255,14 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
         {article.comment && <> — “{article.comment}”</>}
       </p>
     </div>
+  )
+  // One boundary for the whole article: the body and every etymology share the
+  // same lazy renderer, so per-instance fallbacks would flash a row of notes
+  // for a single fetch (usually already warm — see prefetchMarkdown).
+  return (
+    <Suspense fallback={<p className="feature-pane-note">Loading article…</p>}>
+      {body}
+    </Suspense>
   )
 }
 

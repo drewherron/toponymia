@@ -13,6 +13,7 @@ import type { LegalDoc } from './legal'
 import AuthControl from './components/AuthControl'
 import FeaturePane from './components/FeaturePane'
 import FeaturePicker from './components/FeaturePicker'
+import { prefetchMarkdown } from './markdown'
 import { MapLanguageControl } from './components/MapLanguageControl'
 import ModerationDashboard from './components/ModerationDashboard'
 import ModQueue from './components/ModQueue'
@@ -149,6 +150,21 @@ function App() {
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  // Fetch the Markdown renderer once the map has stopped competing for the
+  // network. Idle rather than eager so it never delays first paint, and ahead
+  // of any click so opening a pane doesn't wait on it — least of all in series
+  // with a first-time resolve, which is already the slowest thing here.
+  useEffect(() => {
+    if (typeof requestIdleCallback !== 'function') {
+      const timer = setTimeout(prefetchMarkdown, 2000)
+      return () => clearTimeout(timer)
+    }
+    const handle = requestIdleCallback(() => prefetchMarkdown(), {
+      timeout: 5000,
+    })
+    return () => cancelIdleCallback(handle)
+  }, [])
 
   // Both of these take the control off screen while its menu could be open:
   // the compact header swaps it for the menu's select, and an article pane
