@@ -33,7 +33,7 @@ from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from . import accounts
 from . import resolve as resolution
 from .articles import save_edit
-from .feature_classes import DisallowedFeatureClass
+from .feature_classes import DisallowedFeatureClass, disallowed_message
 from .models import (
     Article,
     ModAction,
@@ -327,12 +327,17 @@ def resolve(request):
             name.strip(), feature_class, lng, lat, zoom, name_en, qid=qid,
             allow_create=allow_create,
         )
-    except DisallowedFeatureClass as exc:
+    except DisallowedFeatureClass:
         # The UI never offers these, so reaching here means a hand-made
         # request or a category the allowlist hasn't been taught yet. Name
         # the class: the second case is a bug report we want to receive.
+        # Built from the request's own value, not from the exception, so no
+        # exception object ever reaches a response body.
         return Response(
-            {'error': str(exc), 'reason': 'disallowed_class'},
+            {
+                'error': disallowed_message(feature_class),
+                'reason': 'disallowed_class',
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
     except OverpassError:

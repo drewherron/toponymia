@@ -26,15 +26,26 @@ class, so removing an entry here never breaks an article that already exists.
 """
 
 
+def disallowed_message(feature_class):
+    """The refusal wording, shared by the exception and the API response.
+
+    A caller that answers a request must build this from its own copy of the
+    class rather than from `str(exc)`: an exception carries a stack trace, and
+    a handler that lets one reach a response is the shape of a real
+    information leak even when this particular message is harmless.
+    """
+    return (
+        f'{feature_class!r} is not a place category Toponymia creates '
+        f'articles for'
+    )
+
+
 class DisallowedFeatureClass(ValueError):
     """Raised when a resolve request would mint a Place we don't want."""
 
     def __init__(self, feature_class):
         self.feature_class = feature_class
-        super().__init__(
-            f'{feature_class!r} is not a place category Toponymia creates '
-            f'articles for'
-        )
+        super().__init__(disallowed_message(feature_class))
 
 
 # Settlements and administrative units. `kindOf()` returns the `place` layer's
