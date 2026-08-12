@@ -1,6 +1,6 @@
 # Privacy Policy
 
-*Last updated 2026-08-01.*
+*Last updated 2026-08-12.*
 
 Toponymia is a map-based wiki about place names, run by one person. It has no
 advertising, no analytics, and no tracking. This policy describes what the site
@@ -29,17 +29,30 @@ needed, and no cookie is set until you log in.
 posts are stored and published under your username, along with the time of
 each edit. Contributions are permanent: see section 4.
 
-## 2. Server logs
+## 2. Server logs and backups
 
 The web server keeps ordinary access logs — your IP address, the time, the page
-requested, and your browser's user-agent string. They exist to keep the site
-running and to investigate abuse.
+requested, and your browser's user-agent string. The site also keeps error logs
+and database logs, which record what went wrong when something breaks and can
+therefore include details of the request that failed, sometimes including the
+username of whoever was signed in at the time. All of it exists to keep the
+site running and to investigate abuse.
 
-**Access logs are retained for 30 days and then deleted.**
+**These logs are retained for 30 days and then deleted.**
 
 IP addresses are not stored in the site's database. Rate limiting (for example,
 on signups) counts requests per IP in memory only; those counters are transient
 and are never written to disk.
+
+The database is backed up every night. Backups are encrypted, are never public,
+and hold whatever the database held when they were taken. That has one
+consequence worth stating plainly: for up to 30 days, a backup can still
+contain something that has since been changed or deleted on the live site —
+including the email address or the former username of an account that has been
+closed (section 7). Backups are deleted automatically after 30 days, so
+anything removed from the live site ages out of the backups within that window.
+Because access logs are not kept in the database, backups contain no IP
+addresses.
 
 ## 3. Cookies and local storage
 
@@ -105,10 +118,15 @@ For comparison, when the site looks up map features it queries the
 OpenStreetMap Overpass API **from the server**, so Overpass sees the server,
 not you.
 
-Two services handle data on the site's behalf: the hosting provider, which
-processes traffic and stores the logs described in section 2, and an email
-provider, which delivers verification and password-reset messages and therefore
-handles your email address.
+Two providers handle data on the site's behalf:
+
+- **Amazon Web Services** hosts the site and sends its automated mail. Hosting
+  processes all traffic and stores the logs and backups described in section 2.
+  The mail service (Amazon SES) delivers your verification code and
+  password-reset links, and so handles your email address.
+- **mailbox.org** carries mail to and from <support@toponymia.org>. Anything
+  you send to that address — including a question about your data under section
+  7, or a copyright complaint — passes through them.
 
 The site does not sell your data, and does not share it with anyone beyond what
 this section describes.
@@ -126,13 +144,15 @@ would create more personal data than it protects.
   new address, and the change only takes effect once you enter it.
 - **Close your account** from the same panel, confirmed with your password.
   Your email address is deleted, your password is erased, your username is
-  replaced with an anonymous placeholder, and the account is deactivated. The
-  username you were using is retired, so that it cannot later be registered by
-  someone else — we keep a record of the name alone for this, with nothing
-  linking it back to your former account. If you never contributed anything,
-  the account is removed outright and the name stays available.
-  Your contributions stay in the revision history, for the reasons in section
-  4 — closing an account cannot unpublish work that others have reused. This
+  replaced with an anonymous placeholder, and the account is deactivated. Those
+  deletions take effect on the live site straight away, but a copy can remain in
+  the nightly backups described in section 2 for up to 30 days, after which it
+  is gone. The username you were using is retired, so that it cannot later be
+  registered by someone else — we keep a record of the name alone for this,
+  with nothing linking it back to your former account. If you never contributed
+  anything, the account is removed outright and the name stays available. Your
+  contributions stay in the revision history, for the reasons in section 4 —
+  closing an account cannot unpublish work that others have reused. This
   cannot be undone, and an account with an active suspension cannot be closed
   until the suspension is resolved.
 - **Ask what is held about you**, or raise any privacy concern, by emailing
