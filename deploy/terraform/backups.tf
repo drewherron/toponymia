@@ -17,8 +17,9 @@ resource "aws_s3_bucket_public_access_block" "backups" {
   restrict_public_buckets = true
 }
 
-# Versioning is what makes the write-only instance policy in iam.tf worth
-# something: even an overwrite with garbage leaves the previous dump behind.
+# Versioning is what makes the never-delete instance policy in iam.tf worth
+# something: the box can write and read its dumps but not remove them, so even
+# an overwrite with garbage leaves the previous dump behind.
 resource "aws_s3_bucket_versioning" "backups" {
   bucket = aws_s3_bucket.backups.id
 
