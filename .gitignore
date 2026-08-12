@@ -33,6 +33,11 @@ dist/
 !*.tfvars.example
 crash.log
 
+# Saved plans embed the variable values they were generated with, in the clear,
+# for the same reasons tfvars is ignored above.
+*.plan
+*.tfplan
+
 # Editors
 .idea/
 .vscode/
