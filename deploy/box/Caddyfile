@@ -13,8 +13,12 @@
 # service that refuses to come up, which is louder than an admin page quietly
 # open to the internet.
 {
-	# Where ACME failures show up. Not otherwise used.
-	email noreply@toponymia.org
+	# Where ACME failures show up, so it has to be an address that receives
+	# mail. noreply@ is the SES *sending* identity and accepts nothing, which
+	# would file Let's Encrypt's expiry and problem notices into the void —
+	# the same silent failure as an unconfirmed alarm subscription. This is
+	# the address the CloudWatch alarms already use.
+	email webmaster@toponymia.org
 }
 
 # PRIVACY.md §2 publishes a 30-day retention window for access logs, and this is
