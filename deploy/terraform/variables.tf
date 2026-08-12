@@ -119,3 +119,15 @@ variable "enable_ses" {
   type        = bool
   default     = true
 }
+
+variable "dmarc_rua" {
+  description = <<-EOT
+    Address receiving DMARC aggregate reports. Empty publishes p=none with no
+    rua, which is a record that neither enforces nor observes anything — fine
+    as a placeholder, useless as a step toward quarantine. Expect daily XML
+    from every receiving provider, so point it somewhere filtered rather than
+    somewhere you read by hand.
+  EOT
+  type        = string
+  default     = ""
+}

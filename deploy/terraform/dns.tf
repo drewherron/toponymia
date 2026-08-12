@@ -147,11 +147,17 @@ resource "aws_route53_record" "spf" {
   ]
 }
 
-# p=none: monitor only, and with no rua= there is nowhere for reports to go
-# either. This exists so the record is present and explicit rather than absent.
-# Tightening to quarantine means first standing up a mailbox for rua and
-# actually reading it — guessing at a policy before seeing one report is how
-# legitimate mail gets dropped.
+# p=none: monitor only. Tightening to quarantine means first reading reports —
+# guessing at a policy before seeing one is how legitimate mail gets dropped.
+#
+# rua is what makes that monitoring phase real: without it the record announces
+# a policy of "do nothing" and collects no evidence for the next decision. Set
+# dmarc_rua to an address you will actually read. Leaving it empty restores the
+# older, inert form of this record rather than producing a malformed one.
+#
+# An rua address inside this domain needs no further setup. Pointing it at a
+# *different* domain would require that domain to publish an authorization
+# record, and receivers silently drop reports when it's missing.
 resource "aws_route53_record" "dmarc" {
   count = var.enable_ses ? 1 : 0
 
@@ -159,5 +165,5 @@ resource "aws_route53_record" "dmarc" {
   name    = "_dmarc.${var.domain}"
   type    = "TXT"
   ttl     = 600
-  records = ["v=DMARC1; p=none;"]
+  records = ["v=DMARC1; p=none;${var.dmarc_rua == "" ? "" : " rua=mailto:${var.dmarc_rua};"}"]
 }

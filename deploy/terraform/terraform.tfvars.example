@@ -10,6 +10,10 @@ domain = "toponymia.org"
 # link that must be clicked, or nothing is ever delivered.
 alert_email = ""
 
+# Address for DMARC aggregate reports. Leave empty to publish p=none with no
+# reporting, which observes nothing — set it before tightening the policy.
+dmarc_rua = ""
+
 # Leave both of these alone to manage the box over SSM Session Manager, which
 # needs no inbound port. Set them only if SSM is unavailable:
 # ssh_public_key    = "ssh-ed25519 AAAA..."
