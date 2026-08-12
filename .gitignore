@@ -44,3 +44,8 @@ crash.log
 *.swp
 *.swo
 .#*
+# Backup copies keep the original name plus a suffix, so they slip past the
+# rules above: terraform.tfvars~ is not matched by *.tfvars.
+*~
+*.bak
+*.orig
