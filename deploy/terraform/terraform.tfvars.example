@@ -1,7 +1,9 @@
 # Copy to terraform.tfvars and edit. That filename is gitignored, because
 # tfvars is where identifying values (an operator IP, an address) end up.
 
-region = "us-east-1"
+# Effectively immutable after the first apply — changing it redoes SES domain
+# verification and production access.
+region = "us-west-2"
 domain = "toponymia.org"
 
 # Receives CloudWatch alarms and the billing alert. AWS mails a confirmation

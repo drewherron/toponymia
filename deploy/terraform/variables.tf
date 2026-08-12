@@ -1,7 +1,9 @@
+# Treat this as immutable after the first apply. Changing it means a new Elastic
+# IP (so a DNS change), re-verifying the SES domain identity, and redoing SES
 variable "region" {
   description = "AWS region. Must be one where SES is available, since the site's outbound mail lives in the same account."
   type        = string
-  default     = "us-east-1"
+  default     = "us-west-2"
 }
 
 variable "domain" {
