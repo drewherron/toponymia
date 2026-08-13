@@ -43,15 +43,26 @@
 	}
 }
 
-# The apex is the canonical origin; www redirects to it (both A records exist,
-# so both must be answered here or www gets a certificate error rather than a
-# redirect).
-www.toponymia.org {
+# www is the canonical origin; the apex redirects to it (both A records exist,
+# so both must be answered here or the apex gets a certificate error rather
+# than a redirect).
+#
+# www rather than the apex because www is a CNAME-able name — putting a CDN in
+# front later is a DNS change on this side and provider-specific ALIAS trickery
+# on the apex — and because a cookie set on the apex is visible to every future
+# subdomain, while one set on www is not. README.md and SECURITY.md already
+# publish the www form.
+#
+# Nothing in the app pins this: spa.py builds canonical URLs and og:url from
+# the request host, and contrib.sites is deliberately absent, so allauth's
+# emails follow whichever host served the request. Changing the direction here
+# is the whole change.
+toponymia.org {
 	import accesslog
-	redir https://toponymia.org{uri} permanent
+	redir https://www.toponymia.org{uri} permanent
 }
 
-toponymia.org {
+www.toponymia.org {
 	encode gzip zstd
 
 	header {
