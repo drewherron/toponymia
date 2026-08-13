@@ -85,9 +85,13 @@ function App() {
   const [selected, setSelected] = useState<Selection | null>(null)
   const [user, setUser] = useState<User | null>(null)
   // Registration is closed during the pre-launch window (PRELAUNCH in
-  // settings.py). Assume open until /api/me/ says otherwise, so a slow
-  // probe never flashes a 'closed' notice at a site that is open.
-  const [signupsOpen, setSignupsOpen] = useState(true)
+  // settings.py). `null` until /api/me/ answers: the site notice picks its
+  // card from this, and the two cards carry different ids, so guessing and
+  // then correcting shows the reader a card that immediately withdraws.
+  // Consumers that only need "can this person sign up" read it as
+  // `signupsOpen !== false` — unknown behaves as open there, so a slow probe
+  // never flashes a 'closed' sign-up form at a site that is open.
+  const [signupsOpen, setSignupsOpen] = useState<boolean | null>(null)
   const [authOpen, setAuthOpen] = useState(false)
   const [modOpen, setModOpen] = useState(false)
   const [moderationOpen, setModerationOpen] = useState(false)
@@ -183,7 +187,13 @@ function App() {
         setSignupsOpen(me.signupsOpen)
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) console.error(error)
+        if (controller.signal.aborted) return
+        console.error(error)
+        // No answer is not an answer, but the notice needs one to show
+        // anything at all. Fall back to the open site: a reader who can't
+        // reach the API is better served by the card that explains what the
+        // map is than by no card.
+        setSignupsOpen(true)
       })
     return () => controller.abort()
   }, [])
@@ -459,7 +469,7 @@ function App() {
 
   // Which card is on screen depends on whether signups are open, and the two
   // carry different ids, so dismissal has to be recorded against the one the
-  // reader actually saw.
+  // reader actually saw — and neither is shown until that's settled.
   const notice = noticeFor(signupsOpen)
   const handleDismissNotice = useCallback(() => {
     if (!notice) return
@@ -475,7 +485,7 @@ function App() {
   const authControl = (
     <AuthControl
       user={user}
-      signupsOpen={signupsOpen}
+      signupsOpen={signupsOpen !== false}
       onUserChange={(next) => {
         setUser(next)
         // Logging out takes the lens down with it: it's a view of who you

@@ -65,8 +65,16 @@ export const PRELAUNCH_NOTICE: Notice | null = {
   ],
 }
 
-/** The notice for the site's current state. */
-export function noticeFor(signupsOpen: boolean): Notice | null {
+/** The notice for the site's current state.
+ *
+ * `null` means the site's state isn't known yet (the /api/me/ probe hasn't
+ * answered), and nothing should be shown. The two cards have different ids,
+ * so guessing and correcting is visible: a reader who dismissed one gets a
+ * flash of the other on every load until the probe lands. Better a card that
+ * arrives a moment late than one that appears and takes itself back.
+ */
+export function noticeFor(signupsOpen: boolean | null): Notice | null {
+  if (signupsOpen === null) return null
   return signupsOpen ? NOTICE : PRELAUNCH_NOTICE
 }
 
