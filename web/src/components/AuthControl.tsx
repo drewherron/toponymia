@@ -256,15 +256,19 @@ function AuthControl({
         </>
       ) : (
         <>
-          <div className="auth-tabs">
-            <button
-              type="button"
-              className={mode === 'login' ? 'active' : ''}
-              onClick={() => switchMode('login')}
-            >
-              Log in
-            </button>
-            {signupsOpen && (
+          {/* The whole strip goes with the Sign up tab: a tab row with one tab
+              isn't a choice, and it put a second "Log in" above the submit
+              button that already says it. What's left reads as a login form,
+              which is all this panel can do while signups are closed. */}
+          {signupsOpen && (
+            <div className="auth-tabs">
+              <button
+                type="button"
+                className={mode === 'login' ? 'active' : ''}
+                onClick={() => switchMode('login')}
+              >
+                Log in
+              </button>
               <button
                 type="button"
                 className={mode === 'signup' ? 'active' : ''}
@@ -272,8 +276,8 @@ function AuthControl({
               >
                 Sign up
               </button>
-            )}
-          </div>
+            </div>
+          )}
           {!signupsOpen && (
             <p className="auth-notice">
               New accounts aren’t open yet — the wiki is still being seeded.
