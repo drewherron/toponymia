@@ -138,7 +138,10 @@
 }
 
 /* ---- Dark theme ----------------------------------------------------
-   Opt-in only: set by the header toggle, never by prefers-color-scheme.
+   Keyed on the attribute only, never on a prefers-color-scheme media
+   query: the OS preference is honoured in src/theme.ts, which resolves it
+   (and the reader's stored override) down to this one attribute, so there
+   is exactly one place that decides which palette is in force.
    Nothing below is a new rule — it is the same palette above with every
    role re-pointed, which is the whole reason for the token layer.
 

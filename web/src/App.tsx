@@ -33,7 +33,13 @@ import {
 import MapView from './map/MapView'
 import { dismissedNotice, dismissNotice, noticeFor } from './notice'
 import SiteNotice from './components/SiteNotice'
-import { applyTheme, storedTheme, storeTheme, type Theme } from './theme'
+import {
+  applyTheme,
+  initialTheme,
+  storeTheme,
+  watchSystemTheme,
+  type Theme,
+} from './theme'
 import type {
   ClickContext,
   Contributions,
@@ -115,7 +121,7 @@ function App() {
   // shipping a new announcement re-shows one to everybody.
   const [dismissed, setDismissed] = useState(dismissedNotice)
   const [labelLanguage, setLabelLanguage] = useState(storedLabelLanguage)
-  const [theme, setTheme] = useState<Theme>(storedTheme)
+  const [theme, setTheme] = useState<Theme>(initialTheme)
   const [highlightsEpoch, setHighlightsEpoch] = useState(0)
   // Two independent breakpoints: the header collapses first (900), the pane
   // becomes a sheet later (768).
@@ -148,12 +154,15 @@ function App() {
   // time location.hash no longer says whether the *link* carried one.
   const bootHashRef = useRef(window.location.hash)
 
-  // index.html has already set data-theme from storage before this bundle
-  // parsed, so on first render this is a no-op; it exists to carry later
-  // toggles through to the attribute the stylesheet keys off.
+  // index.html has already picked the same theme before this bundle parsed,
+  // so on first render this is a no-op; it exists to carry later changes
+  // through to the attribute the stylesheet keys off.
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  // Until the toggle is used, the OS decides — including after load.
+  useEffect(() => watchSystemTheme(setTheme), [])
 
   // Fetch the Markdown renderer once the map has stopped competing for the
   // network. Idle rather than eager so it never delays first paint, and ahead

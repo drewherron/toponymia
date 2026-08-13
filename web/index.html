@@ -10,16 +10,24 @@
     <title>Toponymia</title>
     <!--seo-->
     <script>
-      // Runs before the bundle and before first paint, so a returning
-      // dark-mode reader never sees a white flash. Light is the default:
-      // only an explicit stored choice turns this on. Kept in sync with
-      // src/theme.ts, which owns the same key.
+      // Runs before the bundle and before first paint, so a dark-mode
+      // reader never sees a white flash. A stored choice wins; with none,
+      // follow the OS. Kept in sync with initialTheme() in src/theme.ts,
+      // which makes the same decision once the bundle parses.
       try {
-        if (localStorage.getItem('toponymia:theme') === 'dark') {
-          document.documentElement.dataset.theme = 'dark'
+        var stored = null
+        try {
+          stored = localStorage.getItem('toponymia:theme')
+        } catch (e) {
+          /* private mode with storage disabled: fall through to the OS */
         }
+        var dark =
+          stored === 'dark' ||
+          (stored !== 'light' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.dataset.theme = 'dark'
       } catch (e) {
-        /* private mode with storage disabled: stay light */
+        /* no matchMedia either: stay light */
       }
     </script>
   </head>
