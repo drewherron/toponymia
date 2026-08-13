@@ -264,6 +264,12 @@ body,
 #root {
   height: 100%;
   font-family: system-ui, sans-serif;
+  /* This is an app shell, not a document: nothing here scrolls past its
+     own edge, so overscroll has nowhere useful to go. Switching it off
+     disables the browser's pull-to-refresh, which on a phone is a trap —
+     the sheet's own downward drag starts with the same gesture, and a
+     reload costs a map re-init and the reader's place on it. */
+  overscroll-behavior: none;
   /* Was the UA default (black in light mode). Named so body copy has
      something to invert to when a dark theme redefines --text. */
   color: var(--text);
@@ -606,6 +612,9 @@ body,
   box-shadow: 2px 0 12px var(--shadow-soft);
   padding: 20px;
   overflow-y: auto;
+  /* Belt to the html/body braces above: a scroller that hits its end must
+     not hand the leftover scroll to the page behind it. */
+  overscroll-behavior-y: contain;
   z-index: 20;
 }
 

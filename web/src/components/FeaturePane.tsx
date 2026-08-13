@@ -82,6 +82,10 @@ function CloseIcon() {
   )
 }
 
+/** How far a finger travels before a sheet gesture is read as a drag rather
+ *  than a tap. Below this, its direction is mostly noise. */
+const DRAG_SLOP = 8
+
 /** Which detent a dragged sheet snapped closest to. */
 function nearestDetent(height: number, areaHeight: number): SheetDetent {
   let best = SHEET_DETENTS[0]
@@ -413,6 +417,108 @@ function FeaturePane({
     )
     pane.style.height = `${height}px`
   }
+
+  // Dragging the sheet from anywhere in it, not just the grip. The grip is
+  // ~20px of a phone screen, so the old arrangement asked for a gesture most
+  // people could only land by aiming — and every miss was a swipe on the
+  // article, which the browser took as a pull-to-refresh.
+  //
+  // The rule is the one native sheets use: while the article is scrolled to
+  // its top, a vertical drag moves the sheet; otherwise it scrolls, exactly
+  // as it does now. So the gesture is never taken from someone who is
+  // reading, and nothing has to be aimed at.
+  //
+  // Native listeners rather than React's, because `touchmove` has to be
+  // non-passive to call preventDefault(), and React attaches its touch
+  // handlers passively.
+  const contentDragRef = useRef<{
+    startX: number
+    startY: number
+    startHeight: number
+    active: boolean
+    settled: boolean
+  } | null>(null)
+
+  useEffect(() => {
+    const pane = paneRef.current
+    if (!narrow || !pane) return
+
+    const onTouchStart = (event: TouchEvent) => {
+      const target = event.target as HTMLElement
+      // The grip runs its own pointer drag, and form controls own their
+      // gestures — a textarea scrolls itself, and the editor is one.
+      if (event.touches.length !== 1) return
+      if (target.closest('.sheet-handle, textarea, input, select')) return
+      const touch = event.touches[0]
+      contentDragRef.current = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startHeight: pane.getBoundingClientRect().height,
+        active: false,
+        settled: false,
+      }
+    }
+
+    const onTouchMove = (event: TouchEvent) => {
+      const drag = contentDragRef.current
+      if (!drag || drag.settled) return
+      const touch = event.touches[0]
+      const dy = drag.startY - touch.clientY
+      const dx = touch.clientX - drag.startX
+
+      if (!drag.active) {
+        if (Math.abs(dy) < DRAG_SLOP && Math.abs(dx) < DRAG_SLOP) return
+        // Decided once, on the first move that clears the slop, and never
+        // revisited: a gesture that changes its mind halfway is worse than
+        // one that commits to the wrong thing.
+        const vertical = Math.abs(dy) > Math.abs(dx)
+        const growing = dy > 0
+        // Full height already: an upward swipe can only mean "read on".
+        const canGrow = drag.startHeight < areaHeight() - 1
+        if (!vertical || pane.scrollTop > 0 || (growing && !canGrow)) {
+          // Horizontal (wide code blocks and tables scroll sideways), or
+          // mid-article, or nothing left to grow — leave it to the browser.
+          drag.settled = true
+          return
+        }
+        drag.active = true
+        pane.classList.add('sheet-dragging')
+      }
+
+      // What stops the browser scrolling — or, at the top of the document,
+      // pulling to refresh. Only cancelable until the browser has committed
+      // the gesture to a scroll, which is why the decision above happens on
+      // the first qualifying move rather than after a comfortable distance.
+      if (event.cancelable) event.preventDefault()
+      pane.style.height = `${Math.min(
+        areaHeight(),
+        Math.max(SHEET_PEEK_PX, drag.startHeight + dy),
+      )}px`
+    }
+
+    const onTouchEnd = () => {
+      const drag = contentDragRef.current
+      contentDragRef.current = null
+      if (!drag?.active) return
+      pane.classList.remove('sheet-dragging')
+      settle(nearestDetent(pane.getBoundingClientRect().height, areaHeight()))
+    }
+
+    pane.addEventListener('touchstart', onTouchStart, { passive: true })
+    pane.addEventListener('touchmove', onTouchMove, { passive: false })
+    pane.addEventListener('touchend', onTouchEnd)
+    pane.addEventListener('touchcancel', onTouchEnd)
+    return () => {
+      pane.removeEventListener('touchstart', onTouchStart)
+      pane.removeEventListener('touchmove', onTouchMove)
+      pane.removeEventListener('touchend', onTouchEnd)
+      pane.removeEventListener('touchcancel', onTouchEnd)
+    }
+    // Re-attached per render so the handlers always close over the current
+    // `settle`. Cheap: a drag writes height to the node directly, so it
+    // provokes no renders of its own, and the drag's state lives in a ref
+    // that a re-attach doesn't disturb.
+  })
 
   const handlePointerUp = () => {
     const drag = dragRef.current
