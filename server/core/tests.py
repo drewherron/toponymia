@@ -5628,9 +5628,10 @@ class AccountManagementTests(ApiTestCase):
         body = mail.outbox[0].body
         self.assertNotIn('create an account', body)
         self.assertIn('new email address', body)
-        # The reassurance differs in substance, not just phrasing: an ignored
-        # change leaves the account on the address it already had.
-        self.assertIn('the account keeps the address it already had', body)
+        # The mail goes to the *new* address, so a reader who didn't ask for
+        # the change has no account here — anything describing the account's
+        # state is about a stranger's account. The ignore line stays bare.
+        self.assertNotIn('the account', body.split("wasn't you")[1])
 
         # And the signup mail keeps saying the thing that is true only there.
         mail.outbox.clear()

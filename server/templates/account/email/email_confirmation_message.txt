@@ -18,13 +18,20 @@ mail can name the actual situation instead of describing address confirmation
 in general. **If a second-address feature ever lands, this text stops being
 true** and the two cases need splitting again.
 
-The reassurance is the mirror of the signup one, and it is different in
-substance rather than in phrasing: on signup, "ignore this" is safe because the
-account cannot be used until it is confirmed. Here it is safe because *nothing
-is stored yet* — allauth holds the new address nowhere until the code comes
-back, so an ignored mail leaves the account exactly as it was, still on its
-current address. That is the sentence a worried reader needs, and it is the one
-the signup wording cannot carry.
+**"If that wasn't you, you can ignore this email" is the whole last line, and
+it stays that way.** A first draft explained *why* it was safe to ignore —
+nothing is stored until the code comes back, so the account keeps its current
+address. That sentence is true, and it is addressed to nobody. This mail is
+sent to the **new** address, so the reader who did not do this has no account
+here: the account it reassures them about belongs to a stranger, and describing
+its state is the same third-person mistake the signup template's comment
+objects to in stock allauth. The reader who *did* do this already knows, and
+learns it again from the screen that just asked for the code.
+
+So the reassurance here is thinner than the signup one on purpose. There, "the
+account stays unusable until the address is confirmed" answers a real fear —
+someone made an account in my name. Here the only fear is that a stray email
+arrived, and the answer to that is to stop writing.
 
 No username, for the same reason as the signup mail: the reader who did this is
 looking at the browser tab that just asked them for the code, and the reader who
@@ -44,4 +51,4 @@ change rather than a silently broken email.
 
 {{ code }}{% else %}{% blocktranslate %}To confirm this address, go to {{ activate_url }}{% endblocktranslate %}{% endif %}
 
-{% blocktranslate %}If that wasn't you, you can ignore this email. Nothing has changed yet: the address is only stored once the code is entered, and until then the account keeps the address it already had.{% endblocktranslate %}{% endautoescape %}{% endblock content %}
+{% blocktranslate %}If that wasn't you, you can ignore this email.{% endblocktranslate %}{% endautoescape %}{% endblock content %}
