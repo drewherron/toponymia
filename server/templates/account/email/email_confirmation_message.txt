@@ -6,10 +6,9 @@ Overrides allauth's own email_confirmation_message.txt.
 `AccountAdapter.send_confirmation_mail` branches on its `signup` flag and only
 falls here when the flag is false; the signup body lives in
 `email_confirmation_signup_message.txt`. Stock allauth points both names at
-this one file, and the two were shared here too until the borrowed signup
-wording was noticed arriving on a change ("Someone used this email address to
-create an account", when no account was created and none is at risk). See that
-file's comment for why the split is the fix rather than a hedged middle text.
+this one file, so keeping the two bodies apart takes a deliberate override —
+see that file's comment for why a split beats one text hedged between both
+readers.
 
 With ACCOUNT_CHANGE_EMAIL the new address *replaces* the old, and there is no
 add-a-second-address affordance anywhere in the UI — the only thing that
@@ -19,14 +18,14 @@ in general. **If a second-address feature ever lands, this text stops being
 true** and the two cases need splitting again.
 
 **"If that wasn't you, you can ignore this email" is the whole last line, and
-it stays that way.** A first draft explained *why* it was safe to ignore —
-nothing is stored until the code comes back, so the account keeps its current
-address. That sentence is true, and it is addressed to nobody. This mail is
-sent to the **new** address, so the reader who did not do this has no account
-here: the account it reassures them about belongs to a stranger, and describing
-its state is the same third-person mistake the signup template's comment
-objects to in stock allauth. The reader who *did* do this already knows, and
-learns it again from the screen that just asked for the code.
+nothing belongs after it.** The tempting addition is a reason it's safe to
+ignore — nothing is stored until the code comes back, so the account keeps the
+address it already had. True, and addressed to nobody. This mail is sent to the
+**new** address, so the reader who did not do this has no account here: the
+account such a sentence reassures them about belongs to a stranger, and
+describing its state is the same third-person mistake the signup template's
+comment objects to in stock allauth. The reader who *did* do this already
+knows, and learns it again from the screen that just asked for the code.
 
 So the reassurance here is thinner than the signup one on purpose. There, "the
 account stays unusable until the address is confirmed" answers a real fear —
