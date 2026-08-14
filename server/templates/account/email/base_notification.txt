@@ -39,18 +39,28 @@ rather than an oversight:
 If a real incident ever needs more than the timestamp, it is in the access log
 for a month — which is the right place for it, not in a mail we cannot unsend.
 
+**The timestamp is rendered in UTC and says so, which is not cosmetic.** The
+whole reason the field survived the trim is that a reader can judge a time
+against their own memory — "I was asleep" — and a bare `{{ timestamp }}` gives
+them a wall-clock reading in *our* zone with nothing marking it as such. To
+anyone not on UTC it silently reads as local time and can look hours off,
+which turns the one field meant to settle the question into a reason to doubt
+it. Piped through `|utc` rather than relying on TIME_ZONE, so the label stays
+true if that setting ever moves, and formatted 24-hour so there is no a.m./p.m.
+to misread either.
+
 English-only for the same reason as the other account mails (L10N.md); the
 blocktranslate tags are kept so the strings stay extractable.
 {% endcomment %}
-{% load i18n %}
+{% load i18n tz %}
 
 {% block content %}{% autoescape off %}{% blocktranslate %}You are receiving this mail because the following change was made to your account:{% endblocktranslate %}
 
 {% block notification_message %}
 {% endblock notification_message%}
 
-{% blocktranslate %}If you did not make this change, someone else may have access to your account. Write to support@toponymia.org, say what changed, and include the time below.
+{% blocktranslate with when=timestamp|utc|date:"j M Y, H:i" %}If you did not make this change, someone else may have access to your account. Write to support@toponymia.org, say what changed, and include the time below.
 
 Changing your password may not be enough on its own: reset codes go to the account's current email address, and that is the first thing an attacker changes.
 
-- Date: {{timestamp}}{% endblocktranslate %}{% endautoescape %}{% endblock %}
+- Time: {{ when }} UTC{% endblocktranslate %}{% endautoescape %}{% endblock %}

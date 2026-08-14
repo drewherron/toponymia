@@ -5690,6 +5690,10 @@ class AccountManagementTests(ApiTestCase):
         # inherited.
         self.assertNotIn('IP address', notice.body)
         self.assertNotIn('Browser', notice.body)
+        # The time is the field a reader checks against their own memory, so
+        # it has to name its zone: unlabelled, it reads as local time to
+        # everyone not on UTC and can look hours wrong.
+        self.assertRegex(notice.body, r'- Time: \d\d? \w{3} \d{4}, \d\d:\d\d UTC')
 
     def test_a_password_change_notifies_the_account(self):
         self.client.force_login(self.user)
