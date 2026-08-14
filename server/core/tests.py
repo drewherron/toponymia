@@ -5648,6 +5648,57 @@ class AccountManagementTests(ApiTestCase):
         )
         self.assertIn('create an account', mail.outbox[0].body)
 
+    def test_a_completed_email_change_warns_the_old_address(self):
+        """The account-takeover tripwire, and the reason
+        ACCOUNT_EMAIL_NOTIFICATIONS is set at all.
+
+        allauth's notification mails are gated behind that setting and
+        `send_notification_mail` returns silently when it is off, which is the
+        default — so this whole family failed by sending nothing, and nobody
+        notices a mail that never arrives. That is the failure this test
+        exists to catch, not the wording.
+
+        The recipient is the point: `email_changed` goes to the address being
+        moved *away from*, so it reaches the owner after someone else has taken
+        the account and before the change has cost them access. A version of
+        this mail sent to the new address would be addressed to the attacker.
+        """
+        self.client.force_login(self.user)
+        self.client.post(
+            '/_allauth/browser/v1/account/email',
+            {'email': 'alice2@example.com'},
+            content_type='application/json',
+        )
+        code = re.search(
+            r'\b([A-Z0-9]{4}-[A-Z0-9]{4})\b', mail.outbox[0].body
+        ).group(1)
+        mail.outbox.clear()
+        self.client.post(
+            '/_allauth/browser/v1/auth/email/verify',
+            {'key': code},
+            content_type='application/json',
+        )
+        notice = next(m for m in mail.outbox if 'Email Changed' in m.subject)
+        self.assertEqual(notice.to, [self.user.email])
+        self.assertIn('alice2@example.com', notice.body)
+        # Names a route that still works for someone locked out, and does not
+        # recommend the one that doesn't — see base_notification.txt.
+        self.assertIn('support@toponymia.org', notice.body)
+
+    def test_a_password_change_notifies_the_account(self):
+        self.client.force_login(self.user)
+        mail.outbox.clear()
+        self.client.post(
+            '/_allauth/browser/v1/account/password/change',
+            {
+                'current_password': self.PASSWORD,
+                'new_password': 'another-good-one-4',
+            },
+            content_type='application/json',
+        )
+        notice = next(m for m in mail.outbox if 'Password Changed' in m.subject)
+        self.assertEqual(notice.to, [self.user.email])
+
     # --- closure --------------------------------------------------------
 
     def _close(self, password=PASSWORD):

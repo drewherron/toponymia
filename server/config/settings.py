@@ -250,6 +250,19 @@ ACCOUNT_UNIQUE_EMAIL = True
 # credential (login identifier, reset target), not a list to manage. Adding an
 # address supersedes the old one once the new one is verified.
 ACCOUNT_CHANGE_EMAIL = True
+# Receipts for changes the account holder didn't ask for. allauth splits its
+# mails in two: the ones carrying a code, which are sent regardless, and these
+# — sent *after* a change, asking nothing. `send_notification_mail` returns
+# immediately when this is false (the default), so leaving it unset meant a
+# password change and an address change both completed in silence.
+#
+# `email_changed` is the one that earns the setting: it goes to the address
+# being moved *away from*, so it is the only mail that reaches the owner after
+# someone else has taken the account and before the takeover has cost them
+# access. The rest (password_changed, password_set, email_deleted) are cheaper
+# versions of the same tripwire. The stock templates carry IP, browser and
+# timestamp, and inherit the greeting fix in base_message.txt.
+ACCOUNT_EMAIL_NOTIFICATIONS = True
 HEADLESS_ONLY = True
 HEADLESS_CLIENTS = ('browser',)
 

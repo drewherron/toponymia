@@ -1,0 +1,43 @@
+{% extends "account/email/base_message.txt" %}
+{% comment %}
+Overrides allauth's own base_notification.txt — the frame every after-the-fact
+notification mail extends (password_changed, email_changed, password_set,
+email_deleted), switched on by ACCOUNT_EMAIL_NOTIFICATIONS.
+
+Only the closing advice is changed. Stock says "If you do not recognize this
+change then please take proper security precautions immediately", which names
+no control and no address: it tells an alarmed reader that something is wrong
+and leaves them to work out what to do about it. Same objection as the stock
+wording in account_already_exists_message.txt, and the same fix — name the
+thing the reader can actually do.
+
+**What they can do is write to us, and specifically not "reset your
+password".** These mails exist for the takeover case, and the mail that matters
+most, `email_changed`, is sent to the address being moved *away from* — so by
+the time it arrives, reset codes are already going to the attacker's address.
+Advising a reset would be advising the one step that no longer works, on the
+one occasion the reader most needs to be told something true. So the text says
+what a reset can and cannot do, and points at a human.
+
+The IP/browser/timestamp block is kept from the stock template: it is the only
+evidence the reader has, and it is what makes a support mail actionable rather
+than a report that something felt wrong.
+
+English-only for the same reason as the other account mails (L10N.md); the
+blocktranslate tags are kept so the strings stay extractable.
+{% endcomment %}
+{% load account %}
+{% load i18n %}
+
+{% block content %}{% autoescape off %}{% blocktranslate %}You are receiving this mail because the following change was made to your account:{% endblocktranslate %}
+
+{% block notification_message %}
+{% endblock notification_message%}
+
+{% blocktranslate %}If you did not make this change, someone else may have access to your account. Write to support@toponymia.org, say what changed, and include the details below.
+
+Changing your password may not be enough on its own: reset codes go to the account's current email address, and that is the first thing an attacker changes.
+
+- IP address: {{ip}}
+- Browser: {{user_agent}}
+- Date: {{timestamp}}{% endblocktranslate %}{% endautoescape %}{% endblock %}
