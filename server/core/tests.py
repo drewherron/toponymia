@@ -5607,6 +5607,46 @@ class AccountManagementTests(ApiTestCase):
         )
         self.assertEqual(addresses, {'alice2@example.com'})
 
+    def test_email_change_mail_does_not_borrow_the_signup_wording(self):
+        """The two confirmation mails are separate templates, and must stay so.
+
+        allauth ships `email_confirmation_signup_message.txt` as a bare include
+        of `email_confirmation_message.txt`, so upstream sends one body for
+        both. Anything written for the signup reader — who has no account yet —
+        is wrong for the change reader, who has one and is moving its address:
+        "Someone used this email address to create an account" reads as a
+        security incident to someone who created nothing. Nothing about the
+        wiring announces the sharing, so a future edit to one template is a
+        silent edit to the other unless this test fails.
+        """
+        self.client.force_login(self.user)
+        self.client.post(
+            '/_allauth/browser/v1/account/email',
+            {'email': 'alice2@example.com'},
+            content_type='application/json',
+        )
+        body = mail.outbox[0].body
+        self.assertNotIn('create an account', body)
+        self.assertIn('new email address', body)
+        # The reassurance differs in substance, not just phrasing: an ignored
+        # change leaves the account on the address it already had.
+        self.assertIn('the account keeps the address it already had', body)
+
+        # And the signup mail keeps saying the thing that is true only there.
+        mail.outbox.clear()
+        self.client.logout()
+        self.client.post(
+            '/_allauth/browser/v1/auth/signup',
+            {
+                'username': 'newuser',
+                'email': 'newuser@example.com',
+                'password': 'sturdy-passphrase-9',
+                'terms': True,
+            },
+            content_type='application/json',
+        )
+        self.assertIn('create an account', mail.outbox[0].body)
+
     # --- closure --------------------------------------------------------
 
     def _close(self, password=PASSWORD):

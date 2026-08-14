@@ -2,44 +2,46 @@
 {% comment %}
 Overrides allauth's own email_confirmation_message.txt.
 
-The stock text opens "You're receiving this email because user <name> has
-given your email address to register an account on <domain>." That sentence is
-written for the *minority* case — a stranger typing someone else's address into
-the signup form — and so it talks about the reader in the third person. For the
-overwhelmingly common case, where the reader signed up a minute ago, it reads
-like the site discussing them with somebody else.
+**This is the change-email mail, not the signup one.**
+`AccountAdapter.send_confirmation_mail` branches on its `signup` flag and only
+falls here when the flag is false; the signup body lives in
+`email_confirmation_signup_message.txt`. Stock allauth points both names at
+this one file, and the two were shared here too until the borrowed signup
+wording was noticed arriving on a change ("Someone used this email address to
+create an account", when no account was created and none is at risk). See that
+file's comment for why the split is the fix rather than a hedged middle text.
 
-The username is dropped entirely, which is also what most services do. The
-argument for keeping it is that it would distinguish a stranger's signup from
-the reader's own forgotten one — but that does not survive the case it is meant
-to serve. The way a stranger receives this mail is a mistyped address, and to
-that reader the username is a name they have never seen attached to an account
-they cannot reach; it tells them nothing they can act on. The legitimate reader,
-meanwhile, is looking at the browser tab that just asked them for a code, and
-does not need to be told who they are. So it discloses a little to the wrong
-person and helps the right person not at all.
+With ACCOUNT_CHANGE_EMAIL the new address *replaces* the old, and there is no
+add-a-second-address affordance anywhere in the UI — the only thing that
+reaches this template is the "Change email" panel in AccountDialog.tsx. So the
+mail can name the actual situation instead of describing address confirmation
+in general. **If a second-address feature ever lands, this text stops being
+true** and the two cases need splitting again.
 
-What the stock text lacks is the sentence that whole defensive framing exists
-to support: what to do if it wasn't you. Saying "ignore this" is only
-reassuring alongside the reason it is safe to ignore, so the last line gives
-both.
+The reassurance is the mirror of the signup one, and it is different in
+substance rather than in phrasing: on signup, "ignore this" is safe because the
+account cannot be used until it is confirmed. Here it is safe because *nothing
+is stored yet* — allauth holds the new address nowhere until the code comes
+back, so an ignored mail leaves the account exactly as it was, still on its
+current address. That is the sentence a worried reader needs, and it is the one
+the signup wording cannot carry.
 
-These are new msgids with no catalog behind them, which is deliberate and not
-an oversight: L10N.md ("allauth emails are English", §on server-side strings)
-settles that these mails are not translated. The blocktranslate tags are kept
-anyway so the strings stay extractable if that decision ever changes.
+No username, for the same reason as the signup mail: the reader who did this is
+looking at the browser tab that just asked them for the code, and the reader who
+did not is looking at a name that tells them nothing actionable.
 
-The `code`/`activate_url` branch is preserved from the stock template. Code
-verification is on today (ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED), but
-dropping the link branch would turn flipping that setting into a silently
-broken email rather than a setting change.
+New msgids with no catalog behind them, deliberately: L10N.md settles that
+allauth mails stay English. The blocktranslate tags are kept so the strings stay
+extractable if that ever changes, and the `code`/`activate_url` branch is kept
+so that flipping ACCOUNT_EMAIL_VERIFICATION_BY_CODE_ENABLED stays a setting
+change rather than a silently broken email.
 {% endcomment %}
 {% load i18n %}
 
-{% block content %}{% autoescape off %}{% blocktranslate with site_domain=current_site.domain %}Someone used this email address to create an account at {{ site_domain }}.{% endblocktranslate %}
+{% block content %}{% autoescape off %}{% blocktranslate with site_domain=current_site.domain %}This address was given as the new email address for an account at {{ site_domain }}.{% endblocktranslate %}
 
-{% if code %}{% blocktranslate %}Your verification code is below — enter it in the browser window you left open.{% endblocktranslate %}
+{% if code %}{% blocktranslate %}Your confirmation code is below — enter it in the browser window you left open.{% endblocktranslate %}
 
-{{ code }}{% else %}{% blocktranslate %}To confirm this is correct, go to {{ activate_url }}{% endblocktranslate %}{% endif %}
+{{ code }}{% else %}{% blocktranslate %}To confirm this address, go to {{ activate_url }}{% endblocktranslate %}{% endif %}
 
-{% blocktranslate %}If that wasn't you, you can ignore this email. The account stays unusable until the address is confirmed.{% endblocktranslate %}{% endautoescape %}{% endblock content %}
+{% blocktranslate %}If that wasn't you, you can ignore this email. Nothing has changed yet: the address is only stored once the code is entered, and until then the account keeps the address it already had.{% endblocktranslate %}{% endautoescape %}{% endblock content %}
