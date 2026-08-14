@@ -36,7 +36,7 @@ broken email rather than a setting change.
 {% endcomment %}
 {% load i18n %}
 
-{% block content %}{% autoescape off %}{% blocktranslate with site_domain=current_site.domain %}Someone used this email address to create a Toponymia account on {{ site_domain }}.{% endblocktranslate %}
+{% block content %}{% autoescape off %}{% blocktranslate with site_domain=current_site.domain %}Someone used this email address to create an account at {{ site_domain }}.{% endblocktranslate %}
 
 {% if code %}{% blocktranslate %}Your verification code is below — enter it in the browser window you left open.{% endblocktranslate %}
 

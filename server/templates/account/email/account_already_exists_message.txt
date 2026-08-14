@@ -1,0 +1,55 @@
+{% extends "account/email/base_message.txt" %}
+{% comment %}
+Overrides allauth's own account_already_exists_message.txt.
+
+This mail is load-bearing in a way its stock text does not reflect. It is the
+*only* thing a person receives when they sign up with an address that already
+has an account — ACCOUNT_PREVENT_ENUMERATION means the API returns the same
+response as a successful signup, so the browser cannot tell them anything. It is
+also the one place the password-reset path is named, which makes it the printed
+recovery instruction for an abandoned, unverified signup.
+
+Four changes from the stock text:
+
+1. "tried to signup" -> "tried to create". `signup` is the noun; the verb is two
+   words. (Stock also carries a double space after "exists.")
+
+2. **It now says no new account was created.** The stock text reports that an
+   account already exists and stops there, which reads as ambiguous news to
+   someone who did not sign up: the natural fear is that an account has just
+   been made in their name. Saying plainly that nothing happened is the whole
+   reassurance, and it costs one sentence.
+
+3. **It names the actual control.** Stock says "please use the password
+   forgotten procedure", which matches nothing on screen. The real control is a
+   button reading "Forgot password?", inside the sign-in form and only in login
+   mode (`AuthControl.tsx`) — so it needs finding, and the mail is the only
+   place that can say where. **If that label changes, change it here too**; a
+   mail naming a button that no longer exists is worse than one naming none.
+
+4. **The text does the work the link cannot.** `password_reset_url` resolves to
+   the site root, because HEADLESS_FRONTEND_URLS maps `account_reset_password`
+   to `/` — auth is a header popover and not a route, so `/` is the honest
+   target (see the comment on that setting). The stock wording implies the link
+   lands on a reset page. It lands on the homepage, so the instructions have to
+   survive that arrival.
+
+`{{ email }}` and `{{ password_reset_url }}` are allauth's context, unchanged.
+New msgids, deliberately: L10N.md settles that allauth mails stay English.
+{% endcomment %}
+{% load i18n %}
+
+{% block content %}{% autoescape off %}{% blocktranslate %}Someone tried to create a Toponymia account using this email address:
+
+{{ email }}
+
+That address already has an account, so no new account was created and nothing
+has changed.
+
+If that was you and you've forgotten the password, you can get back in: open the
+sign-in menu on the site, and choose "Forgot password?" in the login form. A
+reset code will be sent to this address.
+
+{{ password_reset_url }}
+
+If it wasn't you, you can ignore this email.{% endblocktranslate %}{% endautoescape %}{% endblock content %}
