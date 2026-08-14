@@ -19,14 +19,29 @@ Advising a reset would be advising the one step that no longer works, on the
 one occasion the reader most needs to be told something true. So the text says
 what a reset can and cannot do, and points at a human.
 
-The IP/browser/timestamp block is kept from the stock template: it is the only
-evidence the reader has, and it is what makes a support mail actionable rather
-than a report that something felt wrong.
+**Stock's IP and user-agent lines are dropped; only the timestamp is kept.**
+Sending someone their own IP is normal practice, so the omission is deliberate
+rather than an oversight:
+
+- **It buys us nothing we don't already have.** A report names the account, and
+  this mail names the time — which locates the request in Caddy's access log
+  without the reader quoting anything back. The log holds the IP and the
+  user-agent for 30 days either way (PRIVACY.md §2), so the mail was echoing a
+  value we can look up ourselves.
+- **It is close to noise for the reader,** who is the one meant to act on it. A
+  raw IPv4 and a raw UA string do not tell most people whether a session was
+  theirs, and an unfamiliar-looking address that is really their own ISP
+  misleads in the alarming direction. The time is the part anyone can judge.
+- **It invites personal data into the support inbox.** "Include the details
+  below" with an IP in them means abuse reports arrive at mailbox.org carrying
+  data we otherwise keep only in a log we have promised to delete in 30 days.
+
+If a real incident ever needs more than the timestamp, it is in the access log
+for a month — which is the right place for it, not in a mail we cannot unsend.
 
 English-only for the same reason as the other account mails (L10N.md); the
 blocktranslate tags are kept so the strings stay extractable.
 {% endcomment %}
-{% load account %}
 {% load i18n %}
 
 {% block content %}{% autoescape off %}{% blocktranslate %}You are receiving this mail because the following change was made to your account:{% endblocktranslate %}
@@ -34,10 +49,8 @@ blocktranslate tags are kept so the strings stay extractable.
 {% block notification_message %}
 {% endblock notification_message%}
 
-{% blocktranslate %}If you did not make this change, someone else may have access to your account. Write to support@toponymia.org, say what changed, and include the details below.
+{% blocktranslate %}If you did not make this change, someone else may have access to your account. Write to support@toponymia.org, say what changed, and include the time below.
 
 Changing your password may not be enough on its own: reset codes go to the account's current email address, and that is the first thing an attacker changes.
 
-- IP address: {{ip}}
-- Browser: {{user_agent}}
 - Date: {{timestamp}}{% endblocktranslate %}{% endautoescape %}{% endblock %}

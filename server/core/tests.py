@@ -5684,6 +5684,12 @@ class AccountManagementTests(ApiTestCase):
         # Names a route that still works for someone locked out, and does not
         # recommend the one that doesn't — see base_notification.txt.
         self.assertIn('support@toponymia.org', notice.body)
+        # Stock's evidence block is trimmed to the timestamp. Losing the
+        # override would silently restore the other two, and mailing someone
+        # their own IP is the kind of change that should be chosen, not
+        # inherited.
+        self.assertNotIn('IP address', notice.body)
+        self.assertNotIn('Browser', notice.body)
 
     def test_a_password_change_notifies_the_account(self):
         self.client.force_login(self.user)
