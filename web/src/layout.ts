@@ -40,6 +40,15 @@ export function sheetHeight(detent: SheetDetent, areaHeight: number): number {
     : Math.round(areaHeight * fraction)
 }
 
+/** How tall a drag can make the sheet: the tallest detent, not the whole map
+ *  area. The two differ (`full` leaves a strip of map showing), and a drag that
+ *  grew past the tallest detent would only be snapped back to it — while the
+ *  sheet, never reaching a size it can't grow from, would swallow every upward
+ *  swipe and never let the article scroll. */
+export function maxSheetHeight(areaHeight: number): number {
+  return Math.max(...SHEET_DETENTS.map((d) => sheetHeight(d, areaHeight)))
+}
+
 /** CSS height for a detent — percentages resolve against the map area, so the
  *  sheet and sheetHeight() agree without the pane measuring anything. */
 export function sheetCssHeight(detent: SheetDetent): string {

@@ -9,6 +9,7 @@ import {
   setProtection,
 } from '../api'
 import {
+  maxSheetHeight,
   PANE_MAX_VW,
   PANE_WIDE_WIDTH,
   PANE_WIDTH,
@@ -412,7 +413,7 @@ function FeaturePane({
     const dy = drag.startY - event.clientY
     if (Math.abs(dy) > 4) drag.moved = true
     const height = Math.min(
-      areaHeight(),
+      maxSheetHeight(areaHeight()),
       Math.max(SHEET_PEEK_PX, drag.startHeight + dy),
     )
     pane.style.height = `${height}px`
@@ -465,6 +466,7 @@ function FeaturePane({
       const touch = event.touches[0]
       const dy = drag.startY - touch.clientY
       const dx = touch.clientX - drag.startX
+      const maxHeight = maxSheetHeight(areaHeight())
 
       if (!drag.active) {
         if (Math.abs(dy) < DRAG_SLOP && Math.abs(dx) < DRAG_SLOP) return
@@ -473,8 +475,11 @@ function FeaturePane({
         // one that commits to the wrong thing.
         const vertical = Math.abs(dy) > Math.abs(dx)
         const growing = dy > 0
-        // Full height already: an upward swipe can only mean "read on".
-        const canGrow = drag.startHeight < areaHeight() - 1
+        // Already at its tallest detent: an upward swipe can only mean
+        // "read on". Measured against the detent rather than the map area,
+        // or the sheet is always a little short of its own ceiling and the
+        // article never gets a scroll gesture at all.
+        const canGrow = drag.startHeight < maxHeight - 1
         if (!vertical || pane.scrollTop > 0 || (growing && !canGrow)) {
           // Horizontal (wide code blocks and tables scroll sideways), or
           // mid-article, or nothing left to grow — leave it to the browser.
@@ -491,7 +496,7 @@ function FeaturePane({
       // the first qualifying move rather than after a comfortable distance.
       if (event.cancelable) event.preventDefault()
       pane.style.height = `${Math.min(
-        areaHeight(),
+        maxHeight,
         Math.max(SHEET_PEEK_PX, drag.startHeight + dy),
       )}px`
     }
