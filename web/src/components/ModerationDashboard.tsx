@@ -660,7 +660,10 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
   }, [rows, filter, sort])
 
   return (
-    <div className="mod-users">
+    // The selection drives the narrow-screen layout: a phone shows the list
+    // or the user, never both, and this class is what tells the stylesheet
+    // which one. On a wide screen it changes nothing.
+    <div className={`mod-users${selected === null ? '' : ' viewing-user'}`}>
       <div className="mod-users-list">
         <input
           className="mod-filter"
@@ -740,7 +743,18 @@ function UsersTab({ isAdmin }: { isAdmin: boolean }) {
         {selected === null ? (
           <p className="mod-note">Select a user to review.</p>
         ) : (
-          <UserDetail userId={selected} isAdmin={isAdmin} onChanged={load} />
+          <>
+            {/* Only ever visible where the list has been swapped out for
+                this panel; on a wide screen the list is still right there. */}
+            <button
+              type="button"
+              className="mod-users-back"
+              onClick={() => setSelected(null)}
+            >
+              ← All users
+            </button>
+            <UserDetail userId={selected} isAdmin={isAdmin} onChanged={load} />
+          </>
         )}
       </div>
     </div>

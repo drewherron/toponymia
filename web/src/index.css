@@ -2643,6 +2643,11 @@ body,
   padding: 20px 28px;
 }
 
+/* Wide screens keep both panes, so there is nothing to go back to. */
+.mod-users-back {
+  display: none;
+}
+
 .mod-user-detail h3 {
   display: flex;
   align-items: center;
@@ -3329,6 +3334,37 @@ body,
 
   .feature-picker {
     max-width: 80vw;
+  }
+
+  /* The Users tab is two panes side by side, and a phone has room for one.
+     A 340px list on a 360px screen leaves the detail a column one word
+     wide, so the two take turns instead: the list until a user is picked,
+     that user until the back button puts the list back. Nothing collapses
+     to a sliver — the pane not in use is simply not on screen. */
+  .mod-users-list {
+    width: 100%;
+    border-right: none;
+  }
+
+  .mod-users.viewing-user .mod-users-list,
+  .mod-users:not(.viewing-user) .mod-users-detail {
+    display: none;
+  }
+
+  .mod-users-detail {
+    padding: 14px 16px;
+  }
+
+  .mod-users-back {
+    display: block;
+    font: inherit;
+    margin-bottom: 12px;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text-strong);
+    cursor: pointer;
   }
 }
 
