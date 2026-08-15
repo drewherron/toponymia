@@ -159,12 +159,19 @@ _OUTCOME_BODIES = {
         'break the site rules, so the content stays up.\n\n'
         'We will not be taking further action on this report.'
     ),
-    # Deliberately vague, and it has to be: `resolve` covers everything from
-    # "already handled by a revert" to "closed after a look", so it can't
-    # promise a removal happened.
+    # `resolve` can't promise a removal — it covers everything from "already
+    # handled by a revert" to "closed after a look". But vagueness alone
+    # would land badly on the one person who is still looking at the content
+    # they reported: a valid report followed by "dealt with" and no visible
+    # change reads as nothing having happened. So it says the report was
+    # acted on *and* that the content may still be there, rather than leaving
+    # them to reconcile the two themselves.
     'resolve': (
-        'Thanks for reporting this. We reviewed it and it has been dealt '
-        'with.'
+        'Thanks for reporting this. We reviewed it and took action.\n\n'
+        'You may still see the content you reported — not every outcome '
+        'removes it. An edit can be corrected or reverted instead, and some '
+        'reports are handled in ways that leave the page looking much the '
+        'same.'
     ),
 }
 

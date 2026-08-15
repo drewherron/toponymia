@@ -4799,13 +4799,16 @@ class ReportOutcomeMailTests(ApiTestCase):
         self.assertIn('does not break the site rules', body)
         self.assertIn('not be taking further action', body)
 
-    def test_resolve_does_not_claim_a_removal(self):
+    def test_resolve_credits_the_report_without_claiming_a_removal(self):
         """`resolve` covers "handled elsewhere" as well as "looked at and
-        closed", so it must not promise the content came down."""
+        closed", so it must not promise the content came down — while still
+        saying plainly that something was done, because the reporter may be
+        looking at the content as they read it."""
         self._act('resolve')
         body = mail.outbox[0].body
-        self.assertIn('dealt with', body)
-        self.assertNotIn('removed', body)
+        self.assertIn('took action', body)
+        self.assertIn('may still see the content', body)
+        self.assertNotIn('removed the content', body)
 
     def test_outcome_mail_carries_neither_the_content_nor_the_mod_note(self):
         self._act('delete', reason='obvious sock puppet, watch this account')
