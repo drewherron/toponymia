@@ -447,7 +447,10 @@ function App() {
   }, [])
 
   const handleRandom = useCallback(() => {
-    fetchRandomArticle()
+    // The open place is left out of the draw — with few articles about, an
+    // unfiltered one keeps returning the one already on screen. The ref, not
+    // state, so this stays a stable callback; it's null once the pane closes.
+    fetchRandomArticle(selectedPlaceRef.current?.slug)
       .then((place) => {
         if (!place) return
         // Draw the course on arrival, like "zoom to place": a random landing

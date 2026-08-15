@@ -152,9 +152,14 @@ export async function searchArticles(
   return body.results
 }
 
-/** A random place with an article, or null while the wiki is empty. */
-export async function fetchRandomArticle(): Promise<ResolvedPlace | null> {
-  const response = await fetch('/api/random/')
+/** A random place with an article, or null when there's none to give.
+ * `exclude` — the slug already open — is left out of the draw, so the button
+ * doesn't hand back the article the reader is looking at. */
+export async function fetchRandomArticle(
+  exclude?: string | null,
+): Promise<ResolvedPlace | null> {
+  const query = exclude ? `?not=${encodeURIComponent(exclude)}` : ''
+  const response = await fetch(`/api/random/${query}`)
   if (!response.ok) {
     throw new Error(`random failed: ${response.status}`)
   }

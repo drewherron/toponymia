@@ -2541,6 +2541,30 @@ class RandomApiTests(ApiTestCase):
         self.assertEqual(body['label_point'], [11.0, 51.0])
         self.assertEqual(body['bbox'], [9.0, 49.0, 12.0, 52.0])
 
+    def test_skips_the_place_already_open(self):
+        for place in (_make_place(), _make_place('Otherton', 'otherton')):
+            _publish(place, self.user)
+        body = self.client.get(
+            reverse('core:random'), {'not': 'testville'}
+        ).json()['place']
+        self.assertEqual(body['slug'], 'otherton')
+
+    def test_nothing_left_once_the_open_place_is_skipped(self):
+        # A one-article wiki with that article open: null, and the button
+        # sits still rather than reopening what's already there.
+        _publish(_make_place(), self.user)
+        body = self.client.get(
+            reverse('core:random'), {'not': 'testville'}
+        ).json()['place']
+        self.assertIsNone(body)
+
+    def test_unknown_slug_excludes_nothing(self):
+        _publish(_make_place(), self.user)
+        body = self.client.get(
+            reverse('core:random'), {'not': 'nowhere'}
+        ).json()['place']
+        self.assertEqual(body['slug'], 'testville')
+
 
 class ModerationApiTests(ApiTestCase):
     def setUp(self):

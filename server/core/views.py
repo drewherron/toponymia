@@ -548,9 +548,23 @@ def search(request):
 
 @api_view(['GET'])
 def random_article(request):
-    """A random place that has an article; null when the wiki is empty.
-    order_by('?') is fine at wiki scale."""
-    place = published_places().order_by('?').first()
+    """A random place that has an article; null when there's none to give.
+
+    `?not=<slug>` drops the article the reader is already on, so the button
+    always takes them somewhere — on a small wiki an unfiltered draw keeps
+    landing on the open one. The slug the client holds is always canonical
+    (every place reaches it through `_place_json`), so a plain `slug` match
+    is enough; an alias would simply fail to exclude, which is the old
+    behaviour. A one-article wiki leaves nothing to draw and answers with
+    the same null an empty one does.
+
+    order_by('?') is fine at wiki scale.
+    """
+    places = published_places()
+    exclude = request.GET.get('not')
+    if exclude:
+        places = places.exclude(slug=exclude)
+    place = places.order_by('?').first()
     return Response({'place': _place_json(place) if place else None})
 
 
