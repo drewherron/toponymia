@@ -2,7 +2,7 @@ import { Suspense, useMemo } from 'react'
 import type { Components } from 'react-markdown'
 import { etymologyHeading } from '../etymology'
 import { useLanguageNames } from '../languages'
-import type { ArticleData, Confidence, ElementRole } from '../types'
+import type { ArticleData, Confidence } from '../types'
 import MarkdownBody from './MarkdownBody'
 
 interface ArticleViewProps {
@@ -25,13 +25,9 @@ const CONFIDENCE_LABEL: Record<Exclude<Confidence, ''>, string> = {
   unknown: 'origin unknown',
 }
 
-const ROLE_LABEL: Record<Exclude<ElementRole, ''>, string> = {
-  generic: 'generic',
-  specific: 'specific',
-  affix: 'affix',
-  connective: 'connective',
-}
-
+/* An element's role is collected in the editor and kept in the record,
+   but not shown here: it's a classification for later use, and reads as
+   clutter beside the word it labels. */
 
 /** An ISO 639-3 code, spelled out on hover once the name table has
  *  loaded. Unknown codes (and the moment before the table arrives) render
@@ -243,9 +239,6 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
                             </td>
                             <td className="element-gloss">
                               {element.gloss && `‘${element.gloss}’`}
-                            </td>
-                            <td className="element-role">
-                              {element.role && ROLE_LABEL[element.role]}
                             </td>
                           </tr>
                         ))}
