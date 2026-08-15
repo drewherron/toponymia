@@ -1197,6 +1197,14 @@ body,
   text-transform: uppercase;
 }
 
+/* A language code spells itself out on hover, but shows no sign of it:
+   the browser's own dotted underline and help cursor for abbr[title] are
+   more visual noise than the tooltip is worth, so undo both. */
+.article abbr[title] {
+  cursor: inherit;
+  text-decoration: none;
+}
+
 .name-endonym {
   font-size: 0.72rem;
   font-weight: 600;

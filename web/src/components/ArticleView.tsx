@@ -1,6 +1,7 @@
 import { Suspense, useMemo } from 'react'
 import type { Components } from 'react-markdown'
 import { etymologyHeading } from '../etymology'
+import { useLanguageNames } from '../languages'
 import type { ArticleData, Confidence, ElementRole } from '../types'
 import MarkdownBody from './MarkdownBody'
 
@@ -31,6 +32,28 @@ const ROLE_LABEL: Record<Exclude<ElementRole, ''>, string> = {
   connective: 'connective',
 }
 
+
+/** An ISO 639-3 code, spelled out on hover once the name table has
+ *  loaded. Unknown codes (and the moment before the table arrives) render
+ *  as the bare code, so nothing depends on the lazy import having
+ *  finished. */
+function LanguageCode({
+  code,
+  names,
+  className,
+}: {
+  code: string
+  names: Map<string, string> | null
+  className?: string
+}) {
+  const name = names?.get(code)
+  if (!name) return <span className={className}>{code}</span>
+  return (
+    <abbr className={className} title={name}>
+      {code}
+    </abbr>
+  )
+}
 
 const SLUG_PATH = /^\/place\/([\w-]+)\/?$/
 
@@ -70,6 +93,21 @@ function linkify(text: string) {
 
 function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
   const { content } = article
+  // Only articles that actually show a code pay for the language table.
+  const hasCodes = useMemo(
+    () =>
+      content.names.some(
+        (entry) =>
+          entry.language ||
+          entry.etymologies.some(
+            (etymology) =>
+              etymology.from_languages.length > 0 ||
+              etymology.elements.some((element) => element.language),
+          ),
+      ),
+    [content.names],
+  )
+  const languageNames = useLanguageNames(hasCodes)
   // Intercept in-article `/place/<slug>` links so they swap the pane instead
   // of triggering a full reload; external links keep the reference style.
   const components = useMemo<Components>(
@@ -141,7 +179,11 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
               <h3 className="article-name-heading">
                 {entry.name}
                 {entry.language && (
-                  <span className="name-language">{entry.language}</span>
+                  <LanguageCode
+                    className="name-language"
+                    code={entry.language}
+                    names={languageNames}
+                  />
                 )}
                 {entry.is_endonym && (
                   <span className="name-endonym">endonym</span>
@@ -169,7 +211,13 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
                   )}
                   {etymology.from_languages.length > 0 && (
                     <p className="name-from">
-                      from {etymology.from_languages.join(', ')}
+                      from{' '}
+                      {etymology.from_languages.map((code, i) => (
+                        <span key={code}>
+                          {i > 0 && ', '}
+                          <LanguageCode code={code} names={languageNames} />
+                        </span>
+                      ))}
                     </p>
                   )}
                   {etymology.elements.length > 0 && (
@@ -186,7 +234,12 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
                               )}
                             </th>
                             <td className="element-language">
-                              {element.language}
+                              {element.language && (
+                                <LanguageCode
+                                  code={element.language}
+                                  names={languageNames}
+                                />
+                              )}
                             </td>
                             <td className="element-gloss">
                               {element.gloss && `‘${element.gloss}’`}

@@ -8,6 +8,8 @@
  * (mis/mul/und/zxx) are dropped: a blank field already means "unknown".
  */
 
+import { useEffect, useState } from 'react'
+
 export interface LanguageEntry {
   code: string
   name: string
@@ -49,4 +51,22 @@ export function normalizeCode(
   if (!raw) return ''
   const code = table.iso1.get(raw) ?? raw
   return table.names.has(code) ? code : null
+}
+
+/** Code -> reference name map for spelling codes out on hover, or null
+ * until it has loaded. `enabled` false skips the import entirely, so an
+ * article with no language codes never pulls the ~7,900-entry table. */
+export function useLanguageNames(enabled: boolean): Map<string, string> | null {
+  const [names, setNames] = useState<Map<string, string> | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    loadLanguages().then((table) => {
+      if (!cancelled) setNames(table.names)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [enabled])
+  return names
 }
