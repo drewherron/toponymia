@@ -267,6 +267,7 @@ function HistoryTab({
                 targetType="revision"
                 targetId={revision.id}
                 loggedIn={!!user}
+                reported={revision.reported}
               />
             )}
           </div>
@@ -375,6 +376,7 @@ function HistoryTab({
                     targetType="revision"
                     targetId={revision.id}
                     loggedIn={!!user}
+                    reported={revision.reported}
                   />
                 )}
               </div>

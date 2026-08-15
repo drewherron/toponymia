@@ -1978,6 +1978,13 @@ body,
   padding: 4px 10px;
 }
 
+/* Takes the whole row under the form controls, which wrap above it. */
+.report-error {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: var(--danger-text);
+}
+
 .talk-post-delete,
 .talk-thread-delete {
   font: inherit;

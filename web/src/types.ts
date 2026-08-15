@@ -220,6 +220,11 @@ export interface RevisionSummary {
    *  timestamp are all a non-moderator gets: the comment comes back empty and
    *  the snapshot 404s. */
   suppressed: boolean
+  /** Whether *you* have reported this, ever — not whether anyone has. Stays
+   *  true after a moderator closes the report, because it is what stops the
+   *  same person filing the same complaint twice. Always false when logged
+   *  out. */
+  reported: boolean
 }
 
 export interface RevisionDetail extends RevisionSummary {
@@ -248,6 +253,8 @@ export interface TalkPost {
   edited: string | null
   /** A removed post stays as a tombstone; body_md comes back empty. */
   deleted: boolean
+  /** Whether *you* have reported this — see `RevisionSummary.reported`. */
+  reported: boolean
 }
 
 export interface TalkThread {

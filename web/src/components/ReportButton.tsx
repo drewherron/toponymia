@@ -10,18 +10,25 @@ function ReportButton({
   targetType,
   targetId,
   loggedIn = true,
+  reported = false,
   label = 'report',
 }: {
   targetType: 'revision' | 'talk_post'
   targetId: number
   /** Logged-out users see the same link, disabled, with a login tooltip. */
   loggedIn?: boolean
+  /** The server's answer to "have I reported this before?". Read on every
+   *  render rather than seeded into state: a refetch that returns a fresh
+   *  post object must not walk the marker back to a live button. */
+  reported?: boolean
   label?: string
 }) {
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState<ReportCategory>('other')
   const [reason, setReason] = useState('')
-  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+  const [state, setState] = useState<'idle' | 'busy' | 'failed' | 'done'>(
+    'idle',
+  )
 
   if (!loggedIn) {
     return (
@@ -37,8 +44,14 @@ function ReportButton({
     )
   }
 
-  if (state === 'done') {
-    return <span className="report-done">reported</span>
+  // `reported` first: a report filed in an earlier session counts the same as
+  // one filed a second ago, and the server is the one that knows.
+  if (reported || state === 'done') {
+    return (
+      <span className="report-done" title="You reported this">
+        reported
+      </span>
+    )
   }
   if (!open) {
     return (
@@ -58,7 +71,10 @@ function ReportButton({
       .then(() => setState('done'))
       .catch((error) => {
         console.error(error)
-        setState('idle')
+        // Leaves the form open and says so. Dropping back to a bare "report"
+        // button was indistinguishable from never having clicked, so a failed
+        // report looked exactly like a successful one that didn't stick.
+        setState('failed')
       })
   }
   return (
@@ -88,6 +104,11 @@ function ReportButton({
       <button type="button" onClick={() => setOpen(false)}>
         Cancel
       </button>
+      {state === 'failed' && (
+        <span className="report-error" role="alert">
+          That didn’t send. Try again in a moment.
+        </span>
+      )}
     </form>
   )
 }

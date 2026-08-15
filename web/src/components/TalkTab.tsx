@@ -111,6 +111,7 @@ function PostView({
             targetType="talk_post"
             targetId={post.id}
             loggedIn={!!user}
+            reported={post.reported}
           />
         )}
       </p>

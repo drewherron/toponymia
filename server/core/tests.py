@@ -2698,6 +2698,124 @@ class ModerationApiTests(ApiTestCase):
         )
         self.assertEqual(Report.objects.count(), 0)
 
+    # --- the reported marker -----------------------------------------
+    def _talk_posts(self):
+        threads = self.client.get(
+            reverse('core:talk', args=[self.place.slug])
+        ).json()['threads']
+        return [p for t in threads for p in t['posts']]
+
+    def _history(self):
+        return self.client.get(
+            reverse('core:revision-list', args=[self.place.slug])
+        ).json()['revisions']
+
+    def test_reported_marker_is_false_before_reporting(self):
+        self._thread_with_post()
+        self.client.force_login(self.other)
+        self.assertFalse(self._talk_posts()[0]['reported'])
+
+    def test_reported_marker_is_true_for_the_reporter(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        self.assertTrue(self._talk_posts()[0]['reported'])
+
+    def test_reported_marker_is_private_to_the_reporter(self):
+        """The whole point of viewer-relative: a report must not be visible
+        to the reported author, to a bystander, or to a moderator reading the
+        thread — only in the queue."""
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        third = User.objects.create_user('kit', password='pw12345!')
+        for viewer in (self.author, third, self.mod):
+            self.client.force_login(viewer)
+            self.assertFalse(
+                self._talk_posts()[0]['reported'], f'leaked to {viewer}'
+            )
+
+    def test_reported_marker_is_false_when_logged_out(self):
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        self.client.logout()
+        self.assertFalse(self._talk_posts()[0]['reported'])
+
+    def test_reported_marker_survives_the_report_being_closed(self):
+        """Permanence is the part that stops a second filing, so a dismissal
+        must not hand the button back."""
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'dismiss'},
+            content_type='application/json',
+        )
+        self.client.force_login(self.other)
+        self.assertTrue(self._talk_posts()[0]['reported'])
+
+    def test_refiling_after_a_dismissal_creates_nothing(self):
+        """The hole the marker's permanence has to be backed by: the open-only
+        unique constraints let a closed report be filed again, once per
+        dismissal, each one a fresh queue row and a fresh moderator email."""
+        post = self._thread_with_post()[1]
+        self.client.force_login(self.other)
+        self._report('talk_post', post['id'])
+        report = Report.objects.get()
+        self.client.force_login(self.mod)
+        self.client.post(
+            reverse('core:mod-report-action', args=[report.id]),
+            {'action': 'dismiss'},
+            content_type='application/json',
+        )
+        self.client.force_login(self.other)
+        mail.outbox = []
+        again = self._report('talk_post', post['id'])
+        # 201 and the original report back: the reporter is not told their
+        # complaint was refused, and nothing new reaches the queue.
+        self.assertEqual(again.status_code, 201)
+        self.assertEqual(again.json()['report']['id'], report.id)
+        self.assertEqual(Report.objects.count(), 1)
+        self.assertEqual(Report.objects.get().status, Report.Status.DISMISSED)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_reported_marker_on_revisions(self):
+        revision = self._revision()
+        self.client.force_login(self.other)
+        self.assertFalse(self._history()[0]['reported'])
+        self._report('revision', revision.id)
+        self.assertTrue(self._history()[0]['reported'])
+        detail = self.client.get(
+            reverse('core:revision-detail', args=[self.place.slug,
+                                                  revision.id])
+        ).json()['revision']
+        self.assertTrue(detail['reported'])
+
+    def test_reported_marker_costs_one_query_per_page(self):
+        """A thread can carry eighty posts; the marker must not cost a query
+        each. Two renders of different sizes taking the same number of
+        queries is the property that matters, not the absolute count."""
+        thread = self._thread_with_post()[0]
+        self.client.force_login(self.other)
+        with CaptureQueriesContext(connection) as one_post:
+            self._talk_posts()
+        self.client.force_login(self.author)
+        for i in range(5):
+            self.client.post(
+                reverse('core:talk-reply', args=[thread['id']]),
+                {'body_md': f'reply {i}'},
+                content_type='application/json',
+            )
+        self.client.force_login(self.other)
+        with CaptureQueriesContext(connection) as six_posts:
+            posts = self._talk_posts()
+        self.assertEqual(len(posts), 6)
+        self.assertEqual(len(six_posts), len(one_post))
+
     # --- mod queue ---------------------------------------------------
     def test_queue_requires_moderator(self):
         self.client.force_login(self.other)

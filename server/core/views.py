@@ -657,7 +657,7 @@ def place_geometry(request, slug):
 
 
 def _revision_json(revision, current_id, with_content=False,
-                   for_moderator=False):
+                   for_moderator=False, reported=False):
     """One history row.
 
     A suppressed revision still renders publicly, as a tombstone: author and
@@ -684,6 +684,8 @@ def _revision_json(revision, current_id, with_content=False,
         'comment': '' if suppressed and not for_moderator else revision.comment,
         'is_current': revision.id == current_id,
         'suppressed': suppressed,
+        # Viewer-relative, as on a talk post — see `_post_json`.
+        'reported': reported,
     }
     if with_content:
         data['content'] = revision.content
@@ -728,6 +730,7 @@ def revision_list(request, slug):
     window = list(revisions[offset : offset + MAX_REVISIONS_PER_PAGE + 1])
     has_more = len(window) > MAX_REVISIONS_PER_PAGE
     window = window[:MAX_REVISIONS_PER_PAGE]
+    reported_ids = reported_target_ids(request.user, 'revision', window)
     return Response(
         {
             'revisions': [
@@ -735,6 +738,7 @@ def revision_list(request, slug):
                     revision,
                     article.current_revision_id,
                     for_moderator=moderator,
+                    reported=revision.id in reported_ids,
                 )
                 for revision in window
             ],
@@ -766,6 +770,8 @@ def revision_detail(request, slug, revision_id):
                 revision.article.current_revision_id,
                 with_content=True,
                 for_moderator=is_moderator(request.user),
+                reported=revision.id
+                in reported_target_ids(request.user, 'revision', [revision]),
             )
         }
     )
@@ -955,7 +961,29 @@ def article_protection(request, slug):
 DELETED_AUTHOR = '[deleted]'
 
 
-def _post_json(post, for_moderator=False):
+def reported_target_ids(user, field, objects):
+    """Which of `objects` this user has already reported, as a set of ids.
+
+    One query for a whole page rather than one per row — a thread can carry
+    eighty posts, and a per-row EXISTS would cost eighty queries to render a
+    marker.
+
+    Status is deliberately *not* filtered. The client shows this as a
+    permanent "reported" marker, so it has to survive a moderator closing the
+    report: the point is that the reporter has had their say on this target,
+    not that the report is still open. `create_report` matches on the same
+    unfiltered lookup, so the button and the server agree.
+    """
+    if not user.is_authenticated or not objects:
+        return frozenset()
+    return frozenset(
+        Report.objects.filter(
+            reporter=user, **{f'{field}_id__in': [o.id for o in objects]}
+        ).values_list(f'{field}_id', flat=True)
+    )
+
+
+def _post_json(post, for_moderator=False, reported=False):
     # A soft-deleted post stays as a tombstone (thread coherence) but its body
     # is withheld from everyone, and publicly its byline goes too: naming the
     # author of removed abuse pins the abuse to them on a page anyone can
@@ -972,10 +1000,15 @@ def _post_json(post, for_moderator=False):
         'created': post.created.isoformat(),
         'edited': post.edited.isoformat() if post.edited else None,
         'deleted': deleted,
+        # Viewer-relative: "you have reported this", not "this was reported".
+        # Never a count and never true for anyone but the reporter — telling
+        # the room a post is under review invites a pile-on and tips off its
+        # author, and independent reports are signal the queue wants.
+        'reported': reported,
     }
 
 
-def _thread_json(thread, for_moderator=False):
+def _thread_json(thread, for_moderator=False, reported_ids=frozenset()):
     # `post_window` is the capped prefetch (MAX_TALK_POSTS + 1) set up in
     # `talk`, not the whole thread — the bound is enforced in SQL, so an
     # enormous thread never lands in memory. A thread past the cap is
@@ -993,7 +1026,11 @@ def _thread_json(thread, for_moderator=False):
         'title': thread.title,
         'created': thread.created.isoformat(),
         'posts': [
-            _post_json(post, for_moderator=for_moderator)
+            _post_json(
+                post,
+                for_moderator=for_moderator,
+                reported=post.id in reported_ids,
+            )
             for post in posts[:MAX_TALK_POSTS]
         ],
         'posts_truncated': len(posts) > MAX_TALK_POSTS,
@@ -1034,13 +1071,28 @@ def talk(request, slug):
         )
         window = list(threads[: MAX_TALK_THREADS + 1])
         has_more = len(window) > MAX_TALK_THREADS
+        shown = window[:MAX_TALK_THREADS]
+        # Every post the response will actually serialize, so the reported
+        # lookup is one query for the page however many threads it holds.
+        visible = [
+            post
+            for thread in shown
+            for post in (getattr(thread, 'post_window', None) or [])[
+                :MAX_TALK_POSTS
+            ]
+        ]
+        reported_ids = reported_target_ids(
+            request.user, 'talk_post', visible
+        )
         return Response(
             {
                 'threads': [
                     _thread_json(
-                        thread, for_moderator=is_moderator(request.user)
+                        thread,
+                        for_moderator=is_moderator(request.user),
+                        reported_ids=reported_ids,
                     )
-                    for thread in window[:MAX_TALK_THREADS]
+                    for thread in shown
                 ],
                 'has_more': has_more,
             }
@@ -1138,8 +1190,18 @@ def talk_post_delete(request, post_id):
                 request.user, ModAction.Action.DELETE_POST,
                 target_user=post.author, talk_post=post,
             )
+    # A moderator can be deleting a post they reported themselves; the
+    # tombstone hides the report affordance anyway, but this response replaces
+    # the client's copy of the post, so it should not quietly clear the flag.
     return Response(
-        {'post': _post_json(post, for_moderator=is_moderator(request.user))}
+        {
+            'post': _post_json(
+                post,
+                for_moderator=is_moderator(request.user),
+                reported=post.id
+                in reported_target_ids(request.user, 'talk_post', [post]),
+            )
+        }
     )
 
 
@@ -1186,6 +1248,23 @@ def create_report(request):
             {'error': 'you cannot report your own content'},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    # Any prior report by this reporter on this target ends it, open or not.
+    # A closed report used to be re-filable — the partial unique constraints
+    # only cover `status='open'` — which let a reporter who disliked a
+    # dismissal file the same complaint again, and again, each one a fresh
+    # queue row and a fresh moderator email. It also has to work this way for
+    # the client's `reported` marker to be honest: the marker is permanent, so
+    # the endpoint behind it must be too.
+    previous = Report.objects.filter(
+        reporter=request.user, **{target: obj}
+    ).first()
+    if previous is not None:
+        return Response(
+            {'report': {'id': previous.id, 'status': previous.status}},
+            status=status.HTTP_201_CREATED,
+        )
+    # Still get_or_create for the first filing: the open-report constraints
+    # are what make two simultaneous submissions one row.
     report, created = Report.objects.get_or_create(
         reporter=request.user,
         status=Report.Status.OPEN,
