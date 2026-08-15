@@ -51,7 +51,7 @@ from .moderation import (
     is_moderator,
     log_action,
 )
-from .notify import notify_new_report
+from .notify import notify_new_report, notify_report_outcome
 from .overpass import QID_RE, OverpassError
 from .serializers import (
     ArticleDeleteSerializer,
@@ -1436,6 +1436,16 @@ def mod_report_action(request, report_id):
     report.handled_by = request.user
     report.handled_at = timezone.now()
     report.save(update_fields=['status', 'handled_by', 'handled_at'])
+    # After the save, and never in its way: the decision is recorded and
+    # audited by this point, and notify_report_outcome swallows its own
+    # failures, so a dead mailer cannot cost a moderator their action.
+    place = post.thread.place if post is not None else revision.article.place
+    notify_report_outcome(
+        report,
+        action,
+        actor=request.user,
+        url=request.build_absolute_uri(f'/place/{place.slug}'),
+    )
     return Response({'report': {'id': report.id, 'status': report.status}})
 
 

@@ -54,18 +54,21 @@ def moderator_emails(exclude=None):
     return sorted(set(recipients.values_list('email', flat=True)))
 
 
-def _send(subject, body, recipients):
+def _send(subject, body, recipients, blind=True):
     """Send, or log and carry on. Never raises.
 
-    BCC rather than To: a notification should not tell each moderator what the
-    others' addresses are.
+    Moderator mail goes out BCC: a notification should not tell each moderator
+    what the others' addresses are. Mail to a single person uses To instead —
+    a one-to-one message with an empty To: header reads as a blast, to the
+    reader and to their spam filter alike.
     """
     try:
         EmailMessage(
             subject=subject,
             body=body,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            bcc=recipients,
+            to=[] if blind else list(recipients),
+            bcc=list(recipients) if blind else [],
         ).send(fail_silently=False)
     except Exception:
         # Deliberately broad: every exception an SMTP backend can raise is less
@@ -129,4 +132,70 @@ def notify_new_report(report, url=None):
         f'[Toponymia] {report.get_category_display()} report on a {kind}',
         '\n'.join(lines) + '\n',
         recipients,
+    )
+
+
+# What a closed report says to the person who filed it, keyed by the action
+# the moderator took rather than by the report's status: `delete`, `suppress`
+# and `resolve` all land on RESOLVED, so the status alone cannot tell a
+# take-down from a close.
+#
+# Three rules shape the wording. The moderator's note is never quoted — it is
+# an audit record written for the dashboard, not a reply to the reporter. The
+# content is never quoted either, for the same reason the report notification
+# omits it. And the dismissal does not invite a response: there is no appeals
+# inbox behind it, so a message that sounds like the opening of a conversation
+# would be a promise the site can't keep.
+_OUTCOME_BODIES = {
+    'delete': (
+        'Thanks for reporting this. We reviewed it and removed the content.'
+    ),
+    'suppress': (
+        'Thanks for reporting this. We reviewed it and removed the content '
+        'from public view.'
+    ),
+    'dismiss': (
+        'Thanks for reporting this. We reviewed it and decided it does not '
+        'break the site rules, so the content stays up.\n\n'
+        'We will not be taking further action on this report.'
+    ),
+    # Deliberately vague, and it has to be: `resolve` covers everything from
+    # "already handled by a revert" to "closed after a look", so it can't
+    # promise a removal happened.
+    'resolve': (
+        'Thanks for reporting this. We reviewed it and it has been dealt '
+        'with.'
+    ),
+}
+
+
+def notify_report_outcome(report, action, actor=None, url=None):
+    """Tell the reporter what a moderator decided.
+
+    Called once per queue decision, so the rate is a human clicking buttons —
+    no ceiling here, unlike `notify_new_report`, where the rate is the public.
+
+    Silent when there's nobody to tell: no address on file, a deactivated
+    account, or a moderator acting on a report they filed themselves (they
+    just watched the outcome happen).
+    """
+    reporter = report.reporter
+    if actor is not None and actor.pk == reporter.pk:
+        return
+    if not reporter.email or not reporter.is_active:
+        return
+    body = _OUTCOME_BODIES.get(action)
+    if body is None:
+        return
+
+    kind = 'talk post' if report.talk_post_id is not None else 'revision'
+    lines = [f'You reported a {kind} on Toponymia.', '', body]
+    if url:
+        lines += ['', url]
+
+    _send(
+        '[Toponymia] Update on your report',
+        '\n'.join(lines) + '\n',
+        [reporter.email],
+        blind=False,
     )

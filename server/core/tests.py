@@ -4739,6 +4739,140 @@ class ReportNotificationTests(ApiTestCase):
         self.assertEqual(Report.objects.count(), 1)
 
 
+class ReportOutcomeMailTests(ApiTestCase):
+    """Mail sent to the *reporter* when a moderator closes their report.
+
+    The report notification's constraints all apply again — inline send, no
+    queue, failure isolated — plus one of its own: this is the only mail the
+    site sends to an ordinary user about someone else's content, so it must
+    not carry the content or the moderator's note.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.place = _make_place()
+        self.author = User.objects.create_user('drew', password='pw12345!')
+        self.reporter = User.objects.create_user(
+            'sam', password='pw12345!', email='sam@x.test'
+        )
+        self.mod = User.objects.create_user(
+            'mira', password='pw12345!', is_staff=True, email='mira@x.test'
+        )
+        self.client.force_login(self.author)
+        thread = self.client.post(
+            reverse('core:talk', args=[self.place.slug]),
+            {'title': 'Etymology dispute', 'body_md': 'Sources?'},
+            content_type='application/json',
+        ).json()['thread']
+        self.post_id = thread['posts'][0]['id']
+        self.client.force_login(self.reporter)
+        self.client.post(
+            reverse('core:report-create'),
+            {'target_type': 'talk_post', 'target_id': self.post_id,
+             'category': 'harassment', 'reason': 'they called me a fool'},
+            content_type='application/json',
+        )
+        self.report = Report.objects.get()
+        mail.outbox = []
+
+    def _act(self, action, reason='', actor=None):
+        self.client.force_login(actor or self.mod)
+        return self.client.post(
+            reverse('core:mod-report-action', args=[self.report.id]),
+            {'action': action, 'reason': reason},
+            content_type='application/json',
+        )
+
+    def test_removal_tells_the_reporter(self):
+        self.assertEqual(self._act('delete').status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        # To, not BCC: one-to-one mail with an empty To reads as a blast.
+        self.assertEqual(message.to, ['sam@x.test'])
+        self.assertEqual(message.bcc, [])
+        self.assertIn('removed the content', message.body)
+        self.assertIn(f'/place/{self.place.slug}', message.body)
+
+    def test_dismissal_tells_the_reporter_and_closes_the_subject(self):
+        self._act('dismiss')
+        body = mail.outbox[0].body
+        self.assertIn('does not break the site rules', body)
+        self.assertIn('not be taking further action', body)
+
+    def test_resolve_does_not_claim_a_removal(self):
+        """`resolve` covers "handled elsewhere" as well as "looked at and
+        closed", so it must not promise the content came down."""
+        self._act('resolve')
+        body = mail.outbox[0].body
+        self.assertIn('dealt with', body)
+        self.assertNotIn('removed', body)
+
+    def test_outcome_mail_carries_neither_the_content_nor_the_mod_note(self):
+        self._act('delete', reason='obvious sock puppet, watch this account')
+        body = mail.outbox[0].body
+        self.assertNotIn('sock puppet', body)
+        self.assertNotIn('Sources?', body)
+        # Nor the reporter's own words back at them.
+        self.assertNotIn('fool', body)
+
+    def test_moderator_acting_on_their_own_report_is_not_mailed(self):
+        self.report.reporter = self.mod
+        self.report.save(update_fields=['reporter'])
+        self._act('dismiss')
+        self.assertEqual(mail.outbox, [])
+
+    def test_reporter_without_an_address_is_skipped(self):
+        self.reporter.email = ''
+        self.reporter.save(update_fields=['email'])
+        self._act('delete')
+        self.assertEqual(mail.outbox, [])
+
+    def test_deactivated_reporter_is_skipped(self):
+        self.reporter.is_active = False
+        self.reporter.save(update_fields=['is_active'])
+        self._act('delete')
+        self.assertEqual(mail.outbox, [])
+
+    def test_smtp_failure_does_not_break_the_moderator_action(self):
+        with patch(
+            'core.notify.EmailMessage.send', side_effect=OSError('no smtp')
+        ):
+            with self.assertLogs('core.notify', level='ERROR'):
+                response = self._act('delete')
+        # The decision stands even though the reporter never hears about it.
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, Report.Status.RESOLVED)
+        self.assertIsNotNone(TalkPost.objects.get(id=self.post_id).deleted)
+
+    def test_suppressing_a_revision_tells_the_reporter(self):
+        """The revision path: a different target type, and its own wording."""
+        article = Article.objects.create(place=self.place)
+        first = Revision.objects.create(
+            article=article, author=self.author, comment='draft',
+            content=_content(),
+        )
+        current = Revision.objects.create(
+            article=article, author=self.author, comment='more',
+            content=_content(),
+        )
+        article.current_revision = current
+        article.save(update_fields=['current_revision'])
+        Report.objects.all().delete()
+        self.client.force_login(self.reporter)
+        self.client.post(
+            reverse('core:report-create'),
+            {'target_type': 'revision', 'target_id': first.id,
+             'category': 'copyright', 'reason': 'copied'},
+            content_type='application/json',
+        )
+        self.report = Report.objects.get()
+        mail.outbox = []
+        self.assertEqual(self._act('suppress').status_code, 200)
+        self.assertIn('from public view', mail.outbox[0].body)
+        self.assertIn(f'/place/{self.place.slug}', mail.outbox[0].body)
+
+
 class SlugAliasTests(ApiTestCase):
     """The slug alias table: creation invariant, alias lookups, the /place
     301, and the rename_place command (docs/slug-renames.md)."""
