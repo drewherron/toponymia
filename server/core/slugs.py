@@ -66,14 +66,36 @@ def transliterate(name):
     return name.translate(_TRANSLITERATION_TABLE)
 
 
-def unique_slug(display_name):
-    """A slug used by no Place yet — canonical or alias. Counts up on
-    collision (`ojai`, `ojai-2`, `ojai-3`), skipping slugs already parked as
-    aliases so a fresh place never lands on one that redirects elsewhere."""
+def unique_slug(display_name, qualifier=None):
+    """A slug used by no Place yet — canonical or alias.
+
+    The first place of a name keeps it bare (`portland`). A second one is
+    disambiguated by `qualifier`, an already-slug-safe fragment naming what
+    contains it (`portland-maine`; see core.admin_areas) — so nothing
+    already published ever moves, at the price of the bare slug going to
+    whoever was minted first. An operator settles that deliberately with
+    `rename_place`, which leaves the bare slug behind as a 301.
+
+    The numeric suffix stays as the unconditional floor, for no qualifier
+    (`portland-2`) and for a qualifier that itself collides. It counts on the
+    most qualified form tried, so two Portlands in Oregon give
+    `portland-oregon-2` rather than `portland-3` — still ugly, but it tells
+    the reader something.
+
+    Alias slugs are skipped along with canonical ones, so a fresh place never
+    lands on one that redirects elsewhere.
+    """
     base = slugify(transliterate(display_name))[:100] or 'place'
-    slug = base
+    attempts = [base]
+    if qualifier:
+        attempts.append(f'{base}-{qualifier}')
+
+    for slug in attempts:
+        if not PlaceSlug.objects.filter(slug=slug).exists():
+            return slug
+
+    stem = attempts[-1]
     n = 2
-    while PlaceSlug.objects.filter(slug=slug).exists():
-        slug = f'{base}-{n}'
+    while PlaceSlug.objects.filter(slug=f'{stem}-{n}').exists():
         n += 1
-    return slug
+    return f'{stem}-{n}'

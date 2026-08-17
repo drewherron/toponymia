@@ -12,7 +12,10 @@ class Place(models.Model):
         OSM = 'osm'
         NAME = 'name'
 
-    slug = models.SlugField(max_length=120, unique=True)
+    # 150, not 120: a 100-char base plus a 45-char admin qualifier and
+    # its hyphen is 146. PlaceSlug.slug must stay the same width — the
+    # post-save signal copies this value straight into it.
+    slug = models.SlugField(max_length=150, unique=True)
     wikidata_qid = models.CharField(
         max_length=32, null=True, blank=True, unique=True
     )
@@ -67,7 +70,7 @@ class PlaceSlug(models.Model):
     place = models.ForeignKey(
         Place, on_delete=models.CASCADE, related_name='slugs'
     )
-    slug = models.SlugField(max_length=120, unique=True)
+    slug = models.SlugField(max_length=150, unique=True)
     is_canonical = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
 

@@ -16,6 +16,7 @@ from django.contrib.auth.models import User
 from django.contrib.gis.geos import (
     LineString,
     MultiLineString,
+    MultiPolygon,
     Point,
     Polygon,
 )
@@ -28,12 +29,14 @@ from django.test import Client, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.text import slugify
 
 from . import dashboard, notify, overpass, views
 from .articles import save_edit
 from .csp import MAX_REPORTS, REPORT_ROUTE
 from .feature_classes import ALLOWED_FEATURE_CLASSES
 from .models import (
+    AdminArea,
     Article,
     Ban,
     BannedEmail,
@@ -5002,6 +5005,164 @@ class ReportOutcomeMailTests(ApiTestCase):
         self.assertEqual(self._act('suppress').status_code, 200)
         self.assertIn('from public view', mail.outbox[0].body)
         self.assertIn(f'/place/{self.place.slug}', mail.outbox[0].body)
+
+
+def _admin_box(subdivision, country, west, south, east, north, **kwargs):
+    """One rectangular admin area. Fixtures, deliberately not real data —
+    load_admin_boundaries never runs in tests, so the table would otherwise
+    be empty and every qualifier assertion would pass vacuously."""
+    return AdminArea.objects.create(
+        subdivision=subdivision,
+        subdivision_local=kwargs.pop('local', subdivision),
+        country=country,
+        geometry=MultiPolygon(
+            Polygon.from_bbox((west, south, east, north)), srid=4326
+        ),
+        **kwargs,
+    )
+
+
+class AdminQualifierTests(TestCase):
+    """Which admin area qualifies a point (core.admin_areas). Two adjacent
+    boxes sharing the 46th parallel, plus a subdivision that shares its name
+    with the place inside it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _admin_box('Oregon', 'United States of America',
+                   -124.0, 42.0, -117.0, 46.0, wikidata_qid='Q824')
+        _admin_box('Washington', 'United States of America',
+                   -124.0, 46.0, -117.0, 49.0)
+        # Jamaica's first-order divisions are parishes, one of which is
+        # named Portland — the case that forces the country fall-through.
+        _admin_box('Portland', 'Jamaica', -76.9, 17.9, -76.1, 18.4)
+        # A microstate: its one subdivision shares the country's name.
+        _admin_box('Monaco', 'Monaco', 10.0, 10.0, 11.0, 11.0)
+
+    def _qualify(self, lng, lat, name, qid=None):
+        from .admin_areas import qualifier_for
+        return qualifier_for(Point(lng, lat, srid=4326), name, qid)
+
+    def test_containing_subdivision_qualifies(self):
+        self.assertEqual(
+            self._qualify(-122.7, 45.5, 'Portland'), 'oregon'
+        )
+
+    def test_neighbouring_subdivision_is_not_borrowed(self):
+        self.assertEqual(
+            self._qualify(-122.7, 47.5, 'Vancouver'), 'washington'
+        )
+
+    def test_point_just_inside_a_border(self):
+        # 45.99 is ~1 km south of the Oregon/Washington line.
+        self.assertEqual(self._qualify(-120.0, 45.99, 'Ojai'), 'oregon')
+
+    def test_point_exactly_on_a_border_still_qualifies(self):
+        # Contained by neither box under a strict predicate; both are at
+        # distance 0, so the KNN ordering just has to pick one.
+        self.assertIn(
+            self._qualify(-120.0, 46.0, 'Ojai'), {'oregon', 'washington'}
+        )
+
+    def test_point_outside_but_within_tolerance(self):
+        # 41.9 is ~11 km south of Oregon's edge — a stand-in for the
+        # generalised coastlines that leave Tromsø 1.6 km offshore.
+        self.assertEqual(self._qualify(-120.0, 41.9, 'Coos Bay'), 'oregon')
+
+    def test_point_far_from_everything_is_unqualified(self):
+        self.assertIsNone(self._qualify(0.0, 0.0, 'Nowhere'))
+
+    def test_empty_table_qualifies_nothing_and_does_not_raise(self):
+        AdminArea.objects.all().delete()
+        self.assertIsNone(self._qualify(-122.7, 45.5, 'Portland'))
+
+    def test_self_reference_falls_through_to_the_country(self):
+        # Portland Parish contains Port Antonio; a place *named* Portland
+        # there must not mint `portland-portland`.
+        self.assertEqual(
+            self._qualify(-76.5, 18.2, 'Portland'), 'jamaica'
+        )
+
+    def test_self_reference_matches_on_qid_not_just_spelling(self):
+        # The state of Oregon itself, minted from its own QID.
+        self.assertEqual(
+            self._qualify(-120.0, 44.0, 'State of Oregon', 'Q824'), 'usa'
+        )
+
+    def test_self_reference_at_both_rungs_gives_nothing(self):
+        self.assertIsNone(self._qualify(10.5, 10.5, 'Monaco'))
+
+    def test_a_country_is_never_qualified_by_its_own_subdivision(self):
+        # Minting the USA itself from a click in Oregon must not give
+        # `united-states-of-america-oregon`; nothing contains a country.
+        self.assertIsNone(
+            self._qualify(-120.0, 44.0, 'United States of America')
+        )
+
+    def test_country_self_reference_catches_the_alias_too(self):
+        self.assertIsNone(self._qualify(-120.0, 44.0, 'USA'))
+
+    def test_country_alias_shortens_the_formal_name(self):
+        self.assertEqual(self._qualify(-120.0, 44.0, 'Oregon'), 'usa')
+
+    def test_qualifier_is_transliterated(self):
+        _admin_box('Troms', 'Norway', 18.0, 69.0, 20.0, 70.0)
+        _admin_box('Ærø', 'Denmark', 10.2, 54.8, 10.5, 55.0)
+        self.assertEqual(self._qualify(10.35, 54.9, 'Marstal'), 'aero')
+
+
+class SlugQualifierTests(TestCase):
+    """unique_slug's ladder: bare, then qualified, then numeric."""
+
+    def _mint(self, name, qualifier=None):
+        from .slugs import unique_slug
+        place = _make_place(name=name, slug=unique_slug(name, qualifier))
+        return place.slug
+
+    def test_first_place_keeps_the_bare_slug(self):
+        self.assertEqual(self._mint('Portland', 'oregon'), 'portland')
+
+    def test_second_place_takes_the_qualifier(self):
+        self._mint('Portland', 'oregon')
+        self.assertEqual(self._mint('Portland', 'maine'), 'portland-maine')
+
+    def test_numeric_floor_when_there_is_no_qualifier(self):
+        self._mint('Springfield')
+        self.assertEqual(self._mint('Springfield'), 'springfield-2')
+
+    def test_numeric_counts_on_the_qualified_form(self):
+        # Two Portlands in the same Oregon: `portland-oregon-2` tells a
+        # reader more than `portland-3` would.
+        self._mint('Portland', 'oregon')
+        self.assertEqual(self._mint('Portland', 'oregon'), 'portland-oregon')
+        self.assertEqual(
+            self._mint('Portland', 'oregon'), 'portland-oregon-2'
+        )
+        self.assertEqual(
+            self._mint('Portland', 'oregon'), 'portland-oregon-3'
+        )
+
+    def test_qualifier_steps_over_a_parked_alias(self):
+        first = self._mint('Portland', 'oregon')
+        place = Place.objects.get(slug=first)
+        PlaceSlug.objects.create(
+            place=place, slug='portland-maine', is_canonical=False
+        )
+        self.assertEqual(
+            self._mint('Portland', 'maine'), 'portland-maine-2'
+        )
+
+    def test_long_name_plus_qualifier_fits_the_column(self):
+        # 100-char base + '-' + 45-char qualifier = 146, inside the 150
+        # the slug columns were widened to. A DataError here means the
+        # migration and the budget have drifted apart.
+        name = 'Llanfair' * 25
+        qualifier = 'a' * 45
+        self._mint(name)
+        slug = self._mint(name, qualifier)
+        self.assertEqual(slug, f'{slugify(name)[:100]}-{qualifier}')
+        self.assertLessEqual(len(slug), 150)
+        self.assertEqual(Place.objects.get(slug=slug).slug, slug)
 
 
 class SlugTransliterationTests(TestCase):
