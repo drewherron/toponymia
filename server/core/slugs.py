@@ -27,11 +27,50 @@ def place_by_slug(slug, queryset=None):
     return get_object_or_404(qs, pk=match.place_id)
 
 
+# Latin letters that are letters in their own right, not accented bases.
+# `slugify` runs NFKD then drops every non-ASCII byte: an accented letter
+# decomposes to base + combining mark and survives (Kraków -> krakow), but
+# these decompose to nothing and vanish silently — Tromsø minted `troms`,
+# Ærø minted `r`. Nothing upstream saves us, because the names carrying
+# them are already Latin script, so `name:en` (where it exists at all) is
+# usually byte-identical to the native name.
+#
+# Mapped to what someone would have typed: Norwegian/Danish, Polish,
+# Icelandic, Turkish dotless i, Maltese, Vietnamese/Croatian đ, German ß,
+# and the Sámi letters we sit next to up in Tromsø. Values are strings,
+# not characters — ß and þ each expand to two letters.
+TRANSLITERATIONS = {
+    'ø': 'o', 'Ø': 'O',
+    'ł': 'l', 'Ł': 'L',
+    'þ': 'th', 'Þ': 'Th',
+    'ð': 'd', 'Ð': 'D',
+    'æ': 'ae', 'Æ': 'Ae',
+    'œ': 'oe', 'Œ': 'Oe',
+    'ß': 'ss', 'ẞ': 'Ss',
+    'ı': 'i',
+    'ħ': 'h', 'Ħ': 'H',
+    'đ': 'd', 'Đ': 'D',
+    'ŧ': 't', 'Ŧ': 'T',
+    'ŋ': 'n', 'Ŋ': 'N',
+}
+
+_TRANSLITERATION_TABLE = str.maketrans(TRANSLITERATIONS)
+
+
+def transliterate(name):
+    """Replace non-decomposable Latin letters with their ASCII equivalents.
+
+    Apply before `slugify`, which would otherwise drop them. Names and
+    qualifiers both go through it, so `portland-tromso` survives whole.
+    """
+    return name.translate(_TRANSLITERATION_TABLE)
+
+
 def unique_slug(display_name):
     """A slug used by no Place yet — canonical or alias. Counts up on
     collision (`ojai`, `ojai-2`, `ojai-3`), skipping slugs already parked as
     aliases so a fresh place never lands on one that redirects elsewhere."""
-    base = slugify(display_name)[:100] or 'place'
+    base = slugify(transliterate(display_name))[:100] or 'place'
     slug = base
     n = 2
     while PlaceSlug.objects.filter(slug=slug).exists():

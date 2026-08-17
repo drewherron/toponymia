@@ -59,8 +59,9 @@ class PlaceSlug(models.Model):
     by renames; an alias 301s to the canonical. This table's unique `slug` index
     is the *single* enforcement point for global slug uniqueness across canonical
     and alias alike — `Place.slug` is a denormalized cache of the canonical row,
-    kept in sync only in the two write paths (creation via slugs.mint_place,
-    rename via the rename_place command). Reads never write it.
+    kept in sync only in the two write paths (creation via the
+    ensure_canonical_slug signal below, rename via the rename_place
+    command). Reads never write it.
     """
 
     place = models.ForeignKey(

@@ -5004,6 +5004,34 @@ class ReportOutcomeMailTests(ApiTestCase):
         self.assertIn(f'/place/{self.place.slug}', mail.outbox[0].body)
 
 
+class SlugTransliterationTests(TestCase):
+    """Letters that are letters, not accented bases: slugify decomposes and
+    drops them, so they get spelled out before it runs (Tromsø minted the
+    slug `troms` until this landed)."""
+
+    def test_undecomposable_letters_survive(self):
+        from .slugs import unique_slug
+        self.assertEqual(unique_slug('Tromsø'), 'tromso')
+        self.assertEqual(unique_slug('Łódź'), 'lodz')
+        self.assertEqual(unique_slug('Ærø'), 'aero')
+        self.assertEqual(unique_slug('Þingvellir'), 'thingvellir')
+
+    def test_dotless_i_is_an_i(self):
+        # Kırşehir has a name:en and it is byte-identical to the native
+        # name, so no English-first ladder upstream would have caught this.
+        from .slugs import unique_slug
+        self.assertEqual(unique_slug('Kırşehir'), 'kirsehir')
+
+    def test_one_letter_can_become_two(self):
+        from .slugs import unique_slug
+        self.assertEqual(unique_slug('Straße'), 'strasse')
+
+    def test_accented_bases_are_untouched(self):
+        from .slugs import unique_slug
+        self.assertEqual(unique_slug('Kraków'), 'krakow')
+        self.assertEqual(unique_slug('Bạc Liêu'), 'bac-lieu')
+
+
 class SlugAliasTests(ApiTestCase):
     """The slug alias table: creation invariant, alias lookups, the /place
     301, and the rename_place command (docs/slug-renames.md)."""
