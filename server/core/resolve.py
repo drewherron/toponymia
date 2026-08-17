@@ -86,10 +86,12 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
 
     element = None
     if qid:
-        element = overpass.choose_element(overpass.fetch_by_qid(qid))
+        element = overpass.choose_element(
+            overpass.fetch_by_qid(qid), feature_class
+        )
     if element is None:
         element = overpass.choose_element(
-            overpass.fetch_elements(name, lat, lng, radius)
+            overpass.fetch_elements(name, lat, lng, radius), feature_class
         )
     if element is None:
         return _create_name_anchor(name_en or name, feature_class, click), True

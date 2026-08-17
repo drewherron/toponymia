@@ -185,6 +185,110 @@ class OverpassLogicTests(TestCase):
         self.assertEqual(choose_element([land, boundary]), boundary)
         self.assertEqual(choose_element([boundary, land]), boundary)
 
+    def test_settlement_click_beats_the_province_of_the_same_name(self):
+        """Havana, as OSM really tags it (checked 2026-08-16).
+
+        Relation 1854615 is *Havana Province* (Q12588) and carries
+        `place=city` besides, because it is tagged for the capital inside
+        it. Node 26396457 is the city (Q1563). On the type rank alone the
+        relation won, so clicking the city's own label opened an article
+        about the province.
+        """
+        city = {
+            'type': 'node', 'id': 26396457, 'lat': 23.13, 'lon': -82.38,
+            'tags': {
+                'name': 'La Habana', 'wikidata': 'Q1563',
+                'place': 'city', 'capital': 'yes',
+            },
+        }
+        province = _relation(
+            osm_id=1854615, name='La Habana', qid='Q12588',
+        )
+        province['tags'].update({
+            'place': 'city',
+            'boundary': 'administrative',
+            'admin_level': '4',
+        })
+        self.assertEqual(choose_element([province, city], 'city'), city)
+        self.assertEqual(choose_element([city, province], 'city'), city)
+
+    def test_admin_click_still_gets_the_admin_area(self):
+        """The other direction of the same Havana data: a click on the
+        province's own label must not be dragged onto the city."""
+        city = {
+            'type': 'node', 'id': 26396457, 'lat': 23.13, 'lon': -82.38,
+            'tags': {
+                'name': 'La Habana', 'wikidata': 'Q1563', 'place': 'city',
+            },
+        }
+        province = _relation(
+            osm_id=1854615, name='La Habana', qid='Q12588',
+        )
+        province['tags'].update({
+            'place': 'city',
+            'boundary': 'administrative',
+            'admin_level': '4',
+        })
+        self.assertEqual(
+            choose_element([city, province], 'state'), province
+        )
+
+    def test_settlement_click_beats_the_country_of_the_same_name(self):
+        """Panama City (node 1242998122, Q3306) used to resolve to
+        relation 287668 — the country of Panama, Q804."""
+        city = {
+            'type': 'node', 'id': 1242998122, 'lat': 8.98, 'lon': -79.52,
+            'tags': {
+                'name': 'Panamá', 'wikidata': 'Q3306', 'place': 'city',
+            },
+        }
+        country = _relation(osm_id=287668, name='Panamá', qid='Q804')
+        country['tags'].update({
+            'boundary': 'administrative', 'admin_level': '2',
+        })
+        self.assertEqual(choose_element([country, city], 'city'), city)
+
+    def test_citys_own_boundary_relation_still_wins(self):
+        """Paris: node 17807753 and relation 7444 are both Q90, so they
+        are one entity and the relation is still the better anchor. The
+        entity rung must not cost us the geometry in the common case."""
+        node = {
+            'type': 'node', 'id': 17807753, 'lat': 48.86, 'lon': 2.35,
+            'tags': {'name': 'Paris', 'wikidata': 'Q90', 'place': 'city'},
+        }
+        boundary = _relation(osm_id=7444, name='Paris', qid='Q90')
+        boundary['tags'].update({
+            'boundary': 'administrative', 'admin_level': '8',
+        })
+        self.assertEqual(
+            choose_element([node, boundary], 'city'), boundary
+        )
+
+    def test_non_settlement_click_is_untouched(self):
+        """A river clicked beside a same-named town keeps resolving to the
+        river: only a settlement click seeds the entity rung."""
+        town = {
+            'type': 'node', 'id': 5, 'lat': 45.0, 'lon': -122.0,
+            'tags': {
+                'name': 'Mill Creek', 'wikidata': 'Q9', 'place': 'town',
+            },
+        }
+        river = _relation(osm_id=1236, name='Mill Creek', qid='Q1497')
+        self.assertEqual(
+            choose_element([town, river], 'waterway'), river
+        )
+
+    def test_settlement_without_a_qid_does_not_seed(self):
+        """No wikidata tag on the settlement means no evidence of which
+        entity was clicked, so the ladder is left as it was."""
+        town = {
+            'type': 'node', 'id': 5, 'lat': 45.0, 'lon': -122.0,
+            'tags': {'name': 'Springfield', 'place': 'town'},
+        }
+        county = _relation(osm_id=99, name='Springfield', qid='Q7')
+        county['tags']['boundary'] = 'administrative'
+        self.assertEqual(choose_element([town, county], 'town'), county)
+
     def test_bounds_kept_for_an_ordinary_extent(self):
         self.assertEqual(
             bounds_of(_relation()), (-95.2, 29.0, -89.1, 47.4)

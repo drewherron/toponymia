@@ -79,6 +79,28 @@ _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
 # tiebreak and Q142 resolved to a place titled "France (land mass)".
 _DEPRIORITISED_RELATION_TYPES = frozenset({'land_area'})
 
+# Populated places, as opposed to the administrative areas that contain
+# them. Read as OSM `place=*` values *and* as click classes: `kindOf()`
+# reports the tile `place` layer's own class, which uses the same words, so
+# one set serves both sides of the comparison in `choose_element`.
+#
+# Deliberately excludes `state`/`province`/`county`/`district`/`region`/
+# `country`, which is the entire point of the set — see `_settlement_qid`.
+SETTLEMENT_PLACES = frozenset({
+    'city',
+    'town',
+    'village',
+    'hamlet',
+    'borough',
+    'suburb',
+    'quarter',
+    'neighbourhood',
+    'municipality',
+    'locality',
+    'isolated_dwelling',
+    'city_block',
+})
+
 
 class OverpassError(Exception):
     """Overpass was unreachable or returned an unusable response."""
@@ -245,26 +267,96 @@ def _call(query, timeout_s=TIMEOUT_S):
     raise OverpassError(str(error)) from error
 
 
-def choose_element(elements):
+def _is_admin_area(element):
+    """True if this element is an administrative area rather than a place.
+
+    Both spellings, because either alone misses real data: the tag on the
+    relation is `boundary=administrative`, but some are typed only through
+    `type=boundary`.
+    """
+    tags = element.get('tags', {})
+    return (
+        tags.get('boundary') == 'administrative'
+        or tags.get('type') == 'boundary'
+    )
+
+
+def _settlement_qid(elements, feature_class):
+    """QID of the settlement *itself* among these candidates, or None.
+
+    A settlement and the administrative area named after it are two
+    entities that share a name and, often, a footprint — and a name+radius
+    query cannot tell them apart, because it returns both. Havana: OSM has
+    node 26396457 (`place=city`, `wikidata=Q1563`, the city) and relation
+    1854615 (`boundary=administrative`, `admin_level=4`,
+    `wikidata=Q12588`, **Havana Province**, which also carries
+    `place=city` because it is tagged for the capital it contains). Under
+    the type rank alone the relation won every time, so clicking the
+    city's own label wrote the province's article — and clicking Panama
+    City resolved to relation 287668, the *country* of Panama.
+
+    So when the click was on a settlement, find the element that is a
+    settlement rather than an administrative area, and let its QID say
+    which entity was asked for. `choose_element` then drops any candidate
+    carrying a *different* QID: same QID means the boundary relation is
+    that same city (Paris, Berlin, Wien, Buenos Aires — all still resolve
+    to the relation, which has the better geometry), a different QID means
+    a different place that merely shares the name.
+
+    Gated on `feature_class` in both directions, which is what keeps this
+    from inverting the bug or leaking into other categories:
+
+    - Only a settlement click seeds. Clicking the *province* label sends
+      `state`, no seed is taken, and the province still resolves to
+      Q12588 as it should.
+    - Only a settlement element seeds. Without that, a river clicked
+      beside a same-named town would be demoted in favour of the town.
+
+    A settlement with no `wikidata` tag yields no seed and so no change —
+    this sharpens the ladder where OSM gives us the evidence and leaves it
+    alone where it doesn't.
+    """
+    if feature_class not in SETTLEMENT_PLACES:
+        return None
+    seeds = [
+        element for element in elements
+        if element.get('tags', {}).get('place') in SETTLEMENT_PLACES
+        and not _is_admin_area(element)
+        and qid_of(element)
+    ]
+    if not seeds:
+        return None
+    return qid_of(min(seeds, key=lambda e: _TYPE_RANK.get(e['type'], 3)))
+
+
+def choose_element(elements, feature_class=None):
     """Pick the best anchor candidate per the resolution ladder.
 
-    Elements carrying a wikidata QID win (they anchor at level 1), then
-    relations over ways over nodes ("prefer the relation that ways belong
-    to"), then the place itself over a cartographic stand-in for it
-    (`_DEPRIORITISED_RELATION_TYPES`).
+    Candidates that are a *different entity* from the settlement clicked
+    go last (`_settlement_qid`). Then elements carrying a wikidata QID win
+    (they anchor at level 1), then relations over ways over nodes ("prefer
+    the relation that ways belong to"), then the place itself over a
+    cartographic stand-in for it (`_DEPRIORITISED_RELATION_TYPES`).
 
     Beyond that the order is Overpass's own, which is by id — so a tie is
     broken by whichever element was mapped first. That is arbitrary but
     stable; don't read meaning into it.
+
+    `feature_class` is the category the caller clicked, in `kindOf()`'s
+    vocabulary. Omitted, the entity rung is skipped and the rest of the
+    ladder is unchanged.
     """
     if not elements:
         return None
 
+    settlement_qid = _settlement_qid(elements, feature_class)
+
     def sort_key(element):
-        has_qid = qid_of(element) is not None
+        qid = qid_of(element)
         relation_type = element.get('tags', {}).get('type', '')
         return (
-            0 if has_qid else 1,
+            1 if settlement_qid and qid and qid != settlement_qid else 0,
+            0 if qid is not None else 1,
             _TYPE_RANK.get(element['type'], 3),
             1 if relation_type in _DEPRIORITISED_RELATION_TYPES else 0,
         )
