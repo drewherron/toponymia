@@ -4,10 +4,21 @@ Every place has a URL slug — `/place/ojai` — assigned once, automatically, w
 the place is first resolved. It shows in the address bar, in the sitemap, in the
 **Copy link** permalink, and in author-written cross-links (`[Ojai](/place/ojai)`).
 
-Because the slug is minted from whatever name resolved *first*, it is sometimes
-wrong: a typo, a name that was later corrected, or the wrong entity grabbing a
-clean name (a restaurant called OJAI taking `ojai` before the town of Ojai does,
-which lands the town on `ojai-2`). This document is how to fix that safely.
+When a name is already taken, the new place is disambiguated by the
+administrative area it sits in — `portland-oregon`, `portland-maine` — or, for
+an administrative area sharing its name with the place inside it, by its own
+type (`havana-province`). A plain number, `ojai-2`, is the last resort when
+neither applies.
+
+Two things that still need a human, which is what this document is for:
+
+- **The first place of a name keeps the bare slug**, whoever it happened to
+  be. That is mint order, not editorial judgement, so if the wrong entity got
+  there first — a restaurant called OJAI taking `ojai` before the town — the
+  fix is to rename it and let the town have the name. The old slug stays
+  behind as a redirect, so nothing breaks.
+- **A typo or a later-corrected name** leaves the original spelling in the
+  URL; nothing recomputes a slug after the fact.
 
 ## The one command
 
