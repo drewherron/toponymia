@@ -5030,18 +5030,22 @@ class AdminQualifierTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         _admin_box('Oregon', 'United States of America',
-                   -124.0, 42.0, -117.0, 46.0, wikidata_qid='Q824')
+                   -124.0, 42.0, -117.0, 46.0, wikidata_qid='Q824',
+                   subdivision_type='State')
         _admin_box('Washington', 'United States of America',
                    -124.0, 46.0, -117.0, 49.0)
         # Jamaica's first-order divisions are parishes, one of which is
         # named Portland — the case that forces the country fall-through.
-        _admin_box('Portland', 'Jamaica', -76.9, 17.9, -76.1, 18.4)
+        _admin_box('Portland', 'Jamaica', -76.9, 17.9, -76.1, 18.4,
+                   subdivision_type='Parish')
         # A microstate: its one subdivision shares the country's name.
         _admin_box('Monaco', 'Monaco', 10.0, 10.0, 11.0, 11.0)
 
-    def _qualify(self, lng, lat, name, qid=None):
+    def _qualify(self, lng, lat, name, qid=None, feature_class=None):
         from .admin_areas import qualifier_for
-        return qualifier_for(Point(lng, lat, srid=4326), name, qid)
+        return qualifier_for(
+            Point(lng, lat, srid=4326), name, qid, feature_class
+        )
 
     def test_containing_subdivision_qualifies(self):
         self.assertEqual(
@@ -5104,6 +5108,64 @@ class AdminQualifierTests(TestCase):
 
     def test_country_alias_shortens_the_formal_name(self):
         self.assertEqual(self._qualify(-120.0, 44.0, 'Oregon'), 'usa')
+
+    def test_admin_area_sharing_its_name_takes_its_type(self):
+        # Havana: the province is named after the city and sits on top of
+        # it, so no geography can separate them. The province is typed…
+        # …and with the country's own word, not the tile schema's: Jamaica
+        # has parishes, so `portland-parish`, never `portland-county`.
+        self.assertEqual(
+            self._qualify(-76.5, 18.2, 'Portland', feature_class='county'),
+            'parish',
+        )
+
+    def test_type_falls_back_to_the_clicked_class_without_ne_data(self):
+        # ~8% of NE rows carry no type at all.
+        AdminArea.objects.filter(country='Jamaica').update(subdivision_type='')
+        self.assertEqual(
+            self._qualify(-76.5, 18.2, 'Portland', feature_class='county'),
+            'county',
+        )
+
+    def test_the_settlement_twin_is_not_typed(self):
+        # …while the city falls through to the ordinary ladder, so it can
+        # still hold the bare slug. This is the asymmetry that makes the
+        # pair independent of mint order.
+        self.assertEqual(
+            self._qualify(-76.5, 18.2, 'Portland', feature_class='city'),
+            'jamaica',
+        )
+
+    def test_typing_needs_the_name_to_actually_match(self):
+        # An ordinary county inside Oregon is qualified by Oregon, not by
+        # the word 'county' — the type rung is only for the twin case.
+        self.assertEqual(
+            self._qualify(-120.0, 44.0, 'Multnomah', feature_class='county'),
+            'oregon',
+        )
+
+    def test_boundary_clicks_are_not_typed(self):
+        # 'boundary' names the geometry, not the thing; `portland-boundary`
+        # would tell a reader nothing, so it takes the ordinary ladder.
+        self.assertEqual(
+            self._qualify(-76.5, 18.2, 'Portland', feature_class='boundary'),
+            'jamaica',
+        )
+
+    def test_type_rung_beats_the_country_for_a_state(self):
+        self.assertEqual(
+            self._qualify(-120.0, 44.0, 'Oregon', feature_class='state'),
+            'state',
+        )
+
+    def test_pipe_joined_ne_types_take_the_first(self):
+        # NE writes alternatives as 'Commune|Municipality'; the loader
+        # keeps the primary, so the slug never grows a hyphenated pair.
+        from .admin_areas import _fragment
+        area = AdminArea.objects.get(country='Jamaica')
+        area.subdivision_type = 'Commune'
+        area.save(update_fields=['subdivision_type'])
+        self.assertEqual(_fragment(area.subdivision_type), 'commune')
 
     def test_qualifier_is_transliterated(self):
         _admin_box('Troms', 'Norway', 18.0, 69.0, 20.0, 70.0)

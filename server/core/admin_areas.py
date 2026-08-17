@@ -68,6 +68,21 @@ COUNTRY_ALIASES = {
 }
 
 
+# Feature classes that name an administrative *division* rather than a
+# settlement. A place in one of these that shares its name with the area
+# containing it is qualified by its own type instead of by geography — see
+# admin_qualifier.
+#
+# 'boundary' is deliberately absent even though it is an admin click: it
+# names the geometry, not the thing, and `havana-boundary` tells a reader
+# nothing. Such a click falls through to the ordinary ladder.
+# 'municipality' and 'borough' are absent too — in much of the world they
+# are settlements, and typing a settlement is exactly what this must not do.
+ADMIN_AREA_CLASSES = frozenset({
+    'state', 'province', 'region', 'district', 'county',
+})
+
+
 def _fragment(name):
     """Slug-safe form of an area name, or None if nothing survives."""
     return slugify(transliterate(name or ''))[:QUALIFIER_MAX_CHARS] or None
@@ -104,15 +119,27 @@ def nearest_admin_area(point):
     return area
 
 
-def admin_qualifier(area, name, qid=None):
-    """A slug fragment naming what contains a place, or None.
+def admin_qualifier(area, name, qid=None, feature_class=None):
+    """A slug fragment naming what distinguishes a place, or None.
 
-    Subdivision, else country, else None. `name` and `qid` are the place
-    being minted, needed for the self-reference guard: a place that *is* its
-    own subdivision must not mint `oregon-oregon`, so it falls through to the
-    country instead — which is exactly what turns Portland Parish into
-    `portland-jamaica`. Falling through, not skipping to the numeric floor,
-    matters because same-name-as-subdivision is common rather than exotic.
+    Type, else subdivision, else country, else None. `name`, `qid` and
+    `feature_class` describe the place being minted; they drive the
+    self-reference guard, without which a place that *is* its own
+    subdivision would mint `oregon-oregon`.
+
+    The **type** rung exists for co-located twins — a city and the
+    administrative area named after it, like Havana or Québec. Geography
+    cannot separate those two: they share a subdivision and a country, so
+    the ordinary ladder gives both the same qualifier and mint order decides
+    which one gets the bare slug. What separates them is *what they are*, so
+    an admin area sharing its name with its own container takes its type
+    (`havana-province`) and the settlement keeps the plain name
+    (`havana`) — the same precedence the resolver already applies when it
+    picks the city over the province for a click.
+
+    The type word is the country's own (`parish`, `governorate`, `emirate`)
+    where Natural Earth supplies one, falling back to the clicked
+    `feature_class` for the ~8% of rows that carry no type.
     """
     if area is None:
         return None
@@ -126,8 +153,17 @@ def admin_qualifier(area, name, qid=None):
     if fragment is not None and fragment in {aliased, raw}:
         return None
 
+    is_the_subdivision = _is_same_place(area, name, qid)
+    if is_the_subdivision and feature_class in ADMIN_AREA_CLASSES:
+        # `feature_class` decides *whether* to type — it is how we know an
+        # admin area was clicked rather than the settlement twin. The word
+        # itself comes from NE where possible, because NE knows the
+        # country's own term: `portland-parish` for Jamaica rather than the
+        # tile schema's `portland-county`.
+        return _fragment(area.subdivision_type) or _fragment(feature_class)
+
     subdivision = _fragment(area.subdivision)
-    if subdivision and not _is_same_place(area, name, qid):
+    if subdivision and not is_the_subdivision:
         return subdivision
 
     return aliased
@@ -160,11 +196,13 @@ def _is_same_place(area, name, qid):
     }
 
 
-def qualifier_for(point, name, qid=None):
+def qualifier_for(point, name, qid=None, feature_class=None):
     """Convenience for the mint paths: look up and qualify in one call.
 
     Prefer the two-step form where the caller also wants the AdminArea
     itself (to store admin context on the Place) — this exists so a caller
     that only needs the slug fragment doesn't have to know about areas.
     """
-    return admin_qualifier(nearest_admin_area(point), name, qid)
+    return admin_qualifier(
+        nearest_admin_area(point), name, qid, feature_class
+    )
