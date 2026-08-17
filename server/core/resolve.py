@@ -17,6 +17,7 @@ from django.contrib.gis.measure import D
 from django.db.models import Q
 
 from . import feature_classes, overpass
+from .admin_areas import admin_qualifier, nearest_admin_area
 from .models import Place
 from .slugs import unique_slug
 
@@ -200,8 +201,21 @@ def _create_from_element(element, qid, name, feature_class, click,
     )
     geometry = simplified(geometry)
 
+    # Qualify from label_point, never the click: on the fetch_by_qid path
+    # the Overpass query is worldwide, so the element can be nowhere near
+    # where the user clicked, and a click-derived qualifier would name the
+    # wrong country outright. label_point is guaranteed to lie on the
+    # feature. For a river it is also mid-course and therefore
+    # deterministic, so a linear feature's qualifier no longer depends on
+    # which segment someone happened to hit.
+    area = nearest_admin_area(label_point)
+
     return Place.objects.create(
-        slug=unique_slug(display_name),
+        slug=unique_slug(
+            display_name,
+            admin_qualifier(area, display_name, qid, feature_class),
+        ),
+        **_admin_context(area),
         wikidata_qid=qid,
         osm_type=element['type'],
         osm_id=anchor_id if anchor_id is not None else element['id'],
@@ -396,8 +410,13 @@ def _component_bounds(component):
 
 
 def _create_name_anchor(name, feature_class, click):
+    # The click is the anchor here — Overpass knows nothing about this
+    # place — so it is also the right point to qualify from.
+    area = nearest_admin_area(click)
     return Place.objects.create(
-        slug=unique_slug(name),
+        slug=unique_slug(name, admin_qualifier(area, name, None,
+                                               feature_class)),
+        **_admin_context(area),
         anchor_level=Place.AnchorLevel.NAME,
         display_name=name,
         feature_class=feature_class,
@@ -405,3 +424,19 @@ def _create_name_anchor(name, feature_class, click):
         centroid=click,
         label_point=click,
     )
+
+
+def _admin_context(area):
+    """Place fields recording where an area lookup landed.
+
+    Empty dict when nothing was found, so the columns keep their blank
+    defaults rather than being written as the string 'None'.
+    """
+    if area is None:
+        return {}
+    return {
+        'admin_country': area.country,
+        'admin_country_iso': area.country_iso,
+        'admin_subdivision': area.subdivision,
+        'admin_subdivision_iso': area.subdivision_iso,
+    }

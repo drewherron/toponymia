@@ -5173,6 +5173,96 @@ class AdminQualifierTests(TestCase):
         self.assertEqual(self._qualify(10.35, 54.9, 'Marstal'), 'aero')
 
 
+class ResolveQualifiesTests(ApiTestCase):
+    """The mint paths actually consult the boundary table: the slug gets a
+    qualifier and the row keeps the admin context behind it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _admin_box('Oregon', 'United States of America',
+                   -124.0, 42.0, -117.0, 46.0, country_iso='US',
+                   subdivision_iso='US-OR', subdivision_type='State')
+        _admin_box('Maine', 'United States of America',
+                   -71.1, 43.0, -66.9, 47.5, country_iso='US',
+                   subdivision_iso='US-ME', subdivision_type='State')
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('qualifier', password='pw12345!')
+        self.client.force_login(self.user)
+
+    def _post(self, **overrides):
+        payload = {
+            'name': 'Portland',
+            'class': 'city',
+            'lngLat': [-122.6, 45.5],
+            'zoom': 12,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('core:resolve'), payload, content_type='application/json'
+        )
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_second_namesake_is_qualified_by_its_state(self, fetch):
+        fetch.return_value = []
+        first = self._post(
+            name='Portland', **{'class': 'city'}, lngLat=[-122.6, 45.5]
+        ).json()['place']
+        second = self._post(
+            name='Portland', **{'class': 'city'}, lngLat=[-70.2, 43.6]
+        ).json()['place']
+        self.assertEqual(first['slug'], 'portland')
+        self.assertEqual(second['slug'], 'portland-maine')
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_admin_context_is_stored_even_without_a_collision(self, fetch):
+        fetch.return_value = []
+        slug = self._post(
+            name='Ojai', **{'class': 'city'}, lngLat=[-122.6, 45.5]
+        ).json()['place']['slug']
+        place = Place.objects.get(slug=slug)
+        self.assertEqual(place.admin_subdivision, 'Oregon')
+        self.assertEqual(place.admin_subdivision_iso, 'US-OR')
+        self.assertEqual(place.admin_country, 'United States of America')
+        self.assertEqual(place.admin_country_iso, 'US')
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_context_blank_when_nothing_contains_the_place(self, fetch):
+        fetch.return_value = []
+        slug = self._post(
+            name='Nowhere', **{'class': 'city'}, lngLat=[0.0, 0.0]
+        ).json()['place']['slug']
+        place = Place.objects.get(slug=slug)
+        self.assertEqual(place.admin_subdivision, '')
+        self.assertEqual(place.admin_country, '')
+
+    @patch('core.resolve.overpass.fetch_way_geometry')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_element_is_qualified_from_label_point_not_the_click(
+        self, fetch, fetch_geom
+    ):
+        """A worldwide fetch_by_qid match can sit nowhere near the click.
+
+        The click here is in Maine and the way is in Oregon; the slug must
+        follow the feature, not the finger.
+        """
+        way = {'type': 'way', 'id': 77, 'tags': {'name': 'Portland'},
+               'bounds': {'minlat': 45.4, 'minlon': -122.8,
+                          'maxlat': 45.6, 'maxlon': -122.5}}
+        fetch.return_value = [way]
+        fetch_geom.return_value = [(-122.7, 45.45), (-122.6, 45.55)]
+        _make_place(name='Portland', slug='portland')
+        place = self._post(
+            name='Portland', **{'class': 'city'}, lngLat=[-70.2, 43.6]
+        ).json()['place']
+        self.assertEqual(place['slug'], 'portland-oregon')
+        self.assertEqual(
+            Place.objects.get(slug='portland-oregon').admin_subdivision,
+            'Oregon',
+        )
+
+
 class SlugQualifierTests(TestCase):
     """unique_slug's ladder: bare, then qualified, then numeric."""
 

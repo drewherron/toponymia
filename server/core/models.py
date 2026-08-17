@@ -40,6 +40,21 @@ class Place(models.Model):
     # far off it, so article dots hang here instead. Null → use centroid.
     label_point = models.PointField(geography=True, null=True, blank=True)
     bbox = models.PolygonField(geography=True, null=True, blank=True)
+    # Where this place sits administratively, captured from AdminArea at
+    # mint time (core.admin_areas). Stored rather than recomputed because
+    # it is free at mint and answers three things later: the picker
+    # subtitle ("Portland — Oregon, United States"), retro-disambiguation
+    # of older rows, and changing the qualifier rule without re-resolving
+    # anything.
+    #
+    # Derived from the same point that chose the slug qualifier, so the two
+    # never disagree. Blank when the mint found no admin area within
+    # tolerance — mid-ocean, or a box where load_admin_boundaries has not
+    # run. NOT authoritative geography: see AdminArea.
+    admin_country = models.CharField(max_length=120, blank=True)
+    admin_country_iso = models.CharField(max_length=8, blank=True)
+    admin_subdivision = models.CharField(max_length=120, blank=True)
+    admin_subdivision_iso = models.CharField(max_length=16, blank=True)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
