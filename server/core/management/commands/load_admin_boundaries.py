@@ -76,7 +76,7 @@ class Command(BaseCommand):
         try:
             layer = DataSource(source)[0]
         except Exception as exc:
-            raise CommandError(f'Could not open {source}: {exc}')
+            raise CommandError(f'Could not open {source}: {exc}') from exc
 
         total = len(layer)
         self.stdout.write(f'Loading {total} features from {path}…')
