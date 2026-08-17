@@ -153,7 +153,7 @@ function AboutDialog({ onClose, onOpenDoc }: AboutDialogProps) {
           target="_blank"
           rel="noreferrer"
         >
-          ☕ Support me on Ko-fi
+          Support the site
         </a>
       </div>
     </div>
