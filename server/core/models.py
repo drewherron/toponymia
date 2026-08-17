@@ -608,6 +608,59 @@ class ModAction(models.Model):
         return f'{self.action} by {self.actor_id} on {self.target_user_id}'
 
 
+class AdminArea(models.Model):
+    """A first-order administrative subdivision, for qualifying slugs.
+
+    Loaded wholesale from Natural Earth by `load_admin_boundaries`; nothing
+    in the app writes it. Its one job is to answer "what contains this
+    point" so `Portland` can mint `portland-oregon` instead of `portland-2`.
+
+    NOT an authority on borders and not user-visible as geography: the
+    geometry is 1:10m generalised and further thinned on load, which puts
+    coastlines up to a few km inland of the truth. Lookups are
+    nearest-within-tolerance rather than point-in-polygon for exactly that
+    reason (core.admin_areas) — Tromsø sits 2.7 km off its own county here.
+    Don't use this table to decide anything but a slug.
+
+    `subdivision` is whatever tier that country's first-order division
+    happens to be — US states, Jamaican parishes, English counties. That
+    inconsistency is deliberate and documented; a readable qualifier beats a
+    uniform one.
+    """
+
+    subdivision = models.CharField(max_length=120)
+    # Natural Earth's local-script `name`, kept only so a future rule can
+    # prefer it; the qualifier uses `subdivision` (NE's name_en).
+    subdivision_local = models.CharField(max_length=120, blank=True)
+    # The country's own word for this tier — Parish, Governorate, Emirate,
+    # Province — used to name a place that shares its name with the area
+    # containing it (`portland-parish`). Blank for the 8% of NE rows that
+    # carry no type, which fall back to the clicked feature_class.
+    subdivision_type = models.CharField(max_length=60, blank=True)
+    country = models.CharField(max_length=120)
+    country_a3 = models.CharField(max_length=8, blank=True)
+    country_iso = models.CharField(max_length=8, blank=True)
+    # ISO 3166-2, e.g. 'US-OR'. Blank for rows NE has no code for.
+    subdivision_iso = models.CharField(max_length=16, blank=True)
+    # Lets the self-reference guard compare identity rather than spelling,
+    # so minting the state of Georgia is recognised as *being* the
+    # subdivision it sits in. Blank for rows NE has no QID for.
+    wikidata_qid = models.CharField(max_length=32, blank=True)
+    # Plain geometry, not geography: the lookup is a KNN `<->` search, and
+    # that operator is both faster and better-indexed on geometry. At these
+    # tolerances planar 4326 distance is entirely adequate.
+    geometry = models.MultiPolygonField(srid=4326)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['subdivision']),
+            models.Index(fields=['country']),
+        ]
+
+    def __str__(self):
+        return f'{self.subdivision}, {self.country}'
+
+
 class TermsAcceptance(models.Model):
     """A user's affirmative agreement to a specific version of the Terms.
 
