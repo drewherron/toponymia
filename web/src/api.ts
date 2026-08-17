@@ -694,7 +694,37 @@ async function allauthErrorMessage(response: Response): Promise<string> {
   } catch {
     // non-JSON error body; fall through to the status code
   }
+  // allauth's throttles answer a bare `{"status": 429}` with no errors array,
+  // which would surface to the user as the string "429". The one that bites on
+  // a real path is confirm_email at 1/10s/key: sign up, reload, log in again
+  // straight away, and the login is refused rather than re-sending the code.
+  if (response.status === 429) {
+    return 'Too many attempts just now. Wait a moment and try again.'
+  }
   return `${response.status}`
+}
+
+/** allauth answers **401 with a pending `verify_email` flow** whenever the
+ *  credentials were accepted but the address was never confirmed — after a
+ *  signup, and equally when an account that abandoned verification logs in.
+ *  It is not an error either time: the code has just been emailed and the
+ *  caller's job is to collect it.
+ *
+ *  Read the flow rather than the bare status, because a 401 alone does not
+ *  mean this: any other pending login stage answers 401 too, and must not be
+ *  shown an email-code box. Wrong credentials are a 400, not a 401.
+ *
+ *  Clone before reading — the body is a stream, and an unrecognised 401 goes
+ *  on to allauthErrorMessage, which needs to read it again. */
+async function emailVerificationPending(response: Response): Promise<boolean> {
+  if (response.status !== 401) return false
+  try {
+    const body = await response.clone().json()
+    const flows: { id: string; is_pending?: boolean }[] = body?.data?.flows ?? []
+    return flows.some((flow) => flow.id === 'verify_email' && flow.is_pending)
+  } catch {
+    return false
+  }
 }
 
 /** django-allauth headless browser API for calls whose only success is 2xx. */
@@ -718,9 +748,27 @@ async function allauth(
  *  the caller's single value has to be routed to one of them. "@" is the test:
  *  usernames exclude it (core/validators.py) precisely so this can't be
  *  ambiguous. */
-export function login(identifier: string, password: string): Promise<void> {
+export async function login(
+  identifier: string,
+  password: string,
+): Promise<{ verificationRequired: boolean }> {
   const key = identifier.includes('@') ? 'email' : 'username'
-  return allauth('POST', '/auth/login', { [key]: identifier, password })
+  const response = await fetch('/_allauth/browser/v1/auth/login', {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ [key]: identifier, password }),
+  })
+  // Not delegated to the allauth() helper: that one is for calls whose only
+  // success is 2xx, and it turned this 401 into a thrown Error("401") that no
+  // screen could act on — an account that abandoned verification could log in
+  // and land nowhere. The password was right and a fresh code is on its way.
+  if (await emailVerificationPending(response)) {
+    return { verificationRequired: true }
+  }
+  if (!response.ok) {
+    throw new Error(await allauthErrorMessage(response))
+  }
+  return { verificationRequired: false }
 }
 
 /** Signup requires an email. With mandatory verification allauth answers 401
@@ -741,7 +789,7 @@ export async function signup(
     // what makes agreement a real precondition of having an account.
     body: JSON.stringify({ username, email, password, terms }),
   })
-  if (response.status === 401) {
+  if (await emailVerificationPending(response)) {
     return { verificationRequired: true }
   }
   if (!response.ok) {

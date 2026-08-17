@@ -43,7 +43,9 @@ function AuthControl({
 }: AuthControlProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   // Signup is two steps under mandatory verification: the form, then the code
-  // allauth emailed. 'verify' is only ever reached from a signup. Password
+  // allauth emailed. 'verify' is reached from a *login* too, by an account
+  // that abandoned verification and came back — same pending flow, same code
+  // box, so the step is shared rather than duplicated. Password
   // reset is the same shape from the other direction — 'forgot' asks for the
   // address, 'reset' takes the emailed code plus the new password — which is
   // why reset is by code and not by link: no step here needs a page of its own.
@@ -151,7 +153,20 @@ function AuthControl({
         return done()
       })
     } else {
-      work = login(username, password).then(done)
+      work = login(username, password).then((result) => {
+        // An account that never confirmed its address. allauth accepted the
+        // password and re-sent the code, so this is the same code step signup
+        // uses — not a failure. Without it the 401 dead-ended here.
+        if (result.verificationRequired) {
+          // The verify step names the address it mailed. On a login we only
+          // know it when the user typed one, and only because they typed it —
+          // never report an address back that they didn't supply.
+          if (username.includes('@')) setEmail(username)
+          setStep('verify')
+          return
+        }
+        return done()
+      })
     }
     work
       .catch((err: Error) => setError(err.message))
@@ -191,8 +206,18 @@ function AuthControl({
       {verifyStep ? (
         <>
           <p className="auth-note">
-            We emailed a verification code to <strong>{email}</strong>. Enter it
-            to finish creating your account.
+            {email ? (
+              <>
+                We emailed a verification code to <strong>{email}</strong>.
+              </>
+            ) : (
+              // Reached by logging in with a username, so the address is the
+              // account's and not ours to display.
+              <>We emailed a verification code to the address on your account.</>
+            )}{' '}
+            {mode === 'login'
+              ? 'Enter it to finish signing in.'
+              : 'Enter it to finish creating your account.'}
           </p>
           <label>
             Verification code
