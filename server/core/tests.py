@@ -5279,6 +5279,15 @@ def _parish(name):
     return _area(name, 10, designation='civil_parish')
 
 
+def _place_area(name, kind='town'):
+    """A settlement polygon: `boundary=place`, no admin_level at all."""
+    return {
+        'type': 'area',
+        'id': 3600000000 + abs(hash(name)) % 1000000,
+        'tags': {'name': name, 'boundary': 'place', 'place': kind},
+    }
+
+
 class ResolveLocalityRungTests(ApiTestCase):
     """The locality rung end to end: what contains the feature lands in
     the slug, at a scale that matches how far the feature reaches."""
@@ -5816,6 +5825,112 @@ class ScaleMatchingTests(ApiTestCase):
         self.assertEqual(
             self._post('Church Lane', -0.57, 53.31), 'church-lane-lincolnshire'
         )
+
+
+class UnparishedTownTests(TestCase):
+    """Settlement polygons, for the England that has no civil parish.
+
+    Fixtures are the real Erewash response [Overpass, 2026-08-19]: the
+    point sits in a district named after a river, and the town it is
+    actually in arrives only as `boundary=place`.
+    """
+
+    EREWASH = [
+        _area('United Kingdom', 2), _area('England', 4),
+        _area('East Midlands', 5), _area('Derbyshire', 6),
+        _area('Erewash', 8, designation='non_metropolitan_district'),
+    ]
+
+    def test_district_alone_names_a_river_not_a_town(self):
+        # What shipped before this: Erewash is a district named after the
+        # River Erewash and holds Ilkeston, Long Eaton and Sandiacre.
+        self.assertEqual(overpass.locality_name(self.EREWASH), 'Erewash')
+
+    def test_a_settlement_polygon_outranks_the_district(self):
+        self.assertEqual(
+            overpass.locality_name(
+                [*self.EREWASH, _place_area('Ilkeston', 'town')]
+            ),
+            'Ilkeston',
+        )
+
+    def test_a_civil_parish_still_outranks_a_settlement_polygon(self):
+        # The parish is the finer grain of the two, so where England has
+        # one it keeps winning.
+        self.assertEqual(
+            overpass.locality_name([
+                _area('Derbyshire Dales', 8), _place_area('Somewhere', 'town'),
+                _parish('Brailsford CP'),
+            ]),
+            'Brailsford CP',
+        )
+
+    def test_a_suburb_polygon_is_refused(self):
+        # `boundary=place` is not a licence: naming a street after part of
+        # a town is the outcome TOWN_PLACES exists to prevent.
+        self.assertEqual(
+            overpass.locality_name(
+                [*self.EREWASH, _place_area('Cotmanhay', 'suburb')]
+            ),
+            'Erewash',
+        )
+
+    def test_a_place_polygon_without_a_place_tag_is_refused(self):
+        areas = [*self.EREWASH,
+                 {'type': 'area', 'id': 9, 'tags': {'name': 'Mystery',
+                                                    'boundary': 'place'}}]
+        self.assertEqual(overpass.locality_name(areas), 'Erewash')
+
+
+class AreaQueryUnionTests(TestCase):
+    """Both queries ask for settlement polygons as well as admin areas."""
+
+    @patch('core.overpass._call')
+    def test_the_click_query_asks_for_both(self, call):
+        call.return_value = []
+        overpass.fetch_elements('Church Street', 52.99, -1.31, 60)
+        query = call.call_args[0][0]
+        self.assertIn('area.a[boundary=administrative]', query)
+        self.assertIn('area.a[boundary=place]', query)
+
+    @patch('core.overpass._call')
+    def test_the_intersection_query_asks_for_both(self, call):
+        call.return_value = []
+        overpass.fetch_common_areas([Point(-1.31, 52.99, srid=4326),
+                                     Point(-1.30, 52.99, srid=4326)])
+        query = call.call_args[0][0]
+        self.assertIn('area.p0.p1[boundary=administrative]', query)
+        self.assertIn('area.p0.p1[boundary=place]', query)
+
+
+class UnparishedResolveTests(ApiTestCase):
+    """End to end: a street in an unparished town takes the town."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _admin_box('Derbyshire', 'United Kingdom',
+                   -2.0, 52.7, -1.1, 53.5, country_iso='GB')
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('unparished', password='pw12345!')
+        self.client.force_login(self.user)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_the_town_wins_over_the_district(self, fetch):
+        fetch.return_value = [
+            _area('Derbyshire', 6),
+            _area('Erewash', 8, designation='non_metropolitan_district'),
+            _place_area('Ilkeston', 'town'),
+        ]
+        _make_place(name='Church Street', slug='church-street')
+        slug = self.client.post(
+            reverse('core:resolve'),
+            {'name': 'Church Street', 'class': 'road',
+             'lngLat': [-1.31398, 52.99017], 'zoom': 15},
+            content_type='application/json',
+        ).json()['place']['slug']
+        self.assertEqual(slug, 'church-street-ilkeston')
 
 
 class SlugQualifierTests(TestCase):

@@ -103,6 +103,42 @@ TOWN_PLACES = frozenset({
     'city', 'town', 'village', 'hamlet', 'municipality',
 })
 
+# Where `boundary=place` settlement polygons rank against admin levels.
+#
+# They exist because much of urban England is **unparished** — there is no
+# civil parish to find, so the ladder falls to the level-8 district, and
+# whether that reads correctly is an accident of naming. Stafford district
+# is named after Stafford town, so `church-lane-stafford` is right.
+# Erewash district is named after a river and contains Ilkeston, Long Eaton
+# and Sandiacre, so `church-street-erewash` names nothing a reader can
+# place. OSM says as much outright: the point sits in a polygon called
+# `Erewash (unparished area)`.
+#
+# A `boundary=place` polygon is the town itself, by containment, and it
+# arrives in the same free `is_in` response. Ranked at 9: **below** a civil
+# parish, which is finer-grained and should keep winning, and **above** the
+# level-8 district it exists to beat.
+#
+# **Partial by nature — do not expect it to close the gap.** Coverage is
+# sparse [surveyed 2026-08-19, one Overpass query over the East Midlands
+# and Lincolnshire]: 40 such polygons in the whole region, and of 19 towns
+# sampled only Ilkeston, Long Eaton, Boston, Grantham and Spalding have
+# one. Worksop, Retford, Gainsborough, Market Rasen, Louth, Skegness,
+# Newark-on-Trent, Sleaford and Sandiacre have none and still take their
+# district. All 40 are relations; none are closed ways, so nothing is
+# gained by looking for those.
+PLACE_BOUNDARY_RANK = 9
+
+# The two kinds of containing area worth keeping, as an Overpass union.
+# Filtering server-side is load-bearing rather than tidy: `is_in` also
+# emits plain ways (a tidal river at one Boston point), and it returns
+# timezones, ceremonial and traditional counties, fire and weather zones
+# alongside the real areas.
+_AREA_UNION = (
+    'area{sets}[boundary=administrative];'
+    'area{sets}[boundary=place];'
+)
+
 QID_RE = re.compile(r'^Q\d+$')
 
 _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
@@ -183,7 +219,7 @@ def fetch_elements(name, lat, lon, radius):
         f'nwr["name"="{_escape(name)}"](around:{radius},{lat},{lon});'
         'out tags bb;'
         f'is_in({lat},{lon})->.a;'
-        'area.a[boundary=administrative]->.b;'
+        f'({_AREA_UNION.format(sets=".a")})->.b;'
         '.b out tags;'
     )
     return _call(query)
@@ -216,7 +252,7 @@ def fetch_common_areas(points):
     sets = ''.join(f'.p{i}' for i in range(len(points)))
     query = (
         f'[out:json][timeout:25];{statements}'
-        f'area{sets}[boundary=administrative]->.common;'
+        f'({_AREA_UNION.format(sets=sets)})->.common;'
         '.common out tags;'
     )
     return [e for e in _call(query) if e.get('type') == 'area']
@@ -238,9 +274,10 @@ def split_areas(elements):
 def locality_name(areas):
     """Name of the most local nameable area in `areas`, or None.
 
-    "Most local" is the highest admin_level that survives `_is_nameable`,
-    so the answer tracks whatever tier the country actually uses: Portland
-    at 8, City of Edinburgh at 6 (Scotland has no 8), Ingham CP at 10.
+    "Most local" is the highest `_locality_rank`, so the answer tracks
+    whatever tier the country actually uses: Portland at 8, City of
+    Edinburgh at 6 (Scotland has no 8), Ingham CP at 10, and Ilkeston via
+    its settlement polygon where England is unparished.
 
     Prefers `name:en`, which is absent far more often than not (Lincoln,
     Lincolnshire and Multnomah County all carry only `name`) but matters
@@ -248,53 +285,60 @@ def locality_name(areas):
     """
     best = None
     for area in areas:
-        tags = area.get('tags', {})
-        level = _admin_level(area)
-        if level is None or not _is_nameable(tags, level):
+        rank = _locality_rank(area)
+        if rank is None:
             continue
+        tags = area.get('tags', {})
         name = tags.get('name:en') or tags.get('name')
-        if name and (best is None or level > best[0]):
-            best = (level, name)
+        if name and (best is None or rank > best[0]):
+            best = (rank, name)
     return best[1] if best else None
 
 
-def _admin_level(area):
-    """An area's admin_level as an int, or None if it hasn't got one.
+def _locality_rank(area):
+    """How local this area is, or None if its name may not stand in a slug.
 
-    `boundary` is re-checked here even though the queries already filter
-    on it server-side, because an admin_level alone does not mean
-    administrative: Edinburgh's `is_in` carries 'East Central Scotland', a
-    level-6 *statistical* region that would otherwise outrank the city.
-    Defence in depth, since the cost of a query drifting is a permanent
-    slug naming a region nobody lives in.
+    Higher is more local, and the scale is admin_level's, so the two kinds
+    of area compare directly: a civil parish at 10 beats a settlement
+    polygon at 9, which beats a district at 8.
+
+    `boundary` decides which rules apply, and is checked here even though
+    the queries already filter on it server-side. An admin_level alone does
+    not mean administrative — Edinburgh's `is_in` carries 'East Central
+    Scotland', a level-6 *statistical* region that would otherwise outrank
+    the city — and the cost of a query drifting is a permanent slug naming
+    a region nobody lives in.
     """
     tags = area.get('tags', {})
-    if tags.get('boundary') != 'administrative':
+    boundary = tags.get('boundary')
+
+    if boundary == 'place':
+        # A settlement polygon is only ever the settlement, so its `place`
+        # value is the whole test — and TOWN_PLACES is what keeps a
+        # `place=suburb` polygon from naming a street after part of a town.
+        return (
+            PLACE_BOUNDARY_RANK if tags.get('place') in TOWN_PLACES else None
+        )
+    if boundary != 'administrative':
         return None
+
     try:
-        return int(tags.get('admin_level'))
+        level = int(tags.get('admin_level'))
     except (TypeError, ValueError):
         return None
-
-
-def _is_nameable(tags, level):
-    """May this area's name stand in a slug?
-
-    In the band, yes. Below it, only with evidence that the area is a
-    settlement and not a piece of one — which is what admits an English
-    civil parish (the village) while still refusing an American level-10
-    neighbourhood.
-    """
     if level in LOCALITY_ADMIN_LEVELS:
-        return True
+        return level
     if level <= max(LOCALITY_ADMIN_LEVELS):
-        # Country and state: NE already supplies these, and the rung
-        # below would only repeat them.
-        return False
-    return (
-        tags.get('designation') in SETTLEMENT_DESIGNATIONS
-        or tags.get('place') in TOWN_PLACES
-    )
+        # Country and state: NE already supplies these, and this rung
+        # would only repeat them.
+        return None
+    # Below the band, only on evidence that this is a settlement rather
+    # than a piece of one — an English civil parish, not an American
+    # level-10 neighbourhood.
+    if (tags.get('designation') in SETTLEMENT_DESIGNATIONS
+            or tags.get('place') in TOWN_PLACES):
+        return level
+    return None
 
 
 def fetch_by_qid(qid):
