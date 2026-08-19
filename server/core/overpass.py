@@ -4,6 +4,8 @@ Pure logic, no Django imports: everything here works on plain dicts as
 returned by the Overpass JSON API.
 """
 
+import contextlib
+import contextvars
 import math
 import re
 import time
@@ -30,13 +32,64 @@ OVERPASS_URLS = [
 ]
 TIMEOUT_S = 15
 # A cache-missing click hits Overpass live while the user waits, and a
-# rejection is almost always a transient "no free slot" (429/504) that
-# clears in seconds — so retry, backing off, before giving up. The budget
-# is bounded by what a user will sit through rather than by hope: four
-# passes at ~8s a rejection plus the backoffs is ~40s worst case.
+# rejection is often a transient "no free slot" (504) that clears in
+# seconds — so retry, backing off, before giving up.
+#
+# **These are per-call and they are not the real limit.** The ceiling that
+# matters is the request-wide budget below, because the ladder used to be
+# sized against user patience alone and that turned out to be a fiction:
+# gunicorn kills a worker at `--timeout`, so four passes at 15 s each plus
+# 10 s of backoff — 70 s — never completed. It was shot at 30 s, five times
+# on 2026-08-19 alone, and each kill is a 502 for whoever clicked.
 RETRY_BACKOFFS_S = (1, 3, 6)
+
+# 429 is not 504 and must not be retried like one. A "no free slot" clears
+# on its own; a rate limit is Overpass telling us to stop, and asking again
+# a second later is what deepens it — `overpass-api.de` refused three
+# consecutive *trivial* queries after roughly six requests in a session
+# [observed 2026-08-17]. So: one retry, after a pause long enough to be
+# worth making, and only if the request's budget still allows it.
+RATE_LIMIT_BACKOFF_S = 5
+RATE_LIMIT_RETRIES = 1
 # overpass-api.de 406es generic client user agents; identify ourselves.
 USER_AGENT = 'toponymia/0.1 (dherron@mailbox.org)'
+
+# The request-wide Overpass budget, in seconds, or None for "no limit".
+#
+# Set per web request (core.views.resolve) and deliberately *not* set for
+# management commands and other batch callers, which can afford to wait and
+# have no worker being killed out from under them.
+#
+# It exists because per-call limits cannot bound a *request*: one resolve
+# chains several calls, and a road that needed elements + component +
+# geometry + containing areas could spend minutes between them while
+# gunicorn's patience ran out at 30 s. A deadline shared by every call is
+# the only thing that adds up correctly.
+_deadline = contextvars.ContextVar('overpass_deadline', default=None)
+
+
+@contextlib.contextmanager
+def budget(seconds):
+    """Give every Overpass call inside this block one shared deadline.
+
+    Calls that are merely *enriching* — the component walk, relation
+    geometry, containing areas — already degrade when Overpass fails, so
+    running out of budget costs detail rather than the resolution. The two
+    that decide identity, `fetch_elements` and `fetch_by_qid`, run first
+    and so get the budget while it is untouched.
+    """
+    token = _deadline.set(time.monotonic() + seconds)
+    try:
+        yield
+    finally:
+        _deadline.reset(token)
+
+
+def _seconds_left():
+    """Budget remaining, or math.inf when no budget is in force."""
+    deadline = _deadline.get()
+    return math.inf if deadline is None else deadline - time.monotonic()
+
 
 # Click radius: ~20px at the given zoom/latitude, clamped so low zooms
 # don't sweep in half a country and high zooms still catch label offsets.
@@ -456,24 +509,90 @@ def fetch_way_component(way_id, name):
     return _call(query, timeout_s=COMPONENT_TIMEOUT_S)
 
 
+class _RateLimited(Exception):
+    """Overpass answered 429. Distinct from every other failure because the
+    right response is to back off hard, not to try again immediately."""
+
+
 def _call(query, timeout_s=TIMEOUT_S):
+    """Run `query`, retrying transient failures within the budget.
+
+    Three things bound this, and the tightest wins:
+
+    - `timeout_s`, how long one attempt may wait on the socket;
+    - the retry ladder, how many attempts are worth making;
+    - `_seconds_left()`, the request-wide deadline — which is what keeps
+      the sum under gunicorn's `--timeout` instead of over it.
+
+    Never sleeps past the deadline and never starts an attempt it cannot
+    finish inside it, so a caller that runs out of budget fails *now* with
+    an OverpassError rather than being killed mid-request.
+    """
     error = None
-    for pause in (0, *RETRY_BACKOFFS_S):
+    backoffs = iter(RETRY_BACKOFFS_S)
+    rate_limit_retries = RATE_LIMIT_RETRIES
+    pause = 0
+
+    while True:
+        left = _seconds_left()
+        # No time to wait out the backoff and still make the request.
+        if left <= 0 or pause >= left:
+            break
         if pause:
             time.sleep(pause)
-        for url in OVERPASS_URLS:
-            try:
-                response = requests.post(
-                    url,
-                    data={'data': query},
-                    headers={'User-Agent': USER_AGENT},
-                    timeout=timeout_s,
-                )
-                response.raise_for_status()
-                return response.json().get('elements', [])
-            except (requests.RequestException, ValueError) as exc:
-                error = exc
-    raise OverpassError(str(error)) from error
+            left = _seconds_left()
+            if left <= 0:
+                break
+        try:
+            return _attempt(query, min(timeout_s, left))
+        except _RateLimited as exc:
+            error = exc
+            if rate_limit_retries <= 0:
+                break
+            rate_limit_retries -= 1
+            pause = RATE_LIMIT_BACKOFF_S
+        except (requests.RequestException, ValueError) as exc:
+            error = exc
+            pause = next(backoffs, None)
+            if pause is None:
+                break
+
+    raise OverpassError(str(error) if error else 'out of time') from error
+
+
+def _attempt(query, timeout_s):
+    """One pass over every mirror. Raises rather than returning on failure.
+
+    A 429 does not short-circuit the pass: another mirror may well answer,
+    and only when none of them does is this a rate limit worth backing off
+    from. If mirrors disagree — one limiting, one merely busy — the limit
+    wins, because the longer pause is the safe way to be wrong.
+    """
+    error = None
+    rate_limited = False
+    for url in OVERPASS_URLS:
+        try:
+            response = requests.post(
+                url,
+                data={'data': query},
+                headers={'User-Agent': USER_AGENT},
+                timeout=timeout_s,
+            )
+            # Checked before raise_for_status, which would flatten the 429
+            # into an HTTPError indistinguishable from the 504 we *do*
+            # want to retry hard.
+            if response.status_code == 429:
+                rate_limited = True
+                continue
+            response.raise_for_status()
+            return response.json().get('elements', [])
+        except (requests.RequestException, ValueError) as exc:
+            error = exc
+    if rate_limited:
+        raise _RateLimited('every mirror rate limited')
+    if error is not None:
+        raise error
+    raise OverpassError('no Overpass mirrors configured')
 
 
 def _is_admin_area(element):

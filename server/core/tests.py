@@ -356,9 +356,12 @@ class OverpassLogicTests(TestCase):
 
 
 class _FakeResponse:
-    def __init__(self, elements=None, http_error=None):
+    def __init__(self, elements=None, http_error=None, status_code=200):
         self._elements = elements or []
         self._http_error = http_error
+        # Read before raise_for_status: 429 is handled by status rather
+        # than by exception, so that it keeps its own retry policy.
+        self.status_code = status_code
 
     def raise_for_status(self):
         if self._http_error:
@@ -421,6 +424,195 @@ class OverpassCallTests(TestCase):
         passes = 1 + len(RETRY_BACKOFFS_S)
         self.assertEqual(post.call_count, passes * len(OVERPASS_URLS))
 
+
+class OverpassRateLimitTests(TestCase):
+    """429 is not 504, and must not be retried like one."""
+
+    def _limited(self):
+        return _FakeResponse(status_code=429)
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_a_rate_limit_is_retried_once_not_four_times(self, post, sleep):
+        """Asking again a second later is what deepens a rate limit.
+
+        The transient ladder makes four passes; this must not.
+        """
+        from core.overpass import OVERPASS_URLS, RATE_LIMIT_RETRIES
+        post.return_value = self._limited()
+        with self.assertRaises(OverpassError):
+            fetch_elements('Nowhere', 0.0, 0.0, 500)
+        self.assertEqual(
+            post.call_count,
+            (1 + RATE_LIMIT_RETRIES) * len(OVERPASS_URLS),
+        )
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_a_rate_limit_backs_off_further_than_a_transient(self, post,
+                                                             sleep):
+        from core.overpass import RATE_LIMIT_BACKOFF_S, RETRY_BACKOFFS_S
+        post.return_value = self._limited()
+        with self.assertRaises(OverpassError):
+            fetch_elements('Nowhere', 0.0, 0.0, 500)
+        waited = [call.args[0] for call in sleep.call_args_list]
+        self.assertEqual(waited, [RATE_LIMIT_BACKOFF_S])
+        self.assertGreater(RATE_LIMIT_BACKOFF_S, RETRY_BACKOFFS_S[0])
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_a_rate_limit_on_one_mirror_still_tries_the_others(self, post,
+                                                              sleep):
+        from core.overpass import OVERPASS_URLS
+        if len(OVERPASS_URLS) < 2:
+            self.skipTest('single mirror configured')
+        post.side_effect = [self._limited(),
+                            _FakeResponse(elements=[_relation()])]
+        self.assertEqual(len(fetch_elements('X', 0.0, 0.0, 500)), 1)
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_a_504_still_uses_the_transient_ladder(self, post, sleep):
+        # The distinction is the whole point: "no free slot" clears in
+        # seconds and is worth riding out.
+        from core.overpass import OVERPASS_URLS, RETRY_BACKOFFS_S
+        post.side_effect = requests.exceptions.ConnectionError('no free slot')
+        with self.assertRaises(OverpassError):
+            fetch_elements('Nowhere', 0.0, 0.0, 500)
+        self.assertEqual(
+            post.call_count,
+            (1 + len(RETRY_BACKOFFS_S)) * len(OVERPASS_URLS),
+        )
+
+
+class OverpassBudgetTests(TestCase):
+    """The request-wide deadline — what keeps the retry ladders from
+    outlasting gunicorn's --timeout and killing the worker."""
+
+    def setUp(self):
+        self.now = 1000.0
+
+    def _clock(self):
+        return self.now
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_without_a_budget_nothing_changes(self, post, sleep):
+        from core.overpass import OVERPASS_URLS, RETRY_BACKOFFS_S
+        post.side_effect = requests.exceptions.ConnectionError('down')
+        with self.assertRaises(OverpassError):
+            fetch_elements('Nowhere', 0.0, 0.0, 500)
+        self.assertEqual(
+            post.call_count,
+            (1 + len(RETRY_BACKOFFS_S)) * len(OVERPASS_URLS),
+        )
+
+    @patch('core.overpass.requests.post')
+    def test_an_exhausted_budget_stops_retrying(self, post):
+        """The failure that used to be a killed worker and a 502."""
+        post.side_effect = requests.exceptions.ConnectionError('down')
+
+        def sleeper(seconds):
+            self.now += seconds
+
+        with patch('core.overpass.time.monotonic', self._clock), \
+                patch('core.overpass.time.sleep', sleeper):
+            with overpass.budget(2):
+                with self.assertRaises(OverpassError):
+                    fetch_elements('Nowhere', 0.0, 0.0, 500)
+
+        # First pass, then a 1 s backoff fits; the 3 s one does not.
+        from core.overpass import OVERPASS_URLS
+        self.assertEqual(post.call_count, 2 * len(OVERPASS_URLS))
+
+    @patch('core.overpass.requests.post')
+    def test_no_attempt_is_started_that_cannot_finish(self, post):
+        post.side_effect = requests.exceptions.ConnectionError('down')
+        with patch('core.overpass.time.monotonic', self._clock), \
+                patch('core.overpass.time.sleep'):
+            with overpass.budget(0):
+                with self.assertRaises(OverpassError):
+                    fetch_elements('Nowhere', 0.0, 0.0, 500)
+        post.assert_not_called()
+
+    @patch('core.overpass.requests.post')
+    def test_the_socket_timeout_is_clamped_to_what_is_left(self, post):
+        """A 15 s socket wait inside a 5 s budget would overshoot."""
+        post.return_value = _FakeResponse(elements=[_relation()])
+        with patch('core.overpass.time.monotonic', self._clock):
+            with overpass.budget(5):
+                fetch_elements('X', 0.0, 0.0, 500)
+        self.assertEqual(post.call_args.kwargs['timeout'], 5)
+
+    @patch('core.overpass.requests.post')
+    def test_a_generous_budget_leaves_the_timeout_alone(self, post):
+        from core.overpass import TIMEOUT_S
+        post.return_value = _FakeResponse(elements=[_relation()])
+        with patch('core.overpass.time.monotonic', self._clock):
+            with overpass.budget(600):
+                fetch_elements('X', 0.0, 0.0, 500)
+        self.assertEqual(post.call_args.kwargs['timeout'], TIMEOUT_S)
+
+    def test_the_budget_is_released_afterwards(self):
+        import math
+        with overpass.budget(5):
+            self.assertLess(overpass._seconds_left(), 6)
+        self.assertEqual(overpass._seconds_left(), math.inf)
+
+
+class ResolveBudgetTests(ApiTestCase):
+    """The web path spends a bounded amount on Overpass; batch callers do
+    not, because nothing is killing them."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('budget', password='pw12345!')
+        self.client.force_login(self.user)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_the_view_sets_a_budget(self, fetch):
+        import math
+        seen = {}
+
+        def record(*args, **kwargs):
+            seen['left'] = overpass._seconds_left()
+            return []
+
+        fetch.side_effect = record
+        self.client.post(
+            reverse('core:resolve'),
+            {'name': 'Ojai', 'class': 'city', 'lngLat': [-119.2, 34.4],
+             'zoom': 12},
+            content_type='application/json',
+        )
+        self.assertNotEqual(seen['left'], math.inf)
+        self.assertLessEqual(seen['left'], views.RESOLVE_OVERPASS_BUDGET_S)
+
+    def test_the_budget_fits_inside_the_worker_timeout(self):
+        """If this ever fails, the unit file and the app disagree and the
+        worker gets killed mid-request again."""
+        from pathlib import Path
+        unit = (Path(__file__).resolve().parents[2]
+                / 'deploy' / 'box' / 'toponymia.service').read_text()
+        match = re.search(r'--timeout (\d+)', unit)
+        self.assertIsNotNone(match, 'gunicorn --timeout is not set')
+        self.assertGreater(
+            int(match.group(1)), views.RESOLVE_OVERPASS_BUDGET_S
+        )
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_management_caller_gets_no_budget(self, fetch):
+        import math
+        seen = {}
+
+        def record(*args, **kwargs):
+            seen['left'] = overpass._seconds_left()
+            return []
+
+        fetch.side_effect = record
+        from core import resolve as resolution
+        resolution.resolve('Ojai', 'city', -119.2, 34.4, 12)
+        self.assertEqual(seen['left'], math.inf)
 
 class ResolveApiTests(ApiTestCase):
     """Resolution as a signed-in user. Creating a place calls Overpass and

@@ -53,6 +53,7 @@ from .moderation import (
 )
 from .notify import notify_new_report, notify_report_outcome
 from .overpass import QID_RE, OverpassError
+from .overpass import budget as overpass_budget
 from .serializers import (
     ArticleDeleteSerializer,
     ArticleEditSerializer,
@@ -71,6 +72,15 @@ from .throttles import (
     TalkWriteThrottle,
     WriteThrottle,
 )
+
+# What one resolve request may spend on Overpass, retries and every
+# follow-up call included. Comfortably inside gunicorn's --timeout (60 s in
+# deploy/box/toponymia.service) so the worker is never killed mid-request,
+# and short enough that a click either answers or fails while someone is
+# still watching. The calls that decide identity run first, so when the
+# budget does run out it costs cached geometry and a slug qualifier rather
+# than the resolution itself.
+RESOLVE_OVERPASS_BUDGET_S = 25
 
 MAX_HIGHLIGHTS = 500
 # Contributions ship in one response rather than per viewport, so this cap
@@ -323,10 +333,17 @@ def resolve(request):
 
     allow_create = request.user.is_authenticated
     try:
-        place, created = resolution.resolve(
-            name.strip(), feature_class, lng, lat, zoom, name_en, qid=qid,
-            allow_create=allow_create,
-        )
+        # Bound every Overpass call this request makes to one shared
+        # deadline. Without it the retry ladders add up past gunicorn's
+        # --timeout and the worker is killed mid-request, which reaches the
+        # user as a 502 rather than as the 503 below. Management commands
+        # call resolve() without a budget on purpose: they can wait, and
+        # nothing is killing them.
+        with overpass_budget(RESOLVE_OVERPASS_BUDGET_S):
+            place, created = resolution.resolve(
+                name.strip(), feature_class, lng, lat, zoom, name_en,
+                qid=qid, allow_create=allow_create,
+            )
     except DisallowedFeatureClass:
         # The UI never offers these, so reaching here means a hand-made
         # request or a category the allowlist hasn't been taught yet. Name

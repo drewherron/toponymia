@@ -100,7 +100,22 @@ www.toponymia.org {
 	}
 
 	handle {
-		reverse_proxy 127.0.0.1:8000
+		# Retry rather than 502 while gunicorn is not accepting. There are
+		# two such windows and neither is exotic: a deploy restart takes
+		# ~800 ms between the old master closing the socket and the new one
+		# binding it, and `Restart=always` with `RestartSec=3` means a
+		# crashed master is gone for ~4 s. Without this, every request that
+		# lands in one is an error page; with it, they wait and then
+		# succeed.
+		#
+		# lb_try_duration applies to a single upstream too — Caddy keeps
+		# retrying this one for the duration rather than needing a pool.
+		# Kept well under the client's patience, and unrelated to how long
+		# a *served* request may take, which is gunicorn's --timeout.
+		reverse_proxy 127.0.0.1:8000 {
+			lb_try_duration 10s
+			lb_try_interval 250ms
+		}
 	}
 
 	import accesslog

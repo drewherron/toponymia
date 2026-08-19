@@ -19,6 +19,13 @@ After=network-online.target postgresql.service redis-server.service
 Wants=network-online.target
 
 [Service]
+# notify, not the default simple: gunicorn's arbiter sends READY=1 *after*
+# it has created its listening sockets (arbiter.py, right below the
+# "Listening at" log), so `systemctl restart` returns when the socket is
+# actually accepting. Under simple, systemd called the unit started at
+# fork — 147 ms before the bind on 2026-08-19 — and anything that curled
+# the site immediately afterwards got a connection refused.
+Type=notify
 User=toponymia
 Group=toponymia
 WorkingDirectory=/srv/toponymia/server
@@ -36,9 +43,19 @@ EnvironmentFile=/etc/toponymia/env
 # captures; DJANGO_LOG_DIR additionally gives the log shipper a self-rotating
 # file, and the CloudWatch metric filter keys on the `ERROR django.request`
 # lines that appear in both.
+# --timeout is set explicitly because the default, 30 s, was never chosen
+# and did not fit: a click that misses the cache calls Overpass, whose retry
+# ladders could run for over a minute, so the worker was killed mid-request
+# and the visitor got a 502. That fired five times on 2026-08-19 alone. The
+# real fix is on the app side — core.views.RESOLVE_OVERPASS_BUDGET_S caps
+# what one request may spend on Overpass — and this is the backstop with
+# headroom above it, not the mechanism. Keep it comfortably larger than
+# that budget; if this number ever has to rise, the budget is what is
+# actually wrong.
 ExecStart=/srv/toponymia/.venv/bin/gunicorn config.wsgi:application \
     --bind 127.0.0.1:8000 \
-    --workers 3
+    --workers 3 \
+    --timeout 60
 
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=always
