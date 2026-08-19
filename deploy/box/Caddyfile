@@ -96,7 +96,32 @@ www.toponymia.org {
 		not remote_ip 127.0.0.1/32 REPLACE_WITH_ADMIN_IP/32
 	}
 	handle @admin_denied {
-		respond 403
+		# Answer exactly as any unknown URL does, rather than 403.
+		#
+		# A bare `respond 403` was uniquely distinctive: every other path on
+		# this site — /totally-random-xyz, /place/does-not-exist, /api/nope —
+		# returns 404 with the 2127-byte SPA shell, so a 403 with an empty
+		# body told a scanner that something real sits at /admin/, that it is
+		# IP-gated, and (since /admin/ is the Django convention) what is
+		# behind it. Measured 2026-08-19 from a non-allowlisted address.
+		#
+		# Rewriting to an unroutable path and proxying gives back whatever
+		# the app currently serves for a URL it does not know: same status,
+		# same length, same markup, differing only in the per-request CSP
+		# nonce — like any two page loads. It stays correct on its own as
+		# the SPA changes, which a hardcoded body here would not.
+		#
+		# The underscores matter: place slugs are [a-z0-9-], so this path can
+		# never collide with a real place and start returning 200.
+		#
+		# **This conceals, it does not protect.** The access control is the
+		# remote_ip match above; this only denies reconnaissance a free hit.
+		# Note the operator cost, accepted deliberately: from a non-allowed
+		# address the admin now looks like an ordinary dead link rather than
+		# a refusal, so a changed home IP presents as "wrong URL" instead of
+		# "blocked" — see DEPLOYMENT.md §7 for the address-change procedure.
+		rewrite * /__unknown
+		reverse_proxy 127.0.0.1:8000
 	}
 
 	handle {
