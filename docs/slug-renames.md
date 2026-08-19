@@ -4,12 +4,14 @@ Every place has a URL slug — `/place/ojai` — assigned once, automatically, w
 the place is first resolved. It shows in the address bar, in the sitemap, in the
 **Copy link** permalink, and in author-written cross-links (`[Ojai](/place/ojai)`).
 
-When a name is already taken, the new place is disambiguated by where it sits.
-For a street or anything else inside a town, that is the town —
-`high-street-lincoln`, `main-street-portland`. Otherwise it is the wider
+When a name is already taken, the new place is disambiguated by where it sits,
+at a scale that matches how far it reaches. A street inside one town is named
+for the town — `high-street-lincoln`, `main-street-portland`. A road running
+through several towns is named for the wider area that holds all of them,
+because no one town describes where it is. Beyond that it takes the
 administrative area — `portland-oregon`, `portland-maine` — or, for an
 administrative area sharing its name with the place inside it, its own type
-(`havana-province`). Both can stack where a town name is itself ambiguous:
+(`havana-province`). These stack where a town name is itself ambiguous:
 `main-street-portland-oregon`. A plain number, `ojai-2`, is the last resort
 when none of them applies.
 
