@@ -10,14 +10,18 @@ then nothing — and `unique_slug` falls back to a numeric suffix when this
 returns None. Minting must never block or fail on a qualifier, so every path
 here returns None rather than raising.
 
-Below all of those sits the **city** rung (`city_qualifier`), which does not
-come from this table at all: NE admin-1 has no tier under the subdivision, so
-every Main Street in Oregon computes the same qualifier here. Its source is
-Overpass `is_in`, riding along on the mint's existing request — see
-`overpass.city_name`. The city rung is the *more* specific of the two, so
-`unique_slug` tries `main-street-portland` before `main-street-portland-oregon`;
-this table stays the universal floor for a mint that has no city, which keeps a
-topobot mint or a failed `is_in` at exactly today's behaviour.
+Below all of those sits the **locality** rung (`locality_qualifier`), which
+does not come from this table at all: NE admin-1 has no tier under the
+subdivision, so every Main Street in Oregon computes the same qualifier here.
+Its source is Overpass `is_in` — see `overpass.locality_name`. The locality is
+the *more* specific of the two, so `unique_slug` tries `main-street-portland`
+before `main-street-portland-oregon`; this table stays the universal floor for
+a mint that has no locality, which keeps a topobot mint or a failed `is_in` at
+exactly today's behaviour.
+
+The locality is chosen to match the **feature's own extent**, not the point
+someone clicked: a street inside one village gets the village, a road through
+three gets the district that holds all three. `resolve` does that part.
 
 The subdivision tier is deliberately *not* consistent worldwide: NE's
 admin-1 layer is US states, Jamaican parishes and English counties alike, and
@@ -103,12 +107,17 @@ _UNIT_PREFIX_RE = re.compile(
     r'^(?:city|county|borough|district|municipality)\s+of\s+', re.IGNORECASE
 )
 
+# England's civil parishes are named 'Ingham CP' in OSM — the suffix is
+# the boundary type, not part of the village's name, and nobody writing
+# about Ingham would type it.
+_UNIT_SUFFIX_RE = re.compile(r'\s+CP$')
 
-def city_qualifier(city, name, area=None):
-    """A slug fragment naming the city a place sits in, or None.
 
-    `city` is a raw area name from `overpass.city_name`; `name` is the
-    place being minted, and `area` its AdminArea if one was found.
+def locality_qualifier(locality, name, area=None):
+    """A slug fragment naming the town or village a place sits in, or None.
+
+    `locality` is a raw area name from `overpass.locality_name`; `name` is
+    the place being minted, and `area` its AdminArea if one was found.
 
     Declines whenever the fragment would say nothing new. Against the
     place itself, because a click on Portland must not mint
@@ -120,7 +129,8 @@ def city_qualifier(city, name, area=None):
     duplicate of the one below it, and would escalate to the nonsense
     `high-street-lincolnshire-lincolnshire`.
     """
-    fragment = _fragment(_UNIT_PREFIX_RE.sub('', city or ''))
+    trimmed = _UNIT_SUFFIX_RE.sub('', _UNIT_PREFIX_RE.sub('', locality or ''))
+    fragment = _fragment(trimmed)
     if fragment is None or fragment == _fragment(name):
         return None
     if area is not None:

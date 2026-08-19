@@ -69,17 +69,39 @@ EXCLUDED_MEMBER_ROLES = frozenset({'side_stream', 'tributary', 'inner'})
 # is already the better answer.
 LINEAR_RELATION_TYPES = frozenset({'waterway', 'route'})
 
-# Administrative levels that name a *city*, for the slug qualifier rung
-# below Natural Earth's subdivision. The band is what excludes both ends:
-# 2 and 4 are the country and the state NE already gives us, and 10 is the
-# neighbourhood — `main-street-downtown` names nothing a reader can place.
+# Administrative levels that always name somewhere a reader can place, for
+# the slug qualifier rung below Natural Earth's subdivision. 2 and 4 are the
+# country and the state NE already gives us, so the band starts at 5.
 #
-# The upper bound is 8 because that is the city almost everywhere checked,
-# and the *max* within the band is taken rather than a fixed level because
+# The *max* within the band is taken rather than a fixed level, because
 # Scotland has no level 8 at all: City of Edinburgh is 6, the same rung as
-# Lincolnshire in England. Taking the most local thing in the band absorbs
-# that variation without a per-country table.
-CITY_ADMIN_LEVELS = frozenset({5, 6, 7, 8})
+# Lincolnshire in England.
+LOCALITY_ADMIN_LEVELS = frozenset({5, 6, 7, 8})
+
+# Below the band, a level is admitted only on evidence that it is a
+# settlement rather than a piece of one.
+#
+# **This is the correction to the first cut of this rung**, which capped at
+# 8 and claimed the max-in-band rule absorbed per-country variation without
+# a table. Production disproved that on 2026-08-19: in rural England level 8
+# is a *district* — West Lindsey holds ~50 villages — so four Church Lanes
+# in four villages all took `church-lane-west-lindsey` and fell to the
+# numeric tail the rung exists to prevent. The village is level 10, the
+# civil parish, which the cap had excluded.
+#
+# What separates it from a neighbourhood is a tag, not a number. Ingham CP
+# carries `designation=civil_parish`; Portland's level-10 "Downtown"
+# carries no designation and no `place` at all [both verified against
+# Overpass, 2026-08-19].
+SETTLEMENT_DESIGNATIONS = frozenset({'civil_parish'})
+
+# `place` values that name a settlement in its own right. Narrower than
+# SETTLEMENT_PLACES on purpose: `suburb`, `quarter`, `neighbourhood` and
+# `city_block` are parts of a town, and naming a street after one of them
+# is the `main-street-downtown` outcome this guards against.
+TOWN_PLACES = frozenset({
+    'city', 'town', 'village', 'hamlet', 'municipality',
+})
 
 QID_RE = re.compile(r'^Q\d+$')
 
@@ -167,6 +189,39 @@ def fetch_elements(name, lat, lon, radius):
     return _call(query)
 
 
+def fetch_common_areas(points):
+    """Administrative areas containing **every** one of `points`.
+
+    This is what matches the qualifier's scale to the feature's own
+    extent. A street inside one village has all its probe points in that
+    village, so the village survives the intersection and names the slug.
+    A road running through three villages shares only the district with
+    itself, so the district does — which is the right answer rather than a
+    consolation, because no one village describes where that road is.
+    The same mechanism handles a river across several counties, and a
+    feature out in open country, whose points share only whatever wide
+    area actually contains it.
+
+    Overpass intersects the sets itself — `area.p0.p1.p2` is membership of
+    all three — so however many points are probed this stays **one
+    request**, and the response is already the answer rather than three
+    sets to reconcile here.
+    """
+    if not points:
+        return []
+    statements = ''.join(
+        f'is_in({point.y},{point.x})->.p{i};'
+        for i, point in enumerate(points)
+    )
+    sets = ''.join(f'.p{i}' for i in range(len(points)))
+    query = (
+        f'[out:json][timeout:25];{statements}'
+        f'area{sets}[boundary=administrative]->.common;'
+        '.common out tags;'
+    )
+    return [e for e in _call(query) if e.get('type') == 'area']
+
+
 def split_areas(elements):
     """(features, containing_areas) from one fetch_elements response.
 
@@ -180,13 +235,12 @@ def split_areas(elements):
     return features, areas
 
 
-def city_name(areas):
-    """Name of the most local city-scale area in `areas`, or None.
+def locality_name(areas):
+    """Name of the most local nameable area in `areas`, or None.
 
-    "City-scale" is CITY_ADMIN_LEVELS, and the most local is the *highest*
-    level in that band — Portland (8) over Multnomah County (6), with
-    Downtown (10) out of range. Verified against real `is_in` responses
-    2026-08-18: Portland 8, Boston 8, Lincoln 8, City of Edinburgh 6.
+    "Most local" is the highest admin_level that survives `_is_nameable`,
+    so the answer tracks whatever tier the country actually uses: Portland
+    at 8, City of Edinburgh at 6 (Scotland has no 8), Ingham CP at 10.
 
     Prefers `name:en`, which is absent far more often than not (Lincoln,
     Lincolnshire and Multnomah County all carry only `name`) but matters
@@ -195,24 +249,52 @@ def city_name(areas):
     best = None
     for area in areas:
         tags = area.get('tags', {})
-        # `boundary` is re-checked here even though fetch_elements already
-        # filters on it server-side, because an admin_level alone does not
-        # mean administrative: Edinburgh's `is_in` carries 'East Central
-        # Scotland', a level-6 *statistical* region that would otherwise
-        # outrank the city. Defence in depth, since the cost of the query
-        # drifting is a permanent slug naming a region nobody lives in.
-        if tags.get('boundary') != 'administrative':
-            continue
-        try:
-            level = int(tags.get('admin_level'))
-        except (TypeError, ValueError):
-            continue
-        if level not in CITY_ADMIN_LEVELS:
+        level = _admin_level(area)
+        if level is None or not _is_nameable(tags, level):
             continue
         name = tags.get('name:en') or tags.get('name')
         if name and (best is None or level > best[0]):
             best = (level, name)
     return best[1] if best else None
+
+
+def _admin_level(area):
+    """An area's admin_level as an int, or None if it hasn't got one.
+
+    `boundary` is re-checked here even though the queries already filter
+    on it server-side, because an admin_level alone does not mean
+    administrative: Edinburgh's `is_in` carries 'East Central Scotland', a
+    level-6 *statistical* region that would otherwise outrank the city.
+    Defence in depth, since the cost of a query drifting is a permanent
+    slug naming a region nobody lives in.
+    """
+    tags = area.get('tags', {})
+    if tags.get('boundary') != 'administrative':
+        return None
+    try:
+        return int(tags.get('admin_level'))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_nameable(tags, level):
+    """May this area's name stand in a slug?
+
+    In the band, yes. Below it, only with evidence that the area is a
+    settlement and not a piece of one — which is what admits an English
+    civil parish (the village) while still refusing an American level-10
+    neighbourhood.
+    """
+    if level in LOCALITY_ADMIN_LEVELS:
+        return True
+    if level <= max(LOCALITY_ADMIN_LEVELS):
+        # Country and state: NE already supplies these, and the rung
+        # below would only repeat them.
+        return False
+    return (
+        tags.get('designation') in SETTLEMENT_DESIGNATIONS
+        or tags.get('place') in TOWN_PLACES
+    )
 
 
 def fetch_by_qid(qid):

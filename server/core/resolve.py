@@ -17,15 +17,25 @@ from django.contrib.gis.measure import D
 from django.db.models import Q
 
 from . import feature_classes, overpass
-from .admin_areas import admin_qualifier, city_qualifier, nearest_admin_area
+from .admin_areas import (
+    admin_qualifier,
+    locality_qualifier,
+    nearest_admin_area,
+)
 from .models import Place
 from .slugs import unique_slug
 
-# How far label_point may sit from the click and still take the click's
-# city as a slug qualifier. Generous for a city and far short of a river:
-# a street component is a few km end to end, while the Columbia's label
-# point is ~400 km from a Portland click.
-CITY_RUNG_MAX_OFFSET_M = 25_000
+# Below this end-to-end extent, a feature is small enough that the point
+# someone clicked already answers what contains it, so the mint spends no
+# extra Overpass request to ask again about three points that would all
+# land in the same village. Above it, the feature may span more than one
+# area and the intersection is worth a request.
+PROBE_MIN_EXTENT_M = 1_000
+
+# How far label_point may sit from the click and still let the *click's*
+# areas qualify the slug. Only guards the small-feature path above, where
+# the areas come from the click rather than from the feature's own course.
+CLICK_AREA_MAX_OFFSET_M = 25_000
 
 
 def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
@@ -92,10 +102,10 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
         return None, False
 
     element = None
-    # Containing administrative areas, for the city rung of the slug
+    # Containing administrative areas, for the locality rung of the slug
     # qualifier. Only the name query carries them: `fetch_by_qid` is a
     # worldwide lookup whose element can be nowhere near this click, so
-    # anything derived from the click would name the wrong city outright.
+    # anything derived from the click would name the wrong town outright.
     areas = []
     if qid:
         element = overpass.choose_element(
@@ -158,6 +168,52 @@ def _metres_between(a, b):
     h = (math.sin((lat2 - lat1) / 2) ** 2
          + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
     return 2 * 6_371_000 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def _areas_containing_all_of(geometry, click, label_point, click_areas):
+    """Administrative areas that contain the *whole* feature.
+
+    This is what keeps the qualifier's scale honest. Asking `is_in` about
+    one point says only where that point is, and for anything longer than
+    a village street that is a coin toss between the areas it passes
+    through. Asking about the start, middle and end and keeping what they
+    share says how far the feature actually reaches, so the name that ends
+    up in the slug is one that describes all of it.
+
+    Two shortcuts, both of which return the click's own areas — free,
+    since they arrived with the mint's first request:
+
+    - **No line to walk** (a node, an area relation, a failed geometry
+      fetch). There is nothing to span, so one point is the whole story.
+    - **A feature under PROBE_MIN_EXTENT_M end to end.** Its three probe
+      points would land in the same place the click did, so the request
+      would buy nothing.
+
+    Never raises. A qualifier is a nicety and a mint is not: an Overpass
+    failure here falls back to the click's areas, and the ladder below
+    still has Natural Earth and the numeric floor under it.
+    """
+    points = probe_points(geometry)
+    if points is None or _spread_m(points) < PROBE_MIN_EXTENT_M:
+        # The click's areas describe the click. That is the same place as
+        # the feature for a small one, but on the fetch_by_qid path the
+        # element can be a continent away, so check before trusting it.
+        if _metres_between(click, label_point) > CLICK_AREA_MAX_OFFSET_M:
+            return []
+        return click_areas or []
+    try:
+        return overpass.fetch_common_areas(points)
+    except overpass.OverpassError:
+        return []
+
+
+def _spread_m(points):
+    """Greatest distance between any two of `points`."""
+    return max(
+        (_metres_between(a, b) for i, a in enumerate(points)
+         for b in points[i + 1:]),
+        default=0.0,
+    )
 
 
 def _component_for(element, name):
@@ -243,24 +299,19 @@ def _create_from_element(element, qid, name, feature_class, click,
     # which segment someone happened to hit.
     area = nearest_admin_area(label_point)
 
-    # The city rung comes from `is_in` at the *click*, while everything
-    # else here is qualified from label_point — so it only applies when
-    # the two are close enough to be in the same city. They usually are:
-    # a street's component is local. A long river's are not, and this is
-    # what stops a click on the Columbia near Portland from minting
-    # `columbia-river-portland` when its label point is 400 km upstream
-    # in Washington.
-    city = None
-    if _metres_between(click, label_point) <= CITY_RUNG_MAX_OFFSET_M:
-        city = city_qualifier(
-            overpass.city_name(areas or []), display_name, area
-        )
+    locality = locality_qualifier(
+        overpass.locality_name(
+            _areas_containing_all_of(geometry, click, label_point, areas)
+        ),
+        display_name,
+        area,
+    )
 
     return Place.objects.create(
         slug=unique_slug(
             display_name,
             admin_qualifier(area, display_name, qid, feature_class),
-            city=city,
+            locality=locality,
         ),
         **_admin_context(area),
         wikidata_qid=qid,
@@ -402,6 +453,23 @@ def representative_point(geometry):
         return None
     if geometry.geom_type == 'Point':
         return geometry
+    line = main_line(geometry)
+    if line is not None:
+        midpoint = line.interpolate_normalized(0.5)
+        return Point(midpoint.x, midpoint.y, srid=4326)
+    # Areas and anything else: the guaranteed-interior point.
+    return geometry.point_on_surface
+
+
+def main_line(geometry):
+    """The feature's longest continuous course, or None if it has none.
+
+    Split out of representative_point so that the slug qualifier can walk
+    the same course the label point sits on — one definition of "the
+    feature's line", used for both.
+    """
+    if geometry is None or geometry.geom_type == 'Point':
+        return None
 
     line = geometry
     if geometry.geom_type == 'MultiLineString':
@@ -423,10 +491,26 @@ def representative_point(geometry):
         else:
             line = merged
     if line.geom_type == 'LineString' and line.length:
-        midpoint = line.interpolate_normalized(0.5)
-        return Point(midpoint.x, midpoint.y, srid=4326)
-    # Areas and anything else: the guaranteed-interior point.
-    return geometry.point_on_surface
+        return line
+    return None
+
+
+def probe_points(geometry):
+    """Start, middle and end of the feature's course — the points whose
+    *shared* containing areas say how far the feature reaches.
+
+    The middle is not redundant with the two ends. A ring road closes on
+    itself, so its endpoints coincide and would together describe a
+    single spot; the midpoint is what reveals that it encircles a town.
+    """
+    line = main_line(geometry)
+    if line is None:
+        return None
+    points = []
+    for fraction in (0.0, 0.5, 1.0):
+        point = line.interpolate_normalized(fraction)
+        points.append(Point(point.x, point.y, srid=4326))
+    return points
 
 
 def _component_geometry(component):
@@ -465,8 +549,8 @@ def _create_name_anchor(name, feature_class, click, areas=None):
         slug=unique_slug(
             name,
             admin_qualifier(area, name, None, feature_class),
-            city=city_qualifier(
-                overpass.city_name(areas or []), name, area
+            locality=locality_qualifier(
+                overpass.locality_name(areas or []), name, area
             ),
         ),
         **_admin_context(area),

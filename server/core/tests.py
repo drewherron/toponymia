@@ -5274,9 +5274,14 @@ def _area(name, admin_level, boundary='administrative', **tags):
     }
 
 
-class ResolveCityRungTests(ApiTestCase):
-    """The city rung end to end: `is_in` rides along on the mint's own
-    Overpass call and lands in the slug."""
+def _parish(name):
+    """An English civil parish — the village, at level 10."""
+    return _area(name, 10, designation='civil_parish')
+
+
+class ResolveLocalityRungTests(ApiTestCase):
+    """The locality rung end to end: what contains the feature lands in
+    the slug, at a scale that matches how far the feature reaches."""
 
     @classmethod
     def setUpTestData(cls):
@@ -5439,13 +5444,13 @@ class ContainingAreaTests(TestCase):
         self.assertEqual(areas, [])
 
     def test_most_local_city_scale_area_wins(self):
-        self.assertEqual(overpass.city_name(self.BOSTON), 'Boston')
+        self.assertEqual(overpass.locality_name(self.BOSTON), 'Boston')
 
     def test_country_and_state_are_not_cities(self):
         # Levels 2 and 4 are what Natural Earth already gives us; taking
         # one here would make the rung a duplicate of the one below it.
         self.assertIsNone(
-            overpass.city_name([_area('United Kingdom', 2),
+            overpass.locality_name([_area('United Kingdom', 2),
                                 _area('England', 4)])
         )
 
@@ -5453,7 +5458,7 @@ class ContainingAreaTests(TestCase):
         # Portland: level 10 'Downtown' is more local than the city, and
         # names nothing a reader can place.
         self.assertEqual(
-            overpass.city_name([
+            overpass.locality_name([
                 _area('United States of America', 2), _area('Oregon', 4),
                 _area('Multnomah County', 6), _area('Portland', 8),
                 _area('Downtown', 10),
@@ -5466,7 +5471,7 @@ class ContainingAreaTests(TestCase):
         # county — which is why the band takes its max rather than a
         # fixed level.
         self.assertEqual(
-            overpass.city_name([
+            overpass.locality_name([
                 _area('United Kingdom', 2), _area('Scotland', 4),
                 _area('City of Edinburgh', 6), _area('Old Town', 10),
             ]),
@@ -5479,26 +5484,26 @@ class ContainingAreaTests(TestCase):
         # area, and the server-side filter is what keeps it out. Belt and
         # braces: a mirror that ignored the filter must not poison a slug.
         self.assertIsNone(
-            overpass.city_name([
+            overpass.locality_name([
                 _area('East Central Scotland', 6, boundary='statistical'),
             ])
         )
 
     def test_untagged_level_is_ignored(self):
-        self.assertIsNone(overpass.city_name([
+        self.assertIsNone(overpass.locality_name([
             {'type': 'area', 'id': 1, 'tags': {'name': 'Nowhere'}},
             {'type': 'area', 'id': 2, 'tags': {}},
         ]))
 
     def test_english_name_is_preferred(self):
         self.assertEqual(
-            overpass.city_name([_area('Wien', 6, **{'name:en': 'Vienna'})]),
+            overpass.locality_name([_area('Wien', 6, **{'name:en': 'Vienna'})]),
             'Vienna',
         )
 
 
-class CityQualifierTests(TestCase):
-    """Turning a city name into a slug fragment (core.admin_areas)."""
+class LocalityQualifierTests(TestCase):
+    """Turning a locality name into a slug fragment (core.admin_areas)."""
 
     @classmethod
     def setUpTestData(cls):
@@ -5506,8 +5511,8 @@ class CityQualifierTests(TestCase):
                                -1.0, 52.6, 0.4, 53.6)
 
     def _qualify(self, city, name, area=None):
-        from .admin_areas import city_qualifier
-        return city_qualifier(city, name, area)
+        from .admin_areas import locality_qualifier
+        return locality_qualifier(city, name, area)
 
     def test_city_becomes_a_fragment(self):
         self.assertEqual(self._qualify('Boston', 'High Street'), 'boston')
@@ -5543,25 +5548,25 @@ class CityQualifierTests(TestCase):
         self.assertEqual(self._qualify('Tromsø', 'Storgata'), 'tromso')
 
 
-class CityRungSlugTests(TestCase):
-    """unique_slug's ladder with a city in it."""
+class LocalityRungSlugTests(TestCase):
+    """unique_slug's ladder with a locality in it."""
 
-    def _mint(self, name, qualifier=None, city=None):
+    def _mint(self, name, qualifier=None, locality=None):
         from .slugs import unique_slug
-        slug = unique_slug(name, qualifier, city=city)
+        slug = unique_slug(name, qualifier, locality=locality)
         _make_place(name=name, slug=slug)
         return slug
 
     def test_first_place_still_keeps_the_bare_slug(self):
         self.assertEqual(
-            self._mint('High Street', 'lincolnshire', city='lincoln'),
+            self._mint('High Street', 'lincolnshire', locality='lincoln'),
             'high-street',
         )
 
     def test_city_is_tried_before_the_subdivision(self):
-        self._mint('High Street', 'lincolnshire', city='boston')
+        self._mint('High Street', 'lincolnshire', locality='boston')
         self.assertEqual(
-            self._mint('High Street', 'lincolnshire', city='lincoln'),
+            self._mint('High Street', 'lincolnshire', locality='lincoln'),
             'high-street-lincoln',
         )
 
@@ -5569,37 +5574,37 @@ class CityRungSlugTests(TestCase):
         """Two High Streets in one county, which used to give
         `high-street-lincolnshire` and `high-street-lincolnshire-2`."""
         self.assertEqual(
-            self._mint('High Street', 'lincolnshire', city='boston'),
+            self._mint('High Street', 'lincolnshire', locality='boston'),
             'high-street',
         )
         self.assertEqual(
-            self._mint('High Street', 'lincolnshire', city='lincoln'),
+            self._mint('High Street', 'lincolnshire', locality='lincoln'),
             'high-street-lincoln',
         )
         self.assertEqual(
-            self._mint('High Street', 'lincolnshire', city='sleaford'),
+            self._mint('High Street', 'lincolnshire', locality='sleaford'),
             'high-street-sleaford',
         )
 
     def test_escalation_stacks_city_and_subdivision(self):
         # Two Main Streets in two Portlands: the second gets the state
         # appended to the city, not swapped for it.
-        self._mint('Main Street', 'oregon', city='portland')
+        self._mint('Main Street', 'oregon', locality='portland')
         self.assertEqual(
-            self._mint('Main Street', 'oregon', city='portland'),
+            self._mint('Main Street', 'oregon', locality='portland'),
             'main-street-portland',
         )
         self.assertEqual(
-            self._mint('Main Street', 'maine', city='portland'),
+            self._mint('Main Street', 'maine', locality='portland'),
             'main-street-portland-maine',
         )
 
     def test_numeric_floor_counts_on_the_most_qualified_form(self):
-        self._mint('Main Street', 'oregon', city='portland')
-        self._mint('Main Street', 'oregon', city='portland')
-        self._mint('Main Street', 'oregon', city='portland')
+        self._mint('Main Street', 'oregon', locality='portland')
+        self._mint('Main Street', 'oregon', locality='portland')
+        self._mint('Main Street', 'oregon', locality='portland')
         self.assertEqual(
-            self._mint('Main Street', 'oregon', city='portland'),
+            self._mint('Main Street', 'oregon', locality='portland'),
             'main-street-portland-oregon-2',
         )
 
@@ -5607,6 +5612,209 @@ class CityRungSlugTests(TestCase):
         self._mint('Portland', 'oregon')
         self.assertEqual(
             self._mint('Portland', 'maine'), 'portland-maine'
+        )
+
+
+class NameableAreaTests(TestCase):
+    """Which rungs of the containment stack may name a slug
+    (core.overpass.locality_name)."""
+
+    def test_civil_parish_is_the_village(self):
+        """The 2026-08-19 regression: four Church Lanes in four West
+        Lindsey villages all took the district and fell to `-3`.
+
+        The village is level 10 here, below the band the first cut of
+        this rung capped at.
+        """
+        self.assertEqual(
+            overpass.locality_name([
+                _area('United Kingdom', 2), _area('England', 4),
+                _area('Lincolnshire', 6), _area('West Lindsey', 8),
+                _parish('Ingham CP'),
+            ]),
+            'Ingham CP',
+        )
+
+    def test_neighbourhood_at_the_same_level_is_refused(self):
+        """Level 10 alone proves nothing — it is the village in England
+        and a neighbourhood in the US, and only a tag separates them."""
+        self.assertEqual(
+            overpass.locality_name([
+                _area('United States of America', 2), _area('Oregon', 4),
+                _area('Multnomah County', 6), _area('Portland', 8),
+                _area('Downtown', 10),
+            ]),
+            'Portland',
+        )
+
+    def test_a_settlement_place_tag_also_admits_it(self):
+        self.assertEqual(
+            overpass.locality_name([
+                _area('Somewhere', 8), _area('Little Bo', 10, place='village'),
+            ]),
+            'Little Bo',
+        )
+
+    def test_a_suburb_is_not_a_settlement(self):
+        # `suburb` is in SETTLEMENT_PLACES but not TOWN_PLACES: naming a
+        # street after part of a town is the outcome this guards against.
+        self.assertEqual(
+            overpass.locality_name([
+                _area('Bigton', 8), _area('Northside', 10, place='suburb'),
+            ]),
+            'Bigton',
+        )
+
+    def test_country_and_state_are_still_refused(self):
+        self.assertIsNone(
+            overpass.locality_name([_area('United Kingdom', 2),
+                                    _area('England', 4)])
+        )
+
+
+class CommonAreaQueryTests(TestCase):
+    """fetch_common_areas asks Overpass to do the intersection."""
+
+    @patch('core.overpass._call')
+    def test_one_request_intersects_every_point(self, call):
+        call.return_value = [_area('West Lindsey', 8)]
+        points = [Point(-0.58, 53.28, srid=4326),
+                  Point(-0.57, 53.31, srid=4326),
+                  Point(-0.57, 53.34, srid=4326)]
+        overpass.fetch_common_areas(points)
+        self.assertEqual(call.call_count, 1)
+        query = call.call_args[0][0]
+        # One is_in per point, and a single intersected set out.
+        self.assertEqual(query.count('is_in('), 3)
+        self.assertIn('area.p0.p1.p2[boundary=administrative]', query)
+        # Overpass takes lat,lon — transposing them silently qualifies
+        # slugs from the wrong hemisphere.
+        self.assertIn('is_in(53.28,-0.58)', query)
+
+    @patch('core.overpass._call')
+    def test_non_areas_are_dropped(self, call):
+        call.return_value = [_way(name='High Street'), _area('Boston', 8)]
+        areas = overpass.fetch_common_areas([Point(0.0, 52.0, srid=4326)])
+        self.assertEqual([a['tags']['name'] for a in areas], ['Boston'])
+
+    def test_no_points_makes_no_request(self):
+        self.assertEqual(overpass.fetch_common_areas([]), [])
+
+
+class ProbePointTests(TestCase):
+    """Which points get asked about (core.resolve.probe_points)."""
+
+    def test_start_middle_and_end(self):
+        from .resolve import probe_points
+        line = LineString([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)], srid=4326)
+        points = probe_points(line)
+        self.assertEqual([round(p.x, 6) for p in points], [0.0, 1.0, 2.0])
+
+    def test_a_ring_needs_its_midpoint(self):
+        """A ring road closes on itself, so its two ends are the same
+        spot — the midpoint is the only probe that reveals its reach."""
+        from .resolve import probe_points
+        ring = LineString(
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)],
+            srid=4326,
+        )
+        points = probe_points(ring)
+        self.assertEqual((points[0].x, points[0].y),
+                         (points[2].x, points[2].y))
+        self.assertNotEqual((points[1].x, points[1].y),
+                            (points[0].x, points[0].y))
+
+    def test_a_point_has_no_course_to_walk(self):
+        from .resolve import probe_points
+        self.assertIsNone(probe_points(Point(0.0, 0.0, srid=4326)))
+        self.assertIsNone(probe_points(None))
+
+
+class ScaleMatchingTests(ApiTestCase):
+    """The qualifier's scale follows the feature's extent."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _admin_box('Lincolnshire', 'United Kingdom',
+                   -1.0, 52.6, 0.4, 53.6, country_iso='GB')
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('scale', password='pw12345!')
+        self.client.force_login(self.user)
+
+    def _road(self, name, coords, click):
+        way = {'type': 'way', 'id': 55, 'tags': {'name': name},
+               'bounds': {'minlon': min(c[0] for c in coords),
+                          'minlat': min(c[1] for c in coords),
+                          'maxlon': max(c[0] for c in coords),
+                          'maxlat': max(c[1] for c in coords)}}
+        return way
+
+    def _post(self, name, lng, lat):
+        return self.client.post(
+            reverse('core:resolve'),
+            {'name': name, 'class': 'road', 'lngLat': [lng, lat], 'zoom': 15},
+            content_type='application/json',
+        ).json()['place']['slug']
+
+    @patch('core.resolve.overpass.fetch_common_areas')
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_road_through_three_villages_takes_the_district(
+        self, fetch, fetch_comp, fetch_common
+    ):
+        """No one village describes where this road is, so the area that
+        holds all three does. The parishes drop out of the intersection
+        server-side; here that is fetch_common_areas' answer."""
+        coords = [(-0.58, 53.28), (-0.57, 53.31), (-0.57, 53.34)]
+        fetch.return_value = [self._road('Church Lane', coords, None),
+                              *[_parish('North Carlton CP')]]
+        fetch_comp.return_value = [_component_way(55, coords, 'Church Lane')]
+        fetch_common.return_value = [_area('Lincolnshire', 6),
+                                     _area('West Lindsey', 8)]
+        _make_place(name='Church Lane', slug='church-lane')
+        self.assertEqual(
+            self._post('Church Lane', -0.57, 53.31), 'church-lane-west-lindsey'
+        )
+        fetch_common.assert_called_once()
+        # Start, middle and end — not just where the finger landed.
+        self.assertEqual(len(fetch_common.call_args[0][0]), 3)
+
+    @patch('core.resolve.overpass.fetch_common_areas')
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_road_inside_one_village_takes_the_village(
+        self, fetch, fetch_comp, fetch_common
+    ):
+        coords = [(-0.575, 53.339), (-0.570, 53.341), (-0.565, 53.345)]
+        fetch.return_value = [self._road('Church Lane', coords, None),
+                              _area('Lincolnshire', 6),
+                              _area('West Lindsey', 8), _parish('Ingham CP')]
+        fetch_comp.return_value = [_component_way(55, coords, 'Church Lane')]
+        _make_place(name='Church Lane', slug='church-lane')
+        self.assertEqual(
+            self._post('Church Lane', -0.570, 53.341), 'church-lane-ingham'
+        )
+        # Under PROBE_MIN_EXTENT_M the click already answered it, so the
+        # mint spends no second request.
+        fetch_common.assert_not_called()
+
+    @patch('core.resolve.overpass.fetch_common_areas')
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_failed_intersection_still_mints(
+        self, fetch, fetch_comp, fetch_common
+    ):
+        """A qualifier is a nicety; a mint is not."""
+        coords = [(-0.58, 53.28), (-0.57, 53.31), (-0.57, 53.34)]
+        fetch.return_value = [self._road('Church Lane', coords, None)]
+        fetch_comp.return_value = [_component_way(55, coords, 'Church Lane')]
+        fetch_common.side_effect = overpass.OverpassError('429')
+        _make_place(name='Church Lane', slug='church-lane')
+        # Falls all the way to Natural Earth, which is the floor.
+        self.assertEqual(
+            self._post('Church Lane', -0.57, 53.31), 'church-lane-lincolnshire'
         )
 
 
