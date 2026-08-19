@@ -69,6 +69,18 @@ EXCLUDED_MEMBER_ROLES = frozenset({'side_stream', 'tributary', 'inner'})
 # is already the better answer.
 LINEAR_RELATION_TYPES = frozenset({'waterway', 'route'})
 
+# Administrative levels that name a *city*, for the slug qualifier rung
+# below Natural Earth's subdivision. The band is what excludes both ends:
+# 2 and 4 are the country and the state NE already gives us, and 10 is the
+# neighbourhood — `main-street-downtown` names nothing a reader can place.
+#
+# The upper bound is 8 because that is the city almost everywhere checked,
+# and the *max* within the band is taken rather than a fixed level because
+# Scotland has no level 8 at all: City of Edinburgh is 6, the same rung as
+# Lincolnshire in England. Taking the most local thing in the band absorbs
+# that variation without a per-country table.
+CITY_ADMIN_LEVELS = frozenset({5, 6, 7, 8})
+
 QID_RE = re.compile(r'^Q\d+$')
 
 _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
@@ -118,18 +130,89 @@ def _escape(value):
 
 
 def fetch_elements(name, lat, lon, radius):
-    """All named OSM elements matching `name` around the click point.
+    """All named OSM elements matching `name` around the click point,
+    followed by the administrative areas that contain that point.
 
     Uses `out bb` so ways/relations come back with a bounding box but not
     their (potentially huge) full geometry. (`center` can't be combined
     with `bb`; center_of derives a point from the bounds instead.)
+
+    The trailing `is_in` supplies the **city rung** for slug qualifiers
+    (`main-street-portland`), which the Natural Earth table cannot: NE
+    admin-1 is a single tier — states, provinces, counties — with nothing
+    below it, so every Main Street in Oregon computes the same qualifier.
+    It rides along in this same request, so it costs **no extra call and
+    adds no new failure mode**: a clicked mint already requires this call
+    to have succeeded, and a rejection means there is no Place to slug at
+    all.
+
+    `area.a[boundary=administrative]` filters **server-side**, and that is
+    load-bearing rather than tidiness. Splitting the merged response on
+    `type == 'area'` in Python is not enough, because `is_in` also emits
+    plain ways: at a tidal point in Boston it returned an untagged
+    `natural=water` way that the `nwr` query itself does not match, and
+    which `choose_element` would happily have anchored a High Street to.
+    The filter also drops the junk `is_in` returns alongside the real
+    areas — timezones, ceremonial and traditional counties, fire and
+    weather zones, "Greater Lincolnshire" as a statistical region.
     """
     query = (
         '[out:json][timeout:10];'
         f'nwr["name"="{_escape(name)}"](around:{radius},{lat},{lon});'
         'out tags bb;'
+        f'is_in({lat},{lon})->.a;'
+        'area.a[boundary=administrative]->.b;'
+        '.b out tags;'
     )
     return _call(query)
+
+
+def split_areas(elements):
+    """(features, containing_areas) from one fetch_elements response.
+
+    Callers that only want anchor candidates must use this rather than
+    passing the raw list to `choose_element`, which has no notion of an
+    area and would rank one as a candidate like any other.
+    """
+    features, areas = [], []
+    for element in elements:
+        (areas if element.get('type') == 'area' else features).append(element)
+    return features, areas
+
+
+def city_name(areas):
+    """Name of the most local city-scale area in `areas`, or None.
+
+    "City-scale" is CITY_ADMIN_LEVELS, and the most local is the *highest*
+    level in that band — Portland (8) over Multnomah County (6), with
+    Downtown (10) out of range. Verified against real `is_in` responses
+    2026-08-18: Portland 8, Boston 8, Lincoln 8, City of Edinburgh 6.
+
+    Prefers `name:en`, which is absent far more often than not (Lincoln,
+    Lincolnshire and Multnomah County all carry only `name`) but matters
+    where it exists: Scotland's level-4 name is `Alba / Scotland`.
+    """
+    best = None
+    for area in areas:
+        tags = area.get('tags', {})
+        # `boundary` is re-checked here even though fetch_elements already
+        # filters on it server-side, because an admin_level alone does not
+        # mean administrative: Edinburgh's `is_in` carries 'East Central
+        # Scotland', a level-6 *statistical* region that would otherwise
+        # outrank the city. Defence in depth, since the cost of the query
+        # drifting is a permanent slug naming a region nobody lives in.
+        if tags.get('boundary') != 'administrative':
+            continue
+        try:
+            level = int(tags.get('admin_level'))
+        except (TypeError, ValueError):
+            continue
+        if level not in CITY_ADMIN_LEVELS:
+            continue
+        name = tags.get('name:en') or tags.get('name')
+        if name and (best is None or level > best[0]):
+            best = (level, name)
+    return best[1] if best else None
 
 
 def fetch_by_qid(qid):

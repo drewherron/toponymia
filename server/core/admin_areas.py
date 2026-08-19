@@ -10,6 +10,15 @@ then nothing — and `unique_slug` falls back to a numeric suffix when this
 returns None. Minting must never block or fail on a qualifier, so every path
 here returns None rather than raising.
 
+Below all of those sits the **city** rung (`city_qualifier`), which does not
+come from this table at all: NE admin-1 has no tier under the subdivision, so
+every Main Street in Oregon computes the same qualifier here. Its source is
+Overpass `is_in`, riding along on the mint's existing request — see
+`overpass.city_name`. The city rung is the *more* specific of the two, so
+`unique_slug` tries `main-street-portland` before `main-street-portland-oregon`;
+this table stays the universal floor for a mint that has no city, which keeps a
+topobot mint or a failed `is_in` at exactly today's behaviour.
+
 The subdivision tier is deliberately *not* consistent worldwide: NE's
 admin-1 layer is US states, Jamaican parishes and English counties alike, and
 we take whatever it gives. `portland-oregon`, `portland-dorset` and
@@ -18,6 +27,7 @@ reader can see.
 """
 
 import logging
+import re
 
 from django.contrib.gis.db.models.functions import Distance, GeometryDistance
 from django.utils.text import slugify
@@ -81,6 +91,44 @@ COUNTRY_ALIASES = {
 ADMIN_AREA_CLASSES = frozenset({
     'state', 'province', 'region', 'district', 'county',
 })
+
+
+# OSM names a district after the city it contains: 'City of Edinburgh',
+# 'City of Lincoln'. The prefix is the administrative unit talking about
+# itself and buys a reader nothing — `high-street-edinburgh` is the slug
+# wanted, and the one production already minted for Edinburgh before this
+# rung existed. Anchored and English-only, which is self-limiting: the
+# names carrying it are English names.
+_UNIT_PREFIX_RE = re.compile(
+    r'^(?:city|county|borough|district|municipality)\s+of\s+', re.IGNORECASE
+)
+
+
+def city_qualifier(city, name, area=None):
+    """A slug fragment naming the city a place sits in, or None.
+
+    `city` is a raw area name from `overpass.city_name`; `name` is the
+    place being minted, and `area` its AdminArea if one was found.
+
+    Declines whenever the fragment would say nothing new. Against the
+    place itself, because a click on Portland must not mint
+    `portland-portland` — it should fall through to the subdivision and
+    give `portland-oregon`, which is what production already proved on
+    2026-08-18. Against the subdivision and country, because a city
+    sharing its name with its container (`high-street-lincolnshire` from
+    a city rung, where NE also says Lincolnshire) makes the rung a
+    duplicate of the one below it, and would escalate to the nonsense
+    `high-street-lincolnshire-lincolnshire`.
+    """
+    fragment = _fragment(_UNIT_PREFIX_RE.sub('', city or ''))
+    if fragment is None or fragment == _fragment(name):
+        return None
+    if area is not None:
+        aliased, raw = _country_fragments(area)
+        if fragment in {aliased, raw, _fragment(area.subdivision),
+                        _fragment(area.subdivision_local)}:
+            return None
+    return fragment
 
 
 def _fragment(name):

@@ -17,9 +17,15 @@ from django.contrib.gis.measure import D
 from django.db.models import Q
 
 from . import feature_classes, overpass
-from .admin_areas import admin_qualifier, nearest_admin_area
+from .admin_areas import admin_qualifier, city_qualifier, nearest_admin_area
 from .models import Place
 from .slugs import unique_slug
+
+# How far label_point may sit from the click and still take the click's
+# city as a slug qualifier. Generous for a city and far short of a river:
+# a street component is a few km end to end, while the Columbia's label
+# point is ~400 km from a Portland click.
+CITY_RUNG_MAX_OFFSET_M = 25_000
 
 
 def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
@@ -86,16 +92,25 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
         return None, False
 
     element = None
+    # Containing administrative areas, for the city rung of the slug
+    # qualifier. Only the name query carries them: `fetch_by_qid` is a
+    # worldwide lookup whose element can be nowhere near this click, so
+    # anything derived from the click would name the wrong city outright.
+    areas = []
     if qid:
         element = overpass.choose_element(
             overpass.fetch_by_qid(qid), feature_class
         )
     if element is None:
-        element = overpass.choose_element(
-            overpass.fetch_elements(name, lat, lng, radius), feature_class
+        features, areas = overpass.split_areas(
+            overpass.fetch_elements(name, lat, lng, radius)
         )
+        element = overpass.choose_element(features, feature_class)
     if element is None:
-        return _create_name_anchor(name_en or name, feature_class, click), True
+        return (
+            _create_name_anchor(name_en or name, feature_class, click, areas),
+            True,
+        )
 
     # Roads: OSM splits a road into a way per tag change, so anchor and
     # geometry come from the whole same-name connected component — one
@@ -122,10 +137,27 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
     return (
         _create_from_element(
             element, qid, name, feature_class, click, name_en,
-            component=component, anchor_id=anchor_id,
+            component=component, anchor_id=anchor_id, areas=areas,
         ),
         True,
     )
+
+
+def _metres_between(a, b):
+    """Great-circle distance in metres between two Points.
+
+    Haversine rather than a GEOS call: both points are lon/lat in 4326,
+    where `.distance()` returns degrees, and the only question asked of
+    the answer is a coarse "same city or not" threshold.
+    """
+    if a is None or b is None:
+        return float('inf')
+    lon1, lat1, lon2, lat2 = map(
+        math.radians, (a.x, a.y, b.x, b.y)
+    )
+    h = (math.sin((lat2 - lat1) / 2) ** 2
+         + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
+    return 2 * 6_371_000 * math.asin(min(1.0, math.sqrt(h)))
 
 
 def _component_for(element, name):
@@ -150,7 +182,8 @@ def _component_qid(component):
 
 
 def _create_from_element(element, qid, name, feature_class, click,
-                         name_en=None, component=None, anchor_id=None):
+                         name_en=None, component=None, anchor_id=None,
+                         areas=None):
     tags = element.get('tags', {})
     display_name = (
         tags.get('name:en') or name_en or tags.get('name') or name
@@ -210,10 +243,24 @@ def _create_from_element(element, qid, name, feature_class, click,
     # which segment someone happened to hit.
     area = nearest_admin_area(label_point)
 
+    # The city rung comes from `is_in` at the *click*, while everything
+    # else here is qualified from label_point — so it only applies when
+    # the two are close enough to be in the same city. They usually are:
+    # a street's component is local. A long river's are not, and this is
+    # what stops a click on the Columbia near Portland from minting
+    # `columbia-river-portland` when its label point is 400 km upstream
+    # in Washington.
+    city = None
+    if _metres_between(click, label_point) <= CITY_RUNG_MAX_OFFSET_M:
+        city = city_qualifier(
+            overpass.city_name(areas or []), display_name, area
+        )
+
     return Place.objects.create(
         slug=unique_slug(
             display_name,
             admin_qualifier(area, display_name, qid, feature_class),
+            city=city,
         ),
         **_admin_context(area),
         wikidata_qid=qid,
@@ -409,13 +456,19 @@ def _component_bounds(component):
     )
 
 
-def _create_name_anchor(name, feature_class, click):
+def _create_name_anchor(name, feature_class, click, areas=None):
     # The click is the anchor here — Overpass knows nothing about this
-    # place — so it is also the right point to qualify from.
+    # place — so it is also the right point to qualify from, and the city
+    # rung needs no offset guard: `is_in` was asked about this very point.
     area = nearest_admin_area(click)
     return Place.objects.create(
-        slug=unique_slug(name, admin_qualifier(area, name, None,
-                                               feature_class)),
+        slug=unique_slug(
+            name,
+            admin_qualifier(area, name, None, feature_class),
+            city=city_qualifier(
+                overpass.city_name(areas or []), name, area
+            ),
+        ),
         **_admin_context(area),
         anchor_level=Place.AnchorLevel.NAME,
         display_name=name,

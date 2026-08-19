@@ -66,7 +66,7 @@ def transliterate(name):
     return name.translate(_TRANSLITERATION_TABLE)
 
 
-def unique_slug(display_name, qualifier=None):
+def unique_slug(display_name, qualifier=None, city=None):
     """A slug used by no Place yet — canonical or alias.
 
     The first place of a name keeps it bare (`portland`). A second one is
@@ -76,9 +76,19 @@ def unique_slug(display_name, qualifier=None):
     whoever was minted first. An operator settles that deliberately with
     `rename_place`, which leaves the bare slug behind as a 301.
 
-    The numeric suffix stays as the unconditional floor, for no qualifier
-    (`portland-2`) and for a qualifier that itself collides. It counts on the
-    most qualified form tried, so two Portlands in Oregon give
+    `city` is the finer fragment tried *first* where one is known, which is
+    what makes street names workable: `qualifier` alone can only reach the
+    Natural Earth subdivision, and English counties hold many towns each, so
+    every High Street in Lincolnshire collided into
+    `high-street-lincolnshire-N`. With a city the ladder reads
+    `high-street` -> `high-street-lincoln` -> `high-street-lincoln-lincolnshire`.
+    Note the escalation stacks the two rather than swapping one for the
+    other: once the city is in the slug, dropping back to the bare county
+    would read as a *different, coarser* place rather than a more precise one.
+
+    The numeric suffix stays as the unconditional floor, for no qualifier at
+    all (`portland-2`) and for the most qualified form colliding too. It
+    counts on that most qualified form, so two Portlands in Oregon give
     `portland-oregon-2` rather than `portland-3` — still ugly, but it tells
     the reader something.
 
@@ -87,8 +97,10 @@ def unique_slug(display_name, qualifier=None):
     """
     base = slugify(transliterate(display_name))[:100] or 'place'
     attempts = [base]
+    if city:
+        attempts.append(f'{base}-{city}')
     if qualifier:
-        attempts.append(f'{base}-{qualifier}')
+        attempts.append(f'{attempts[-1]}-{qualifier}')
 
     for slug in attempts:
         if not PlaceSlug.objects.filter(slug=slug).exists():

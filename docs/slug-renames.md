@@ -4,11 +4,14 @@ Every place has a URL slug — `/place/ojai` — assigned once, automatically, w
 the place is first resolved. It shows in the address bar, in the sitemap, in the
 **Copy link** permalink, and in author-written cross-links (`[Ojai](/place/ojai)`).
 
-When a name is already taken, the new place is disambiguated by the
-administrative area it sits in — `portland-oregon`, `portland-maine` — or, for
-an administrative area sharing its name with the place inside it, by its own
-type (`havana-province`). A plain number, `ojai-2`, is the last resort when
-neither applies.
+When a name is already taken, the new place is disambiguated by where it sits.
+For a street or anything else inside a town, that is the town —
+`high-street-lincoln`, `main-street-portland`. Otherwise it is the wider
+administrative area — `portland-oregon`, `portland-maine` — or, for an
+administrative area sharing its name with the place inside it, its own type
+(`havana-province`). Both can stack where a town name is itself ambiguous:
+`main-street-portland-oregon`. A plain number, `ojai-2`, is the last resort
+when none of them applies.
 
 Two things that still need a human, which is what this document is for:
 
