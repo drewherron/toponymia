@@ -72,6 +72,34 @@ from .serializers import (
 )
 from .terms import TERMS_VERSION, documented_version
 
+_no_http = None
+
+
+def setUpModule():
+    """Fail loudly on any Overpass call a test forgot to mock.
+
+    Without this the suite reaches the real network: adding
+    `fetch_place_nodes` to the resolve path silently turned 20 tests from
+    10 s into 193 s of live HTTP and retries, which would be flaky in CI
+    and dishonest everywhere. A test that genuinely wants the HTTP layer
+    patches `requests.post` itself, and its patch wins over this one.
+    """
+    global _no_http
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(
+            'unmocked Overpass HTTP in tests — patch the fetch_* function '
+            'you are exercising (see ApiTestCase for the default stubs)'
+        )
+
+    _no_http = patch('core.overpass.requests.post', side_effect=refuse)
+    _no_http.start()
+
+
+def tearDownModule():
+    if _no_http is not None:
+        _no_http.stop()
+
 
 class ApiTestCase(TestCase):
     """Base for API tests: clears the throttle cache before each test so
@@ -81,6 +109,22 @@ class ApiTestCase(TestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
+        # The locality rung makes up to two *extra* Overpass calls beyond
+        # the one that finds the feature: the containing-area intersection
+        # for anything longer than PROBE_MIN_EXTENT_M, and the settlement
+        # node lookup when containment found nothing better than a
+        # district. Most tests care about neither and none should reach the
+        # network to find out, so both are stubbed empty here; a test
+        # exercising either patches it with its own data.
+        #
+        # Both were reaching the real network before setUpModule's guard
+        # existed — the failures were swallowed by the `except
+        # OverpassError` that makes these calls optional, so the tests
+        # passed while quietly doing live HTTP.
+        for target in ('fetch_common_areas', 'fetch_place_nodes'):
+            stub = patch(f'core.resolve.overpass.{target}', return_value=[])
+            stub.start()
+            self.addCleanup(stub.stop)
 
 
 def _relation(osm_id=1236, name='Mississippi River', qid='Q1497', **extra):
@@ -5429,10 +5473,11 @@ class ResolveQualifiesTests(ApiTestCase):
         self.assertEqual(place.admin_subdivision, '')
         self.assertEqual(place.admin_country, '')
 
+    @patch('core.resolve.overpass.fetch_way_component', return_value=None)
     @patch('core.resolve.overpass.fetch_way_geometry')
     @patch('core.resolve.overpass.fetch_elements')
     def test_element_is_qualified_from_label_point_not_the_click(
-        self, fetch, fetch_geom
+        self, fetch, fetch_geom, fetch_comp
     ):
         """A worldwide fetch_by_qid match can sit nowhere near the click.
 
@@ -6123,6 +6168,161 @@ class UnparishedResolveTests(ApiTestCase):
             content_type='application/json',
         ).json()['place']['slug']
         self.assertEqual(slug, 'church-street-ilkeston')
+
+
+def _place_node(name, lat, lon, kind='village'):
+    """A settlement node as `is_in`-adjacent queries return it."""
+    return {'type': 'node', 'id': abs(hash(name)) % 10**7, 'lat': lat,
+            'lon': lon, 'tags': {'name': name, 'place': kind}}
+
+
+class PlaceNodeTests(TestCase):
+    """The node rung: the only part of the ladder that infers membership
+    from proximity rather than reading it off a boundary."""
+
+    def test_nearest_wins_regardless_of_size(self):
+        """A town three villages away must not beat the village you are in.
+
+        This is the Romanian commune case that motivated the rung: the
+        containing admin area is named after its seat, so preferring the
+        larger `place` type would reproduce exactly the error.
+        """
+        nodes = [_place_node('Distant Town', 45.10, 24.10, 'town'),
+                 _place_node('Right Here', 45.00, 24.00, 'village')]
+        got = overpass.nearest_place_node(nodes, 45.001, 24.001)
+        self.assertEqual(got[1], 'Right Here')
+
+    def test_nothing_within_the_radius_declines(self):
+        nodes = [_place_node('Far Away', 46.0, 25.0, 'town')]
+        self.assertIsNone(overpass.nearest_place_node(nodes, 45.0, 24.0))
+
+    def test_a_hamlet_or_suburb_is_not_accepted(self):
+        # NODE_PLACES is narrower than the area rules: a dot is weak
+        # evidence, so it is only trusted for a settlement of real size.
+        nodes = [_place_node('Tiny', 45.0001, 24.0001, 'hamlet'),
+                 _place_node('Estate', 45.0002, 24.0002, 'suburb'),
+                 _place_node('Real Village', 45.002, 24.002, 'village')]
+        self.assertEqual(
+            overpass.nearest_place_node(nodes, 45.0, 24.0)[1], 'Real Village'
+        )
+
+    def test_english_name_is_preferred(self):
+        node = _place_node('Cluj-Napoca', 45.0, 24.0, 'city')
+        node['tags']['name:en'] = 'Cluj'
+        self.assertEqual(
+            overpass.nearest_place_node([node], 45.0, 24.0)[1], 'Cluj'
+        )
+
+    @patch('core.overpass._call')
+    def test_the_query_intersects_every_probe_point(self, call):
+        call.return_value = []
+        overpass.fetch_place_nodes([Point(-1.31, 52.99, srid=4326),
+                                    Point(-1.30, 52.99, srid=4326),
+                                    Point(-1.29, 52.99, srid=4326)])
+        q = call.call_args[0][0]
+        # Chaining `around` onto a node set filters it rather than adding
+        # to it, so this is one request and an intersection.
+        self.assertEqual(q.count('around:'), 3)
+        self.assertIn('node.n0(around:', q)
+        self.assertIn('node.n1(around:', q)
+        self.assertIn('.n2 out;', q)
+        self.assertIn('city|town|village', q)
+
+    def test_no_points_makes_no_request(self):
+        self.assertEqual(overpass.fetch_place_nodes([]), [])
+
+
+class LocalityRankOrderTests(TestCase):
+    """Where the node sits against containment — the ordering that keeps
+    the measured risk off the common path."""
+
+    def test_a_settlement_boundary_outranks_a_node(self):
+        from core.overpass import PLACE_BOUNDARY_RANK, PLACE_NODE_RANK
+        self.assertGreater(PLACE_BOUNDARY_RANK, PLACE_NODE_RANK)
+
+    def test_a_civil_parish_outranks_a_node(self):
+        from core.overpass import PLACE_NODE_RANK
+        rank, _ = overpass.locality_best([_parish('Ingham CP')])
+        self.assertGreater(rank, PLACE_NODE_RANK)
+
+    def test_a_node_outranks_an_admin_district(self):
+        """The whole point: a district named after a river or a distant
+        commune seat is what the node is there to beat."""
+        from core.overpass import PLACE_NODE_RANK
+        rank, name = overpass.locality_best(
+            [_area('Erewash', 8, designation='non_metropolitan_district')]
+        )
+        self.assertEqual(name, 'Erewash')
+        self.assertLess(rank, PLACE_NODE_RANK)
+
+
+class NodeRungResolveTests(ApiTestCase):
+    """End to end, including when the extra request is and isn't spent."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _admin_box('Nottinghamshire', 'United Kingdom',
+                   -1.4, 52.8, -0.7, 53.5, country_iso='GB')
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('noderung', password='pw12345!')
+        self.client.force_login(self.user)
+
+    def _post(self, name, lng, lat):
+        return self.client.post(
+            reverse('core:resolve'),
+            {'name': name, 'class': 'road', 'lngLat': [lng, lat], 'zoom': 15},
+            content_type='application/json',
+        ).json()['place']['slug']
+
+    @patch('core.resolve.overpass.fetch_place_nodes')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_district_is_beaten_by_the_town_you_are_in(self, fetch, nodes):
+        fetch.return_value = [_area('Nottinghamshire', 6),
+                              _area('Bassetlaw', 8,
+                                    designation='non_metropolitan_district')]
+        nodes.return_value = [_place_node('Worksop', 53.302, -1.124, 'town')]
+        _make_place(name='Church Street', slug='church-street')
+        self.assertEqual(
+            self._post('Church Street', -1.124, 53.302), 'church-street-worksop'
+        )
+
+    @patch('core.resolve.overpass.fetch_place_nodes')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_parish_wins_and_costs_no_extra_request(self, fetch, nodes):
+        """Where containment already has a settlement boundary, the node
+        lookup is neither needed nor paid for."""
+        fetch.return_value = [_area('Nottinghamshire', 6),
+                              _area('Bassetlaw', 8), _parish('Elkesley CP')]
+        _make_place(name='Church Street', slug='church-street')
+        self.assertEqual(
+            self._post('Church Street', -0.99, 53.25), 'church-street-elkesley'
+        )
+        nodes.assert_not_called()
+
+    @patch('core.resolve.overpass.fetch_place_nodes')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_nothing_nearby_falls_back_to_the_district(self, fetch, nodes):
+        # Open country: no settlement node within range, so the rung
+        # declines rather than reaching for a distant town.
+        fetch.return_value = [_area('Nottinghamshire', 6),
+                              _area('Bassetlaw', 8)]
+        nodes.return_value = []
+        _make_place(name='Church Lane', slug='church-lane')
+        self.assertEqual(
+            self._post('Church Lane', -0.99, 53.25), 'church-lane-bassetlaw'
+        )
+
+    @patch('core.resolve.overpass.fetch_place_nodes')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_failed_node_lookup_still_mints(self, fetch, nodes):
+        fetch.return_value = [_area('Bassetlaw', 8)]
+        nodes.side_effect = overpass.OverpassError('429')
+        _make_place(name='Church Lane', slug='church-lane')
+        self.assertEqual(
+            self._post('Church Lane', -0.99, 53.25), 'church-lane-bassetlaw'
+        )
 
 
 class SlugQualifierTests(TestCase):

@@ -170,7 +170,53 @@ def _metres_between(a, b):
     return 2 * 6_371_000 * math.asin(min(1.0, math.sqrt(h)))
 
 
-def _areas_containing_all_of(geometry, click, label_point, click_areas):
+def _locality_for(geometry, click, label_point, click_areas):
+    """The town or village a feature sits in, as a raw name, or None.
+
+    Containment first, and it wins outright when it produced a *settlement
+    boundary* — a civil parish or a `boundary=place` polygon are real edges
+    and beat any dot. It is only when containment can do no better than an
+    administrative district that the node rung is worth a request, and that
+    is exactly when a district is the wrong answer: `church-street-erewash`
+    for a street in Ilkeston, or a Romanian commune naming a street after
+    its seat village three villages away.
+
+    So the extra call is paid only where it can change the answer, and never
+    on a mint that already has a good one.
+    """
+    points = _probe_set(geometry)
+    areas = _areas_containing_all_of(
+        geometry, click, label_point, click_areas, points
+    )
+    best = overpass.locality_best(areas)
+    if best is not None and best[0] >= overpass.PLACE_NODE_RANK:
+        return best[1]
+
+    anchor = label_point or click
+    try:
+        nodes = overpass.fetch_place_nodes(points or [anchor])
+    except overpass.OverpassError:
+        nodes = []
+    nearest = overpass.nearest_place_node(nodes, anchor.y, anchor.x)
+    if nearest is not None:
+        return nearest[1]
+    return best[1] if best else None
+
+
+def _probe_set(geometry):
+    """Points to ask about, or None when one point is the whole story.
+
+    None means the feature is a node, an area, or short enough
+    (PROBE_MIN_EXTENT_M) that the click already answers where it is.
+    """
+    points = probe_points(geometry)
+    if points is None or _spread_m(points) < PROBE_MIN_EXTENT_M:
+        return None
+    return points
+
+
+def _areas_containing_all_of(geometry, click, label_point, click_areas,
+                             points=None):
     """Administrative areas that contain the *whole* feature.
 
     This is what keeps the qualifier's scale honest. Asking `is_in` about
@@ -193,8 +239,7 @@ def _areas_containing_all_of(geometry, click, label_point, click_areas):
     failure here falls back to the click's areas, and the ladder below
     still has Natural Earth and the numeric floor under it.
     """
-    points = probe_points(geometry)
-    if points is None or _spread_m(points) < PROBE_MIN_EXTENT_M:
+    if points is None:
         # The click's areas describe the click. That is the same place as
         # the feature for a small one, but on the fetch_by_qid path the
         # element can be a continent away, so check before trusting it.
@@ -300,9 +345,7 @@ def _create_from_element(element, qid, name, feature_class, click,
     area = nearest_admin_area(label_point)
 
     locality = locality_qualifier(
-        overpass.locality_name(
-            _areas_containing_all_of(geometry, click, label_point, areas)
-        ),
+        _locality_for(geometry, click, label_point, areas),
         display_name,
         area,
     )
@@ -550,7 +593,12 @@ def _create_name_anchor(name, feature_class, click, areas=None):
             name,
             admin_qualifier(area, name, None, feature_class),
             locality=locality_qualifier(
-                overpass.locality_name(areas or []), name, area
+                # No element and so no geometry: the click is the feature's
+                # only known point, and is both its label point and what
+                # the containment lookup already described.
+                _locality_for(None, click, click, areas),
+                name,
+                area,
             ),
         ),
         **_admin_context(area),

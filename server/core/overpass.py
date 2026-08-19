@@ -182,6 +182,42 @@ TOWN_PLACES = frozenset({
 # gained by looking for those.
 PLACE_BOUNDARY_RANK = 9
 
+# `place` values accepted from a *node*, and where a node ranks.
+#
+# A node is the weakest evidence in this ladder and the only one that is not
+# containment: it is a dot someone dropped, so membership is inferred from
+# proximity rather than read off a boundary. It earns its place because
+# containment has two failure modes a boundary cannot fix:
+#
+# - **Too coarse.** Unparished England falls back to a district that may be
+#   named after a river — `church-street-erewash` for a street in Ilkeston.
+# - **Confidently wrong.** A Romanian commune is an admin_level 8 area named
+#   after its seat village and covering several others, so containment names
+#   a settlement the street is genuinely not in — observed in production
+#   2026-08-19, a street resolving to a town three towns away.
+#
+# So it ranks **above the admin districts** (5–8) it exists to beat, and
+# **below both settlement boundaries** — a civil parish (10) and a
+# `boundary=place` polygon (9) are real edges and always win. That ordering
+# is what keeps the measured risk off the common path: the error rate below
+# was measured on streets inside towns that *have* a polygon, which is
+# exactly where this rung never fires.
+#
+# **Known cost, accepted deliberately (2026-08-19).** Against ground truth in
+# five English towns, nearest-node named a locality genuinely inside the town
+# 15.6% of the time and a settlement outside it 17.3% of the time — roughly
+# one real error per real refinement. `village` is included anyway, on Drew's
+# call: the alternative names a street after a district or a distant commune
+# seat, and a nearby village is more often right than either. `hamlet` and
+# `suburb` are excluded — the first is finer than the evidence supports, the
+# second names part of a town.
+NODE_PLACES = frozenset({'city', 'town', 'village'})
+PLACE_NODE_RANK = 8.5
+# A street sits a median 1.1–1.4 km from its own town's node, p90 ~2 km
+# [measured 2026-08-19 over 2288 streets]. 3 km covers that with margin while
+# staying far short of reaching the next town across open country.
+PLACE_NODE_MAX_M = 3_000
+
 # The two kinds of containing area worth keeping, as an Overpass union.
 # Filtering server-side is load-bearing rather than tidy: `is_in` also
 # emits plain ways (a tidal river at one Boston point), and it returns
@@ -311,6 +347,71 @@ def fetch_common_areas(points):
     return [e for e in _call(query) if e.get('type') == 'area']
 
 
+def fetch_place_nodes(points, radius_m=PLACE_NODE_MAX_M):
+    """Settlement nodes within `radius_m` of **every** point.
+
+    The node analogue of `fetch_common_areas`, and intersected for the same
+    reason: a street inside one village has all its probe points near that
+    village's node, while a road running through three has no single node
+    near all of them and so declines to whatever contains the lot. Overpass
+    does the intersection — chaining `around` onto a node *set* filters it
+    rather than adding to it — so this stays one request.
+
+    Deliberately a separate call rather than more statements on the
+    `fetch_elements` query. Those results share one response with the
+    feature candidates, and a `place` node arriving in that list would be
+    offered to `choose_element` as an anchor — the same way an `is_in`
+    tidal-river way once was. Keeping it separate makes that impossible,
+    and the caller only spends the request when no settlement boundary
+    already answered.
+    """
+    if not points:
+        return []
+    kinds = '|'.join(sorted(NODE_PLACES))
+    lat, lon = points[0].y, points[0].x
+    parts = [
+        '[out:json][timeout:25];',
+        f'node[place~"^({kinds})$"](around:{radius_m},{lat},{lon})->.n0;',
+    ]
+    for i, point in enumerate(points[1:], start=1):
+        parts.append(
+            f'node.n{i - 1}(around:{radius_m},{point.y},{point.x})->.n{i};'
+        )
+    parts.append(f'.n{len(points) - 1} out;')
+    return [e for e in _call(''.join(parts)) if e.get('type') == 'node']
+
+
+def nearest_place_node(nodes, lat, lon, max_m=PLACE_NODE_MAX_M):
+    """(distance, name) of the closest usable settlement node, or None.
+
+    Nearest wins outright, with no preference for the larger `place` type.
+    Preferring a town over a village would reintroduce the Romanian case
+    this rung exists for, where the correct answer is the village you are
+    standing in and the wrong one is a town several villages away.
+    """
+    best = None
+    for node in nodes:
+        name = node.get('tags', {}).get('name:en') or \
+            node.get('tags', {}).get('name')
+        if not name or node['tags'].get('place') not in NODE_PLACES:
+            continue
+        if 'lat' not in node or 'lon' not in node:
+            continue
+        d = _haversine_m(lat, lon, node['lat'], node['lon'])
+        if d <= max_m and (best is None or d < best[0]):
+            best = (d, name)
+    return best
+
+
+def _haversine_m(lat1, lon1, lat2, lon2):
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = p2 - p1
+    dlam = math.radians(lon2 - lon1)
+    h = (math.sin(dphi / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dlam / 2) ** 2)
+    return 2 * 6_371_000 * math.asin(min(1.0, math.sqrt(h)))
+
+
 def split_areas(elements):
     """(features, containing_areas) from one fetch_elements response.
 
@@ -322,6 +423,24 @@ def split_areas(elements):
     for element in elements:
         (areas if element.get('type') == 'area' else features).append(element)
     return features, areas
+
+
+def locality_best(areas):
+    """(rank, name) of the most local nameable area, or None.
+
+    The rank is what lets a caller weigh containment against the node rung:
+    a settlement boundary outranks a node, an admin district does not.
+    """
+    best = None
+    for area in areas:
+        rank = _locality_rank(area)
+        if rank is None:
+            continue
+        tags = area.get('tags', {})
+        name = tags.get('name:en') or tags.get('name')
+        if name and (best is None or rank > best[0]):
+            best = (rank, name)
+    return best
 
 
 def locality_name(areas):
@@ -336,15 +455,7 @@ def locality_name(areas):
     Lincolnshire and Multnomah County all carry only `name`) but matters
     where it exists: Scotland's level-4 name is `Alba / Scotland`.
     """
-    best = None
-    for area in areas:
-        rank = _locality_rank(area)
-        if rank is None:
-            continue
-        tags = area.get('tags', {})
-        name = tags.get('name:en') or tags.get('name')
-        if name and (best is None or rank > best[0]):
-            best = (rank, name)
+    best = locality_best(areas)
     return best[1] if best else None
 
 
