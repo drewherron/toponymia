@@ -109,8 +109,18 @@ _UNIT_PREFIX_RE = re.compile(
 
 # England's civil parishes are named 'Ingham CP' in OSM — the suffix is
 # the boundary type, not part of the village's name, and nobody writing
-# about Ingham would type it.
-_UNIT_SUFFIX_RE = re.compile(r'\s+CP$')
+# about Ingham would type it. 'TC' is the same parish whose council has
+# styled itself a *town* council: a form of governance, not a tier and not
+# a place, so 'Caistor TC' is still just Caistor.
+#
+# Measured rather than guessed, because the cost of a wrong guess here is
+# permanent: every level-10 boundary in England and Wales whose name ends
+# in 2–4 capitals is one of these two, 533 CP to 1 TC, all of them
+# `designation=civil_parish` [Overpass, 2026-08-24]. The single TC is
+# Caistor, which is why `church-street-caistor-tc` had to be minted before
+# anyone noticed. Words are *not* stripped: 'Chard Town CP' is the parish
+# of Chard Town, and 'Town' is its name.
+_UNIT_SUFFIX_RE = re.compile(r'\s+(?:CP|TC)$')
 
 
 def locality_qualifier(locality, name, area=None):

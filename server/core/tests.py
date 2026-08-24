@@ -5814,6 +5814,23 @@ class LocalityQualifierTests(TestCase):
             self._qualify('City of Edinburgh', 'High Street'), 'edinburgh'
         )
 
+    def test_parish_suffix_is_dropped(self):
+        self.assertEqual(self._qualify('Ingham CP', 'Church Lane'), 'ingham')
+
+    def test_town_council_suffix_is_dropped(self):
+        # 'TC' is a parish whose council styles itself a town council —
+        # governance, not a place. Caistor is the only one in England, so
+        # `church-street-caistor-tc` reached production before anyone saw
+        # it [Overpass, 2026-08-24].
+        self.assertEqual(self._qualify('Caistor TC', 'Church Street'),
+                         'caistor')
+
+    def test_a_town_in_the_name_is_kept(self):
+        # The counterpart: strip the governance suffix, never a word of
+        # the name. The parish really is called Chard Town.
+        self.assertEqual(self._qualify('Chard Town CP', 'High Street'),
+                         'chard-town')
+
     def test_declines_when_it_would_repeat_the_place(self):
         # A click on Portland itself: the rung must stand aside so the
         # subdivision gives `portland-oregon`, not `portland-portland`.
