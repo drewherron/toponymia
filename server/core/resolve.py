@@ -201,6 +201,18 @@ def _locality_for(geometry, click, label_point, click_areas):
 
     So the extra call is paid only where it can change the answer, and never
     on a mint that already has a good one.
+
+    **Raises `OverpassError` when the node rung cannot be asked**, rather
+    than falling back to the district containment gave. Everything else in
+    a mint degrades quietly because it costs detail; this one costs a
+    *slug*, which is permanent. Swallowing it produced
+    `high-street-doncaster` for a street in Mexborough [dev, 2026-08-24]:
+    the node rung was unreachable, containment's 'Doncaster' then dropped
+    out of `locality_qualifier` as a duplicate of the Natural Earth
+    subdivision, and `admin_qualifier` supplied the same word anyway — so
+    a transient failure both misnamed the street and took the slug
+    Doncaster's own High Street needed, which fell to `-2`. A failed click
+    the user can repeat is the cheaper outcome.
     """
     points = _probe_set(geometry)
     areas = _areas_containing_all_of(
@@ -211,10 +223,7 @@ def _locality_for(geometry, click, label_point, click_areas):
         return best[1]
 
     anchor = label_point or click
-    try:
-        nodes = overpass.fetch_place_nodes(points or [anchor])
-    except overpass.OverpassError:
-        nodes = []
+    nodes = overpass.fetch_place_nodes(points or [anchor])
     nearest = overpass.nearest_place_node(nodes, anchor.y, anchor.x)
     if nearest is not None:
         return nearest[1]
@@ -253,9 +262,17 @@ def _areas_containing_all_of(geometry, click, label_point, click_areas,
       points would land in the same place the click did, so the request
       would buy nothing.
 
-    Never raises. A qualifier is a nicety and a mint is not: an Overpass
-    failure here falls back to the click's areas, and the ladder below
-    still has Natural Earth and the numeric floor under it.
+    **Raises `OverpassError` when the intersection cannot be asked for.**
+    It used to return the click's areas instead, on the reasoning that a
+    qualifier is a nicety and a mint is not — but a qualifier is half of a
+    permanent slug, so the fallback silently bought a *wrong* name for a
+    right one. The same reasoning cost `high-street-doncaster` on the node
+    rung (see `_locality_for`); here the shape is a long road named after
+    whatever village sits near its midpoint, which is precisely the
+    scale-honesty this function exists to enforce.
+
+    The empty return above is not that case: it is an answer, not a
+    failure — the click describes somewhere the element isn't.
     """
     if points is None:
         # The click's areas describe the click. That is the same place as
@@ -264,10 +281,7 @@ def _areas_containing_all_of(geometry, click, label_point, click_areas,
         if _metres_between(click, label_point) > CLICK_AREA_MAX_OFFSET_M:
             return []
         return click_areas or []
-    try:
-        return overpass.fetch_common_areas(points)
-    except overpass.OverpassError:
-        return []
+    return overpass.fetch_common_areas(points)
 
 
 def _spread_m(points):

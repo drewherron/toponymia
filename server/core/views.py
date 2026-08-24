@@ -77,9 +77,14 @@ from .throttles import (
 # follow-up call included. Comfortably inside gunicorn's --timeout (60 s in
 # deploy/box/toponymia.service) so the worker is never killed mid-request,
 # and short enough that a click either answers or fails while someone is
-# still watching. The calls that decide identity run first, so when the
-# budget does run out it costs cached geometry and a slug qualifier rather
-# than the resolution itself.
+# still watching.
+#
+# Running out costs the *mint*, not just detail. The calls that name a
+# place — the containing-area intersection and the settlement-node rung —
+# raise rather than guess, because their answer is half of a permanent
+# slug (`resolve._locality_for`). Only the geometry calls below them still
+# degrade quietly. So this budget is not merely a latency ceiling: set it
+# too low and clicks fail instead of resolving coarsely.
 RESOLVE_OVERPASS_BUDGET_S = 25
 
 MAX_HIGHLIGHTS = 500

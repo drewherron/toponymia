@@ -6093,19 +6093,27 @@ class ScaleMatchingTests(ApiTestCase):
     @patch('core.resolve.overpass.fetch_common_areas')
     @patch('core.resolve.overpass.fetch_way_component')
     @patch('core.resolve.overpass.fetch_elements')
-    def test_a_failed_intersection_still_mints(
+    def test_a_failed_intersection_mints_nothing(
         self, fetch, fetch_comp, fetch_common
     ):
-        """A qualifier is a nicety; a mint is not."""
+        """It used to fall to Natural Earth and mint
+        `church-lane-lincolnshire`, on the reasoning that a qualifier is a
+        nicety and a mint is not. A qualifier is half of a permanent slug,
+        so the mint waits for an answer it can trust."""
         coords = [(-0.58, 53.28), (-0.57, 53.31), (-0.57, 53.34)]
         fetch.return_value = [self._road('Church Lane', coords, None)]
         fetch_comp.return_value = [_component_way(55, coords, 'Church Lane')]
         fetch_common.side_effect = overpass.OverpassError('429')
         _make_place(name='Church Lane', slug='church-lane')
-        # Falls all the way to Natural Earth, which is the floor.
-        self.assertEqual(
-            self._post('Church Lane', -0.57, 53.31), 'church-lane-lincolnshire'
+        response = self.client.post(
+            reverse('core:resolve'),
+            {'name': 'Church Lane', 'class': 'road',
+             'lngLat': [-0.57, 53.31], 'zoom': 15},
+            content_type='application/json',
         )
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(Place.objects.filter(slug__startswith='church-lane-')
+                         .exists())
 
 
 class UnparishedTownTests(TestCase):
@@ -6360,12 +6368,35 @@ class NodeRungResolveTests(ApiTestCase):
 
     @patch('core.resolve.overpass.fetch_place_nodes')
     @patch('core.resolve.overpass.fetch_elements')
-    def test_a_failed_node_lookup_still_mints(self, fetch, nodes):
+    def test_a_failed_node_lookup_mints_nothing(self, fetch, nodes):
+        """It used to mint `church-lane-bassetlaw` here, on the reasoning
+        that a coarse qualifier beats a failed click. It does not: the
+        district is often not where the street is, and it takes the slug
+        that district's own High Street needs. A 503 is repeatable; a
+        slug is not."""
         fetch.return_value = [_area('Bassetlaw', 8)]
         nodes.side_effect = overpass.OverpassError('429')
         _make_place(name='Church Lane', slug='church-lane')
+        response = self.client.post(
+            reverse('core:resolve'),
+            {'name': 'Church Lane', 'class': 'road',
+             'lngLat': [-0.99, 53.25], 'zoom': 15},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(Place.objects.filter(slug__startswith='church-lane-')
+                         .exists())
+
+    @patch('core.resolve.overpass.fetch_place_nodes')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_settlement_boundary_survives_a_node_outage(self, fetch, nodes):
+        """The rung that isn't reached cannot fail the mint: containment
+        already had a parish, so no node lookup is made to go wrong."""
+        fetch.return_value = [_area('Bassetlaw', 8), _parish('Elkesley CP')]
+        nodes.side_effect = overpass.OverpassError('429')
+        _make_place(name='Church Lane', slug='church-lane')
         self.assertEqual(
-            self._post('Church Lane', -0.99, 53.25), 'church-lane-bassetlaw'
+            self._post('Church Lane', -0.99, 53.25), 'church-lane-elkesley'
         )
 
 
