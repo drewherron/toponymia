@@ -566,6 +566,9 @@ function FeaturePane({
           feature.anchor ? { ...click, lngLat: feature.anchor } : click,
           feature.nameEn ?? null,
           controller.signal,
+          // Only geocoder hits have one, and only they need one: their
+          // name is localized, so it is the ref that identifies them.
+          feature.osmRef,
         )
           .then((response) => {
             setResolution({ status: 'done', place: response.place })

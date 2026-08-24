@@ -230,6 +230,10 @@ _AREA_UNION = (
 
 QID_RE = re.compile(r'^Q\d+$')
 
+# 'node/1', 'way/2', 'relation/3' — how the geocoder half of search names
+# the element behind a hit, and how `Place.osm_type`/`osm_id` pair up.
+OSM_REF_RE = re.compile(r'^(node|way|relation)/(\d+)$')
+
 _TYPE_RANK = {'relation': 0, 'way': 1, 'node': 2}
 # Relation `type` tags that describe cartography rather than the place.
 # `land_area` is the big one: OSM carries relation 11980 "France (terres)"
@@ -544,6 +548,33 @@ def fetch_by_qid(qid):
         'out tags bb;'
     )
     return _call(query)
+
+
+def fetch_element_name(osm_type, osm_id):
+    """OSM's own `name` for one element, or None.
+
+    A **name lookup, not an anchor**. The geocoder (Photon) answers in the
+    browser's `Accept-Language`, so its hits are named 'Brasov' for Brașov
+    and 'Vienna' for Wien — right for the dropdown, wrong for
+    `fetch_elements`, whose `["name"=...]` reads the `name` tag and misses
+    outright. That miss is not visible: it mints a name anchor, a
+    permanent row with no QID, no element and no geometry, holding the
+    clean slug [observed in production, `brasov`, 2026-08-20].
+
+    Deliberately *not* used as the element itself, which would be one
+    request cheaper. Photon points at the boundary relation for a city,
+    and a boundary relation sometimes carries the wider entity — Havana's
+    is tagged with the province — so taking it as the anchor would skip
+    the very comparison `choose_element` exists to make. Reading the name
+    and then querying by name keeps a geocoder pick on exactly the path a
+    click on the same label takes.
+    """
+    query = f'[out:json][timeout:10];{osm_type}({osm_id});out tags;'
+    for element in _call(query):
+        name = element.get('tags', {}).get('name')
+        if name:
+            return name
+    return None
 
 
 def fetch_way_geometry(way_id):

@@ -966,6 +966,50 @@ class ResolveApiTests(ApiTestCase):
         self.assertEqual(place['display_name'], 'Iceland Mountain')
         self.assertEqual(place['anchor_level'], 'name')
 
+    @patch('core.resolve.overpass.fetch_element_name')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_osm_ref_recovers_a_localized_geocoder_name(self, fetch, el_name):
+        # Photon answers in the browser's language, so a search for
+        # Brașov arrives as 'Brasov' and the `name` query finds nothing.
+        # The ref names the element; its own name finds it.
+        fetch.side_effect = [[], [_relation(name='Brașov', qid='Q82174')]]
+        el_name.return_value = 'Brașov'
+        place = self._post(
+            name='Brasov', lngLat=[25.6106, 45.6525],
+            osm_ref='relation/10367676', **{'class': 'city'},
+        ).json()['place']
+        el_name.assert_called_once_with('relation', '10367676')
+        self.assertEqual(place['anchor_level'], 'wikidata')
+        self.assertEqual(place['wikidata_qid'], 'Q82174')
+
+    @patch('core.resolve.overpass.fetch_element_name')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_osm_ref_costs_nothing_when_the_name_matches(self, fetch, el_name):
+        fetch.return_value = [_relation(name='Brașov', qid='Q82174')]
+        place = self._post(
+            name='Brașov', lngLat=[25.6106, 45.6525],
+            osm_ref='relation/10367676', **{'class': 'city'},
+        ).json()['place']
+        # The extra request is the fallback's whole cost, so it must not
+        # be spent on the path that already works.
+        el_name.assert_not_called()
+        self.assertEqual(place['wikidata_qid'], 'Q82174')
+
+    @patch('core.resolve.overpass.fetch_element_name')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_unnamed_osm_ref_still_reaches_the_name_anchor(self, fetch,
+                                                           el_name):
+        fetch.return_value = []
+        el_name.return_value = None
+        place = self._post(
+            name='Nowhere', osm_ref='way/5', **{'class': 'city'}
+        ).json()['place']
+        self.assertEqual(place['anchor_level'], 'name')
+
+    def test_rejects_malformed_osm_ref(self):
+        for ref in ('12345', 'node/', 'chunk/12', 'node/12; drop'):
+            self.assertEqual(self._post(osm_ref=ref).status_code, 400)
+
 
 class RepresentativePointTests(TestCase):
     """Snapping the label point onto the middle of a feature."""

@@ -4,8 +4,13 @@ export interface FeatureCandidate {
   /** English-first display name — what the map label shows. */
   name: string
   /** The tile's own `name` (native), what OSM/Overpass match on.
-   *  Absent for candidates that never resolve (dots, slugs). */
+   *  Absent for candidates that never resolve (dots, slugs), and for
+   *  geocoder hits, whose names are localized — those carry `osmRef`. */
   rawName?: string
+  /** `type/id` of the OSM element a geocoder hit came from, when the
+   *  hit's own name cannot be trusted to match OSM's. Resolve uses it to
+   *  read the element's real name before querying by name. */
+  osmRef?: string | null
   /** The English name when it differs from rawName — sent to resolve as
    *  name_en regardless of the displayed label language. */
   nameEn?: string

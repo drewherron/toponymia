@@ -68,12 +68,18 @@ export class ResolveError extends Error {
   }
 }
 
+/** `osmRef` ('node/1', 'way/2', 'relation/3') identifies the element when
+ *  `name` cannot: geocoder hits carry localized names that Overpass's
+ *  `name` match would miss. The server reads the element's own name from
+ *  it and then resolves by name as usual, so a geocoder pick lands on the
+ *  same place a click on the feature would. */
 export async function resolveFeature(
   name: string,
   kind: string,
   click: ClickContext,
   nameEn: string | null,
   signal?: AbortSignal,
+  osmRef?: string | null,
 ): Promise<ResolveResponse> {
   const response = await fetch('/api/resolve/', {
     method: 'POST',
@@ -85,6 +91,7 @@ export async function resolveFeature(
       lngLat: [click.lngLat.lng, click.lngLat.lat],
       zoom: click.zoom,
       ...(nameEn ? { name_en: nameEn } : {}),
+      ...(osmRef ? { osm_ref: osmRef } : {}),
     }),
   })
   if (!response.ok) {
@@ -210,7 +217,15 @@ function photonContext(props: PhotonFeature['properties']): string {
 }
 
 /** Geocoder half of search (Photon — public, keyless, CORS-open).
- * Biased toward the current map view when a center is given. */
+ * Biased toward the current map view when a center is given.
+ *
+ * The names here are **localized, not OSM's own**: Photon honours the
+ * browser's `Accept-Language` even with no `lang` parameter, so an
+ * English browser gets 'Brasov' for Brașov and 'Vienna' for Wien, and a
+ * browser cannot unset that header (`fetch` forbids it). That is what we
+ * want on screen — a reader who searched "Beijing" should not be offered
+ * 北京市 — but it is *not* what Overpass matches on, so a hit resolves by
+ * `osmRef` rather than by this name. See `resolveFeature`. */
 export async function searchGeocoder(
   query: string,
   center: { lng: number; lat: number } | null,

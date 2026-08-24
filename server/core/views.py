@@ -52,7 +52,7 @@ from .moderation import (
     log_action,
 )
 from .notify import notify_new_report, notify_report_outcome
-from .overpass import QID_RE, OverpassError
+from .overpass import OSM_REF_RE, QID_RE, OverpassError
 from .overpass import budget as overpass_budget
 from .serializers import (
     ArticleDeleteSerializer,
@@ -306,6 +306,9 @@ def resolve(request):
     zoom = data.get('zoom')
     # optional Wikidata hint from a caller that already knows the entity
     qid = data.get('qid')
+    # optional 'type/id' of the element behind a geocoder hit, whose name
+    # is localized and so cannot be matched against OSM's `name` tag
+    osm_ref = data.get('osm_ref')
 
     if (
         not isinstance(name, str) or not name.strip()
@@ -315,11 +318,13 @@ def resolve(request):
         or not all(isinstance(c, (int, float)) for c in lng_lat)
         or not (isinstance(zoom, (int, float)) or zoom is None)
         or not (qid is None or (isinstance(qid, str) and QID_RE.match(qid)))
+        or not (osm_ref is None
+                or (isinstance(osm_ref, str) and OSM_REF_RE.match(osm_ref)))
     ):
         return Response(
             {
                 'error': 'expected {name, class, lngLat: [lng, lat], '
-                         'zoom?, qid?}'
+                         'zoom?, qid?, osm_ref?}'
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -343,6 +348,9 @@ def resolve(request):
             place, created = resolution.resolve(
                 name.strip(), feature_class, lng, lat, zoom, name_en,
                 qid=qid, allow_create=allow_create,
+                osm_ref=(
+                    OSM_REF_RE.match(osm_ref).groups() if osm_ref else None
+                ),
             )
     except DisallowedFeatureClass:
         # The UI never offers these, so reaching here means a hand-made

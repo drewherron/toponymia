@@ -436,6 +436,11 @@ function App() {
     setSelected({
       feature: {
         name: hit.name,
+        // Deliberately no rawName: a geocoder hit's name is localized
+        // (`searchGeocoder`), so it is not what Overpass matches on.
+        // `osmRef` is the hit's identity instead — without it a hit
+        // whose localized name differs from OSM's mints a name anchor.
+        osmRef: hit.osmRef,
         kind: hit.kind,
         sourceLayer: 'geocoder',
         properties: {},

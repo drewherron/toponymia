@@ -39,7 +39,7 @@ CLICK_AREA_MAX_OFFSET_M = 25_000
 
 
 def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
-            qid=None, allow_create=True):
+            qid=None, allow_create=True, osm_ref=None):
     """Return (place, created). Raises overpass.OverpassError on outage,
     or feature_classes.DisallowedFeatureClass when a request that would
     create a row names a category this wiki doesn't write articles about.
@@ -47,6 +47,12 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
     `name` is the feature's native OSM name (what Overpass matches on);
     `name_en` is the English-first label the client displayed, preferred
     for display_name so the article is titled what the user clicked.
+
+    `osm_ref` is an optional `(osm_type, osm_id)` from a caller whose
+    `name` may not be OSM's — the geocoder, which answers in the browser's
+    language. It is consulted only when the name query finds nothing, and
+    only to read the element's real name; see
+    `overpass.fetch_element_name` for why it is not used as the anchor.
 
     `qid` is an optional Wikidata hint from a caller that already knows
     the entity. It short-circuits the name guess: an existing Place with
@@ -116,6 +122,18 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
             overpass.fetch_elements(name, lat, lng, radius)
         )
         element = overpass.choose_element(features, feature_class)
+    if element is None and osm_ref is not None:
+        # `name` was not OSM's — the geocoder answers in the browser's
+        # language. Ask the element for the name it actually carries and
+        # run the same query again, so this lands where a click on the
+        # feature would rather than on the name anchor below.
+        osm_name = overpass.fetch_element_name(*osm_ref)
+        if osm_name and osm_name != name:
+            name = osm_name
+            features, areas = overpass.split_areas(
+                overpass.fetch_elements(name, lat, lng, radius)
+            )
+            element = overpass.choose_element(features, feature_class)
     if element is None:
         return (
             _create_name_anchor(name_en or name, feature_class, click, areas),
