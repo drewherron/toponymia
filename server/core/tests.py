@@ -6417,6 +6417,111 @@ class NodeRungResolveTests(ApiTestCase):
         )
 
 
+class LocalityQualifierAuditTests(TestCase):
+    """audit_locality_qualifiers: finding slugs the old swallowed
+    OverpassError left naming the wrong place.
+
+    The fixture is the real one — a High Street in Mexborough that took
+    `high-street-doncaster` because the node rung was unreachable at mint
+    time [dev, 2026-08-24]."""
+
+    MEXBOROUGH = (-1.2898, 53.4934)
+
+    @classmethod
+    def setUpTestData(cls):
+        _admin_box('Doncaster', 'United Kingdom', -1.4, 53.3, -0.9, 53.6)
+
+    def _street(self, slug, osm_id=55304610):
+        lon, lat = self.MEXBOROUGH
+        return Place.objects.create(
+            slug=slug,
+            anchor_level=Place.AnchorLevel.OSM,
+            display_name='High Street',
+            feature_class='road',
+            osm_type='way',
+            osm_id=osm_id,
+            centroid=Point(lon, lat, srid=4326),
+            label_point=Point(lon, lat, srid=4326),
+            # Short enough that _probe_set declines to probe, so the audit
+            # asks for the click's areas once and nothing more.
+            geometry=LineString(
+                [(-1.2924, 53.4932), (-1.2879, 53.4938)], srid=4326
+            ),
+        )
+
+    def _run(self, **opts):
+        out = StringIO()
+        call_command('audit_locality_qualifiers', interval=0, stdout=out,
+                     **opts)
+        return out.getvalue()
+
+    @patch('core.overpass.fetch_place_nodes')
+    @patch('core.overpass.fetch_common_areas')
+    def test_reports_a_slug_the_rung_would_now_improve(self, areas, nodes):
+        areas.return_value = [
+            _area('Doncaster', 8, designation='metropolitan_district')
+        ]
+        nodes.return_value = [
+            _place_node('Mexborough', 53.4937, -1.2910, 'town')
+        ]
+        self._street('high-street-doncaster')
+        output = self._run()
+        self.assertIn('high-street-doncaster', output)
+        self.assertIn('would now be: high-street-mexborough', output)
+        self.assertIn('1 degraded', output)
+
+    @patch('core.overpass.fetch_place_nodes')
+    @patch('core.overpass.fetch_common_areas')
+    def test_a_slug_already_on_the_ladder_is_left_alone(self, areas, nodes):
+        areas.return_value = [
+            _area('Doncaster', 8, designation='metropolitan_district')
+        ]
+        nodes.return_value = [
+            _place_node('Mexborough', 53.4937, -1.2910, 'town')
+        ]
+        self._street('high-street-mexborough')
+        self.assertIn('0 degraded', self._run())
+
+    @patch('core.overpass.fetch_place_nodes')
+    @patch('core.overpass.fetch_common_areas')
+    def test_a_taken_better_slug_is_blocked_not_degraded(self, areas, nodes):
+        """Deleting this row would free nothing — another place holds the
+        slug it would want — so it is a collision, not damage."""
+        areas.return_value = [
+            _area('Doncaster', 8, designation='metropolitan_district')
+        ]
+        nodes.return_value = [
+            _place_node('Mexborough', 53.4937, -1.2910, 'town')
+        ]
+        self._street('high-street-mexborough', osm_id=99000001)
+        self._street('high-street-doncaster')
+        output = self._run()
+        self.assertIn('0 degraded, 1 blocked', output)
+        self.assertIn('held by high-street-mexborough', output)
+
+    @patch('core.overpass.fetch_place_nodes')
+    @patch('core.overpass.fetch_common_areas')
+    def test_a_bare_slug_is_never_degraded(self, areas, nodes):
+        """The incumbent keeps the bare slug by design (`SLUGS.md` §5), so
+        it is skipped before a single Overpass call is spent on it."""
+        self._street('high-street')
+        self.assertIn('skipped 1', self._run(verbose_skips=True))
+        areas.assert_not_called()
+        nodes.assert_not_called()
+
+    @patch('core.overpass.fetch_place_nodes')
+    @patch('core.overpass.fetch_common_areas')
+    def test_an_overpass_failure_is_reported_not_swallowed(self, areas, nodes):
+        """The bug this audit exists to find was a swallowed failure, so
+        the audit must not repeat it: an unaskable row is named, not
+        counted as clean."""
+        areas.side_effect = overpass.OverpassError('429')
+        self._street('high-street-doncaster')
+        output = self._run()
+        self.assertIn('1 unchecked', output)
+        self.assertIn('high-street-doncaster', output)
+
+
 class SlugQualifierTests(TestCase):
     """unique_slug's ladder: bare, then qualified, then numeric."""
 
