@@ -642,6 +642,89 @@ class OverpassBudgetTests(TestCase):
         self.assertEqual(overpass._seconds_left(), math.inf)
 
 
+class OverpassServerTimeoutTests(TestCase):
+    """Overpass must give up before we do, or it holds a slot we abandoned.
+
+    Only two queries per IP may be in flight at once, so a query we walk away
+    from is half our capacity spent on an answer nobody will read — which is
+    how a strictly serial crawler earns a 429 (2026-08-26).
+    """
+
+    def setUp(self):
+        self.now = 1000.0
+
+    def _clock(self):
+        return self.now
+
+    def _server_timeout(self, post):
+        query = post.call_args.kwargs['data']['data']
+        return int(re.search(r'\[timeout:(\d+)\]', query).group(1))
+
+    @patch('core.overpass.requests.post')
+    def test_the_server_gives_up_before_the_socket_does(self, post):
+        from core.overpass import TIMEOUT_S
+        post.return_value = _FakeResponse(elements=[_relation()])
+        with patch('core.overpass.time.monotonic', self._clock):
+            with overpass.budget(600):
+                fetch_elements('X', 0.0, 0.0, 500)
+        self.assertLess(self._server_timeout(post),
+                        post.call_args.kwargs['timeout'])
+        # fetch_elements asks for 10, which is already under the 13 a 15 s
+        # socket allows, so its own judgement stands.
+        self.assertEqual(self._server_timeout(post), 10)
+        self.assertEqual(post.call_args.kwargs['timeout'], TIMEOUT_S)
+
+    @patch('core.overpass.requests.post')
+    def test_a_squeezed_budget_squeezes_the_server_timeout_too(self, post):
+        """The case a hardcoded [timeout:25] could never satisfy.
+
+        `_seconds_left()` drove the socket wait down to 4.1 s in the crawl
+        log while the query still asked Overpass for 25 s of work.
+        """
+        post.return_value = _FakeResponse(elements=[_relation()])
+        with patch('core.overpass.time.monotonic', self._clock):
+            with overpass.budget(6):
+                fetch_elements('X', 0.0, 0.0, 500)
+        self.assertEqual(post.call_args.kwargs['timeout'], 6)
+        self.assertEqual(self._server_timeout(post), 4)
+
+    @patch('core.overpass.requests.post')
+    def test_the_server_timeout_never_falls_below_one_second(self, post):
+        post.return_value = _FakeResponse(elements=[_relation()])
+        with patch('core.overpass.time.monotonic', self._clock):
+            with overpass.budget(1.5):
+                fetch_elements('X', 0.0, 0.0, 500)
+        self.assertEqual(self._server_timeout(post), 1)
+
+    def test_a_generous_socket_does_not_relax_a_tight_query(self):
+        """min(), not overwrite — a query's own ceiling is a judgement."""
+        from core.overpass import _with_server_timeout
+        self.assertIn('[timeout:10]',
+                      _with_server_timeout('[out:json][timeout:10];x', 60))
+
+    def test_a_tight_socket_clamps_a_generous_query(self):
+        from core.overpass import _with_server_timeout
+        self.assertIn('[timeout:13]',
+                      _with_server_timeout('[out:json][timeout:25];x', 15))
+
+    def test_only_the_leading_directive_is_rewritten(self):
+        """A literal 'timeout:' inside the query body is not ours to touch."""
+        from core.overpass import _with_server_timeout
+        out = _with_server_timeout(
+            '[out:json][timeout:25];node["name"="timeout:99"];out;', 15)
+        self.assertIn('[timeout:13]', out)
+        self.assertIn('"timeout:99"', out)
+
+    @patch('core.overpass.requests.post')
+    def test_the_invariant_holds_for_the_long_relation_query(self, post):
+        """The relation fetch asks for its own, much longer socket wait."""
+        post.return_value = _FakeResponse(elements=[])
+        with patch('core.overpass.time.monotonic', self._clock):
+            overpass.fetch_relation_member_ways(1)
+        self.assertLess(self._server_timeout(post),
+                        post.call_args.kwargs['timeout'])
+
+
 class ResolveBudgetTests(ApiTestCase):
     """The web path spends a bounded amount on Overpass; batch callers do
     not, because nothing is killing them."""

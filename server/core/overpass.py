@@ -68,6 +68,25 @@ RETRY_BACKOFFS_S = (1, 3, 6)
 # worth making, and only if the request's budget still allows it.
 RATE_LIMIT_BACKOFF_S = 5
 RATE_LIMIT_RETRIES = 1
+
+# How far under the socket timeout the server-side [timeout:N] is set.
+#
+# **Overpass keeps working on a query after we hang up**, and the slot that
+# query holds is one of the *two* this IP is allowed (`/api/status`:
+# "Rate limit: 2"). So a client-side read timeout does not just lose the
+# answer — it leaves a slot occupied, and the retry fired a second later
+# takes the other one. Two abandoned queries and the next attempt is a 429
+# we caused ourselves, which is what the 2026-08-26 crawl log shows: a
+# strictly serial crawler, no other users, and 429s regardless.
+#
+# The fix is an ordering invariant — **Overpass must give up before we do**,
+# so it stops working and frees the slot. It cannot be maintained by writing
+# a smaller number into each query, because `_seconds_left()` squeezes the
+# socket timeout as the request's budget drains (observed as low as 4.1 s
+# against queries written for 25). So the server-side value is rewritten
+# from the socket timeout at call time, centrally, in `_call`.
+SERVER_TIMEOUT_MARGIN_S = 2
+_TIMEOUT_RE = re.compile(r'\[timeout:(\d+)\]')
 # overpass-api.de 406es generic client user agents; identify ourselves.
 USER_AGENT = 'toponymia/0.1 (dherron@mailbox.org)'
 
@@ -703,7 +722,8 @@ def _call(query, timeout_s=TIMEOUT_S):
             if left <= 0:
                 break
         try:
-            return _attempt(query, min(timeout_s, left))
+            socket_s = min(timeout_s, left)
+            return _attempt(_with_server_timeout(query, socket_s), socket_s)
         except _RateLimited as exc:
             error = exc
             if rate_limit_retries <= 0:
@@ -717,6 +737,26 @@ def _call(query, timeout_s=TIMEOUT_S):
                 break
 
     raise OverpassError(str(error) if error else 'out of time') from error
+
+
+def _with_server_timeout(query, socket_s):
+    """Set the query's own [timeout:N] to expire before our socket does.
+
+    Keeps `SERVER_TIMEOUT_MARGIN_S` in hand for connect and transfer, and
+    never goes below 1 s — a doomed query that Overpass abandons itself is
+    still better than one we walk away from, because only the first frees
+    the slot. See SERVER_TIMEOUT_MARGIN_S for why this is not simply
+    written into each query.
+    """
+    def shrink(match):
+        # min(), not a flat overwrite: a query written [timeout:10] is saying
+        # a trivial lookup taking longer than that means the service is sick,
+        # and that judgement should survive a generous socket.
+        server_s = max(1, min(int(match.group(1)),
+                              int(socket_s) - SERVER_TIMEOUT_MARGIN_S))
+        return f'[timeout:{server_s}]'
+
+    return _TIMEOUT_RE.sub(shrink, query, count=1)
 
 
 def _attempt(query, timeout_s):
