@@ -85,7 +85,27 @@ from .throttles import (
 # slug (`resolve._locality_for`). Only the geometry calls below them still
 # degrade quietly. So this budget is not merely a latency ceiling: set it
 # too low and clicks fail instead of resolving coarsely.
-RESOLVE_OVERPASS_BUDGET_S = 25
+#
+# **Raised 25 -> 40 on 2026-08-26, against measured Overpass latency.** 25
+# was chosen when a call was assumed to be quick. It is not: on that day
+# overpass-api.de answered a *trivial* `node(1)` query in 4-7 s when it
+# answered at all, and 504'd roughly a third to a half of the time, each
+# failure burning 9-15 s before returning nothing. `/api/status` reported
+# both our slots free, so this is the service degraded rather than us
+# throttled.
+#
+# The retry ladder is four attempts (RETRY_BACKOFFS_S), but at 10-15 s per
+# failed attempt a 25 s budget only ever affords **two** — which is exactly
+# what the two 503s in that day's seeding crawls show: one 504, one
+# timeout, budget gone. Retries do succeed (a name query that timed out at
+# 15.5 s answered in 1.7 s on the next attempt), so the budget was
+# discarding attempts that would have worked.
+#
+# **Revisit before Phase 6.** The cost of a longer budget is concurrency,
+# not correctness: 3 sync workers, so three slow resolves make the site
+# unavailable to everyone else. During prelaunch topobot is the only caller
+# and that trade is free; once signups open it is not.
+RESOLVE_OVERPASS_BUDGET_S = 40
 
 MAX_HIGHLIGHTS = 500
 # Contributions ship in one response rather than per viewport, so this cap
