@@ -36,8 +36,19 @@ trap 'rm -rf "$workdir"' EXIT
 # -Fc is the custom format: compressed already (so no gzip on top, whatever
 # the sketch in the deployment notes says), and the only format pg_restore can
 # restore selectively.
+#
+# core_adminarea is excluded by DATA ONLY. It is 36 MB of a 56 MB database,
+# it is Natural Earth reference data that nothing in the app writes, and
+# `git pull && manage.py load_admin_boundaries` rebuilds it in ~5 s. Keeping
+# the table *definition* is what lets a restore load those rows back into
+# something; --exclude-table would leave the restore nowhere to put them.
+#
+# The cost is that a restore is no longer self-contained: DATABASE.md 5 has
+# a load_admin_boundaries step, and skipping it is silent — the site comes
+# up and mints unqualified slugs.
 echo "dumping $PGDATABASE to $dump"
-pg_dump --format=custom --file="$dump" "$PGDATABASE"
+pg_dump --format=custom --exclude-table-data=public.core_adminarea \
+    --file="$dump" "$PGDATABASE"
 
 # A dump that exists is not a dump that restores. Reading the archive's table
 # of contents proves the file is a complete, parseable custom-format archive
@@ -54,6 +65,20 @@ fi
 # hangs off, so it is in every real dump of this database.
 if ! grep -q 'TABLE DATA public core_place' "$workdir/toc"; then
     echo "FAILED: archive contains no core_place data" >&2
+    exit 1
+fi
+
+# The exclusion above is data-only, and the difference is invisible until a
+# restore needs it: an archive missing the table *definition* restores into a
+# database where load_admin_boundaries has nothing to fill. Assert both halves
+# — definition present, data absent — so that a future edit to the pg_dump
+# line that turns one into the other fails here rather than in an incident.
+if ! grep -q 'TABLE public core_adminarea' "$workdir/toc"; then
+    echo "FAILED: archive has no core_adminarea definition to restore into" >&2
+    exit 1
+fi
+if grep -q 'TABLE DATA public core_adminarea' "$workdir/toc"; then
+    echo "FAILED: core_adminarea data is in the archive; exclusion is not working" >&2
     exit 1
 fi
 
