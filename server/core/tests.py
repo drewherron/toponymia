@@ -505,6 +505,44 @@ class OverpassRateLimitTests(TestCase):
 
     @patch('core.overpass.time.sleep')
     @patch('core.overpass.requests.post')
+    def test_a_rate_limit_is_logged_as_a_warning(self, post, sleep):
+        """The one Overpass signal that must never be silent again.
+
+        Rate limiting is what named a Mexborough street after Doncaster and
+        a Fântânele street after its commune, and it was invisible at the
+        time because nothing recorded a request (LESSONS.md, 'a silent
+        fallback also hides the thing causing it'). It is also the number
+        that decides whether a seeding pace is too fast, so it is asserted
+        at WARNING rather than left to INFO with the successes.
+        """
+        post.return_value = self._limited()
+        with self.assertLogs('core.overpass', level='WARNING') as logs:
+            with self.assertRaises(OverpassError):
+                fetch_elements('Nowhere', 0.0, 0.0, 500)
+        self.assertTrue(
+            any('429' in line for line in logs.output),
+            f'no 429 in {logs.output}',
+        )
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
+    def test_a_successful_call_is_logged_with_its_elapsed_time(self, post,
+                                                               sleep):
+        """Latency per call is the other half of the watch list's metric.
+
+        Without it a slow Overpass and a fast one look identical in the
+        log, and 'Overpass latency from /api/resolve' has nothing to read.
+        """
+        post.return_value = _FakeResponse(elements=[_relation()])
+        with self.assertLogs('core.overpass', level='INFO') as logs:
+            fetch_elements('X', 0.0, 0.0, 500)
+        self.assertTrue(
+            any('200 in' in line and 'ms' in line for line in logs.output),
+            f'no timed success in {logs.output}',
+        )
+
+    @patch('core.overpass.time.sleep')
+    @patch('core.overpass.requests.post')
     def test_a_rate_limit_on_one_mirror_still_tries_the_others(self, post,
                                                               sleep):
         from core.overpass import OVERPASS_URLS

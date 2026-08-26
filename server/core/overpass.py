@@ -6,11 +6,28 @@ returned by the Overpass JSON API.
 
 import contextlib
 import contextvars
+import logging
 import math
 import re
 import time
+from urllib.parse import urlsplit
 
 import requests
+
+# One line per outbound Overpass request, on the 'core' logger that
+# settings.LOGGING already wires to stderr and (in production) to the file
+# CloudWatch tails. Nothing recorded these calls before 2026-08-26, which
+# left three separate questions unanswerable at once: whether seeding or
+# organic clicks were spending the budget, what the watch list's "Overpass
+# error rate" was supposed to read, and — the expensive one — why two mints
+# had been named after the wrong settlement, when the rate limiting that
+# caused it never appeared anywhere (LESSONS.md, 'a silent fallback also
+# hides the thing causing it').
+#
+# Volume is bounded by mints, not by traffic: a click on a known place makes
+# no request at all, so this cannot flood the log the way a per-request line
+# elsewhere would.
+logger = logging.getLogger(__name__)
 
 # Tried in order. Vetted 2026-07-15: the list had held three mirrors that
 # were entirely dead — kumi.systems and private.coffee never answered at
@@ -713,6 +730,8 @@ def _attempt(query, timeout_s):
     error = None
     rate_limited = False
     for url in OVERPASS_URLS:
+        host = urlsplit(url).netloc or url
+        started = time.monotonic()
         try:
             response = requests.post(
                 url,
@@ -720,21 +739,47 @@ def _attempt(query, timeout_s):
                 headers={'User-Agent': USER_AGENT},
                 timeout=timeout_s,
             )
-            # Checked before raise_for_status, which would flatten the 429
-            # into an HTTPError indistinguishable from the 504 we *do*
-            # want to retry hard.
-            if response.status_code == 429:
-                rate_limited = True
-                continue
-            response.raise_for_status()
-            return response.json().get('elements', [])
         except (requests.RequestException, ValueError) as exc:
+            logger.warning(
+                '%s failed in %d ms: %s', host, _ms(started), exc
+            )
             error = exc
+            continue
+        # Checked before raise_for_status, which would flatten the 429
+        # into an HTTPError indistinguishable from the 504 we *do*
+        # want to retry hard.
+        if response.status_code == 429:
+            # WARNING rather than INFO: this is the signal that decides
+            # whether a seeding pace is too fast, and it is the one thing
+            # here worth alarming on.
+            logger.warning('%s 429 in %d ms', host, _ms(started))
+            rate_limited = True
+            continue
+        try:
+            response.raise_for_status()
+            elements = response.json().get('elements', [])
+        except (requests.RequestException, ValueError) as exc:
+            logger.warning(
+                '%s %s in %d ms: %s',
+                host, response.status_code, _ms(started), exc,
+            )
+            error = exc
+            continue
+        logger.info(
+            '%s 200 in %d ms, %d elements',
+            host, _ms(started), len(elements),
+        )
+        return elements
     if rate_limited:
         raise _RateLimited('every mirror rate limited')
     if error is not None:
         raise error
     raise OverpassError('no Overpass mirrors configured')
+
+
+def _ms(started):
+    """Elapsed milliseconds since a time.monotonic() reading."""
+    return round((time.monotonic() - started) * 1000)
 
 
 def _is_admin_area(element):
