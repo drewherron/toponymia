@@ -317,6 +317,15 @@ def resolve(request):
     instances and take the core interaction down with it; tying that spend
     to an account (email-verified, bannable) keeps the cost attributable
     without putting a login wall in front of ordinary browsing.
+
+    `identify: true` runs the same ladder and writes nothing, answering
+    with the place's identity instead of a row. It costs the same Overpass
+    query and so needs the same account, but it takes no slug — which is
+    the point: a caller that must do fallible work before it commits to a
+    place (the seeding bot, which drafts an article first) identifies now
+    and mints later by sending the returned `wikidata_qid` back as `qid`.
+    Minting a place already identified is a single query by wikidata tag,
+    and anchors at level 1 by construction.
     """
     banned = banned_response(request.user)
     if banned is not None:
@@ -334,6 +343,8 @@ def resolve(request):
     # optional 'type/id' of the element behind a geocoder hit, whose name
     # is localized and so cannot be matched against OSM's `name` tag
     osm_ref = data.get('osm_ref')
+    # optional: answer with the identity and write nothing
+    identify_only = data.get('identify', False)
 
     if (
         not isinstance(name, str) or not name.strip()
@@ -345,11 +356,12 @@ def resolve(request):
         or not (qid is None or (isinstance(qid, str) and QID_RE.match(qid)))
         or not (osm_ref is None
                 or (isinstance(osm_ref, str) and OSM_REF_RE.match(osm_ref)))
+        or not isinstance(identify_only, bool)
     ):
         return Response(
             {
                 'error': 'expected {name, class, lngLat: [lng, lat], '
-                         'zoom?, qid?, osm_ref?}'
+                         'zoom?, qid?, osm_ref?, identify?}'
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
@@ -370,13 +382,22 @@ def resolve(request):
         # call resolve() without a budget on purpose: they can wait, and
         # nothing is killing them.
         with overpass_budget(RESOLVE_OVERPASS_BUDGET_S):
-            place, created = resolution.resolve(
+            ident = resolution.identify(
                 name.strip(), feature_class, lng, lat, zoom, name_en,
-                qid=qid, allow_create=allow_create,
+                qid=qid, allow_lookup=allow_create,
                 osm_ref=(
                     OSM_REF_RE.match(osm_ref).groups() if osm_ref else None
                 ),
             )
+            if ident is None:
+                place, created = None, False
+            elif identify_only:
+                place, created = ident.place, False
+            else:
+                # Inside the budget too: the mint's locality rung and its
+                # geometry fetches are Overpass calls like any other, and
+                # the deadline is what one request may spend in total.
+                place, created = resolution.mint(ident), ident.place is None
     except DisallowedFeatureClass:
         # The UI never offers these, so reaching here means a hand-made
         # request or a category the allowlist hasn't been taught yet. Name
@@ -395,7 +416,7 @@ def resolve(request):
             {'error': 'resolution service unavailable'},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
-    if place is None:
+    if place is None and not (identify_only and ident is not None):
         # Anonymous, and we don't already know this place. 401 rather than
         # 403: the client turns it into a sign-in prompt, not an error.
         return Response(
@@ -405,7 +426,22 @@ def resolve(request):
             },
             status=status.HTTP_401_UNAUTHORIZED,
         )
-    return Response({'place': _place_json(place), 'created': created})
+    body = {
+        'place': _place_json(place) if place else None,
+        'created': created,
+    }
+    if identify_only:
+        # `place` alongside says we already have this one, so a mint would
+        # return that row rather than create anything; null says the
+        # identity names a place nobody has claimed yet.
+        body['identity'] = {
+            'wikidata_qid': ident.qid,
+            'osm_type': ident.osm_type,
+            'osm_id': ident.osm_id,
+            'display_name': ident.display_name,
+            'anchor_level': ident.anchor_level,
+        }
+    return Response(body)
 
 
 @api_view(['GET'])

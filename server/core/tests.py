@@ -1512,6 +1512,164 @@ class ResolveQidHintTests(ApiTestCase):
         self.assertEqual(place['wikidata_qid'], 'Q30002')
 
 
+class IdentifyWithoutMintingTests(ApiTestCase):
+    """`identify: true` — the whole ladder, and no row.
+
+    A slug is permanent and only deletable while prelaunch is open, so a
+    caller that mints before it knows whether it will keep the place
+    spends names on its own failures. The seeding bot did exactly that:
+    it resolved every candidate first and drafted second, so when its API
+    balance ran out mid-run the crawl silently became a slug-grabbing run
+    — 48 permanent names attached to nothing. Identification is now a
+    separate answer, and the mint that follows sends the QID back.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('resolver', password='pw12345!')
+        self.client.force_login(self.user)
+
+    def _post(self, **overrides):
+        payload = {
+            'name': 'Mississippi River',
+            'class': 'waterway',
+            'lngLat': [-91.0, 32.0],
+            'zoom': 8,
+            'identify': True,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('core:resolve'), payload, content_type='application/json'
+        )
+
+    def test_rejects_non_boolean_identify(self):
+        self.assertEqual(self._post(identify='yes').status_code, 400)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_identifies_a_new_place_and_writes_nothing(self, fetch):
+        fetch.return_value = [_relation()]
+        body = self._post().json()
+        self.assertFalse(body['created'])
+        # No row, and no claim on one: `place` is what a mint would have
+        # returned, and there is nothing to return yet.
+        self.assertIsNone(body['place'])
+        self.assertEqual(Place.objects.count(), 0)
+        self.assertEqual(body['identity'], {
+            'wikidata_qid': 'Q1497',
+            'osm_type': 'relation',
+            'osm_id': 1236,
+            'display_name': 'Mississippi River',
+            'anchor_level': 'wikidata',
+        })
+
+    @patch('core.resolve.overpass.fetch_by_qid')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_identify_then_mint_by_qid_is_one_place(self, fetch, by_qid):
+        """The reordered crawl, end to end: identify, do the work, mint.
+
+        The mint goes by QID rather than by name+radius, which is not a
+        second-best — it anchors at level 1 by construction, where the
+        name ladder only usually does.
+        """
+        fetch.return_value = [_relation()]
+        qid = self._post().json()['identity']['wikidata_qid']
+        self.assertEqual(Place.objects.count(), 0)
+
+        by_qid.return_value = [_relation()]
+        minted = self.client.post(
+            reverse('core:resolve'),
+            {
+                'name': 'Mississippi River',
+                'class': 'waterway',
+                'lngLat': [-91.0, 32.0],
+                'zoom': 8,
+                'qid': qid,
+            },
+            content_type='application/json',
+        ).json()
+        self.assertTrue(minted['created'])
+        self.assertEqual(minted['place']['wikidata_qid'], 'Q1497')
+        self.assertEqual(minted['place']['anchor_level'], 'wikidata')
+        self.assertEqual(Place.objects.count(), 1)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_identify_reports_a_place_we_already_have(self, fetch):
+        """`place` alongside the identity is how a crawl skips a known one."""
+        fetch.return_value = [_relation()]
+        existing = self._post(identify=False).json()['place']
+        fetch.reset_mock()
+
+        body = self._post().json()
+        self.assertEqual(body['place']['id'], existing['id'])
+        self.assertEqual(body['identity']['wikidata_qid'], 'Q1497')
+        self.assertFalse(body['created'])
+        # A cache hit answers it, so skipping a known place stays free.
+        fetch.assert_not_called()
+        self.assertEqual(Place.objects.count(), 1)
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_identify_needs_an_account_like_any_other_query(self, fetch):
+        """The gate is on the Overpass spend, not on the row.
+
+        Identification writes nothing, but it still sends traffic out
+        under our own IP — which is the thing an anonymous script could
+        get us banned for.
+        """
+        fetch.return_value = [_relation()]
+        self.client.logout()
+        response = self._post()
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['reason'], 'signin_required')
+        fetch.assert_not_called()
+
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_identify_rejects_a_class_we_do_not_write_about(self, fetch):
+        """Same 400 as a mint: identifying is the step before one, so a
+        category the wiki does not cover is refused here rather than
+        after a crawl has drafted an article for it."""
+        fetch.return_value = [_relation()]
+        response = self._post(**{'class': 'shop'})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['reason'], 'disallowed_class')
+        fetch.assert_not_called()
+
+    @patch('core.resolve.overpass.fetch_way_component')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_identity_of_a_road_is_its_whole_component(self, fetch, component):
+        """Roads anchor on the component's lowest way id, and the
+        identification has to say so — a mint that later picked the
+        clicked segment instead would be a different place."""
+        fetch.return_value = [_way(osm_id=77)]
+        component.return_value = [_way(osm_id=77), _way(osm_id=12)]
+        identity = self._post(
+            name='Mill Creek', **{'class': 'waterway'},
+            lngLat=[-122.5, 45.1],
+        ).json()['identity']
+        self.assertEqual(identity['osm_type'], 'way')
+        self.assertEqual(identity['osm_id'], 12)
+        self.assertEqual(identity['anchor_level'], 'osm')
+        self.assertIsNone(identity['wikidata_qid'])
+        self.assertEqual(Place.objects.count(), 0)
+
+    @patch('core.resolve.overpass.fetch_place_nodes')
+    @patch('core.resolve.overpass.fetch_elements')
+    def test_a_name_anchor_identifies_with_no_osm_identity_at_all(
+        self, fetch, nodes
+    ):
+        """Overpass knows nothing about it, so there is nothing to send
+        back as a QID — which is a crawl's cue to skip rather than mint a
+        level-3 anchor it cannot draft from."""
+        fetch.return_value = []
+        nodes.return_value = []
+        identity = self._post().json()['identity']
+        self.assertEqual(identity['anchor_level'], 'name')
+        self.assertIsNone(identity['wikidata_qid'])
+        self.assertIsNone(identity['osm_type'])
+        self.assertIsNone(identity['osm_id'])
+        self.assertEqual(identity['display_name'], 'Mississippi River')
+        self.assertEqual(Place.objects.count(), 0)
+
+
 def _make_place(name='Testville', slug='testville'):
     return Place.objects.create(
         slug=slug,

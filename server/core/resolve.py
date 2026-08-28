@@ -2,10 +2,18 @@
 
 Ladder: cached Place -> Overpass around-query ->
 wikidata QID (level 1) -> OSM element (level 2) -> name+location (level 3).
+
+Two halves, and they are separable on purpose. `identify()` walks the
+whole ladder and writes nothing; `mint()` is the only thing here that
+creates a row. `resolve()` is both in one call, which is what a click
+wants. A caller with work to do between the two — a seeding crawl that
+drafts an article before it decides to keep the place — calls them
+separately, so that work failing costs no permanent slug.
 """
 
 import math
 from collections import Counter
+from dataclasses import dataclass
 
 from django.contrib.gis.geos import (
     LineString,
@@ -38,35 +46,72 @@ PROBE_MIN_EXTENT_M = 1_000
 CLICK_AREA_MAX_OFFSET_M = 25_000
 
 
-def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
-            qid=None, allow_create=True, osm_ref=None):
-    """Return (place, created). Raises overpass.OverpassError on outage,
-    or feature_classes.DisallowedFeatureClass when a request that would
-    create a row names a category this wiki doesn't write articles about.
+@dataclass
+class Identification:
+    """Which place a click means, before anything has been written.
 
-    `name` is the feature's native OSM name (what Overpass matches on);
-    `name_en` is the English-first label the client displayed, preferred
-    for display_name so the article is titled what the user clicked.
+    `place` set means the ladder found it in the database already, so
+    there is nothing to mint and `mint()` is a no-op. Otherwise this
+    describes a place that does not exist yet.
 
-    `osm_ref` is an optional `(osm_type, osm_id)` from a caller whose
-    `name` may not be OSM's — the geocoder, which answers in the browser's
-    language. It is consulted only when the name query finds nothing, and
-    only to read the element's real name; see
-    `overpass.fetch_element_name` for why it is not used as the anchor.
+    `element`, `component` and `areas` are raw material for the mint —
+    the Overpass element the ladder chose, the same-name ways a road is
+    really made of, and the containing areas the first query already
+    returned. Nothing outside this module should read them; the identity
+    is the fields above them.
 
-    `qid` is an optional Wikidata hint from a caller that already knows
-    the entity. It short-circuits the name guess: an existing Place with
-    that QID wins outright, else Overpass is queried by wikidata tag,
-    which anchors at level 1 by construction. A miss falls through to the
-    name ladder below, so a wrong or stale hint costs a query, not a
-    resolution.
+    An Identification is only true at the moment it is made. A caller
+    that identifies, goes away to do work, and comes back to mint can
+    race another mint of the same place; the unique constraints on
+    `wikidata_qid` and `slug` are what settle that, and the loser sees an
+    IntegrityError rather than a duplicate.
+    """
 
-    `allow_create=False` restricts this to the database rungs of the
-    ladder: an already-known Place is returned as usual, and anything that
-    would query Overpass or write a new row returns (None, False) instead.
-    That is the anonymous path — it keeps clicking a known place instant and
-    free while making sure only accounts can spend our Overpass budget or
-    create permanent rows.
+    display_name: str
+    feature_class: str
+    anchor_level: str
+    click: Point
+    place: Place | None = None
+    qid: str | None = None
+    osm_type: str | None = None
+    osm_id: int | None = None
+    element: dict | None = None
+    component: list | None = None
+    areas: list | None = None
+
+    @classmethod
+    def known(cls, place):
+        """A place the database already had; its identity is its own."""
+        return cls(
+            display_name=place.display_name,
+            feature_class=place.feature_class,
+            anchor_level=place.anchor_level,
+            click=place.label_point,
+            place=place,
+            qid=place.wikidata_qid,
+            osm_type=place.osm_type or None,
+            osm_id=place.osm_id,
+        )
+
+
+def identify(name, feature_class, lng, lat, zoom=None, name_en=None,
+             qid=None, allow_lookup=True, osm_ref=None):
+    """Return an Identification, or None when this caller may not ask.
+
+    The whole ladder, and not one write. Splitting this from `mint()` is
+    what lets a caller do fallible work — drafting an article, checking a
+    balance — between knowing which place it means and taking that
+    place's name. A slug is permanent (`DATABASE.md` §9), so a crawl that
+    minted first and drafted second turned every mid-run failure into a
+    name attached to nothing.
+
+    `allow_lookup=False` keeps this to the database rungs: a known Place
+    comes back as usual, and anything that would query Overpass returns
+    None. That is `resolve()`'s `allow_create` under the name that
+    describes what it actually gates — asking Overpass, which is the
+    spend, whether or not a row follows.
+
+    Arguments and exceptions are `resolve()`'s; see its docstring.
     """
     radius = overpass.radius_for_click(zoom, lat)
     click = Point(lng, lat, srid=4326)
@@ -74,7 +119,7 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
     if qid:
         existing = Place.objects.filter(wikidata_qid=qid).first()
         if existing:
-            return existing, False
+            return Identification.known(existing)
 
     display_names = {name, name_en} - {None}
     # bbox matters for relations, which cache no geometry: without it a
@@ -92,7 +137,7 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
         .first()
     )
     if cached:
-        return cached, False
+        return Identification.known(cached)
 
     # Past the cache, so this request would mint a row. The category rule
     # applies from here and not above it: an existing Place resolves whatever
@@ -102,10 +147,11 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
     # sign-in prompt.
     feature_classes.check_allowed(feature_class)
 
-    # Everything below here either calls Overpass or creates a row, so this
-    # is where the anonymous path stops.
-    if not allow_create:
-        return None, False
+    # Everything below here calls Overpass, so this is where the anonymous
+    # path stops — the gate is on the spend, not on the row, because the
+    # spend is what leaves under our IP.
+    if not allow_lookup:
+        return None
 
     element = None
     # Containing administrative areas, for the locality rung of the slug
@@ -135,9 +181,12 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
             )
             element = overpass.choose_element(features, feature_class)
     if element is None:
-        return (
-            _create_name_anchor(name_en or name, feature_class, click, areas),
-            True,
+        return Identification(
+            display_name=_display_name(None, name, name_en),
+            feature_class=feature_class,
+            anchor_level=Place.AnchorLevel.NAME,
+            click=click,
+            areas=areas,
         )
 
     # Roads: OSM splits a road into a way per tag change, so anchor and
@@ -153,22 +202,103 @@ def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
 
     if qid:
         existing = Place.objects.filter(wikidata_qid=qid).first()
-        if existing:
-            return existing, False
     else:
         existing = Place.objects.filter(
             osm_type=element['type'], osm_id=anchor_id
         ).first()
-        if existing:
-            return existing, False
+    if existing:
+        return Identification.known(existing)
 
-    return (
-        _create_from_element(
-            element, qid, name, feature_class, click, name_en,
-            component=component, anchor_id=anchor_id, areas=areas,
+    return Identification(
+        display_name=_display_name(element, name, name_en),
+        feature_class=feature_class,
+        anchor_level=(
+            Place.AnchorLevel.WIKIDATA if qid else Place.AnchorLevel.OSM
         ),
-        True,
+        click=click,
+        qid=qid,
+        osm_type=element['type'],
+        osm_id=anchor_id,
+        element=element,
+        component=component,
+        areas=areas,
     )
+
+
+def mint(ident):
+    """Create the Place `ident` describes, and return it.
+
+    The only writer in this module. Returns the existing row untouched
+    when `ident` already names one, so a caller can mint whatever
+    `identify()` handed back without asking which kind it got.
+
+    The Overpass calls left to pay for here are the ones that shape a
+    permanent slug — the locality rung and the geometry fetches — and
+    they raise rather than degrade, for the reason `_locality_for`
+    explains at length.
+    """
+    if ident.place is not None:
+        return ident.place
+    if ident.element is None:
+        return _create_name_anchor(ident)
+    return _create_from_element(ident)
+
+
+def _display_name(element, name, name_en):
+    """What to title the place.
+
+    OSM's own English name first, then the English-first label the client
+    displayed, then OSM's native name. `name` itself is the last resort
+    because on the geocoder path it is whatever the browser's language
+    asked for, not what OSM carries.
+    """
+    tags = element.get('tags', {}) if element else {}
+    return tags.get('name:en') or name_en or tags.get('name') or name
+
+
+def resolve(name, feature_class, lng, lat, zoom=None, name_en=None,
+            qid=None, allow_create=True, osm_ref=None):
+    """Return (place, created). Raises overpass.OverpassError on outage,
+    or feature_classes.DisallowedFeatureClass when a request that would
+    create a row names a category this wiki doesn't write articles about.
+
+    `identify()` then `mint()`, in one call — the shape a click wants,
+    where there is no work between the two that could fail. Callers with
+    such work should call the two themselves; see `identify()`.
+
+    `name` is the feature's native OSM name (what Overpass matches on);
+    `name_en` is the English-first label the client displayed, preferred
+    for display_name so the article is titled what the user clicked.
+
+    `osm_ref` is an optional `(osm_type, osm_id)` from a caller whose
+    `name` may not be OSM's — the geocoder, which answers in the browser's
+    language. It is consulted only when the name query finds nothing, and
+    only to read the element's real name; see
+    `overpass.fetch_element_name` for why it is not used as the anchor.
+
+    `qid` is an optional Wikidata hint from a caller that already knows
+    the entity. It short-circuits the name guess: an existing Place with
+    that QID wins outright, else Overpass is queried by wikidata tag,
+    which anchors at level 1 by construction. A miss falls through to the
+    name ladder below, so a wrong or stale hint costs a query, not a
+    resolution.
+
+    `allow_create=False` restricts this to the database rungs of the
+    ladder: an already-known Place is returned as usual, and anything that
+    would query Overpass or write a new row returns (None, False) instead.
+    That is the anonymous path — it keeps clicking a known place instant and
+    free while making sure only accounts can spend our Overpass budget or
+    create permanent rows.
+    """
+    ident = identify(
+        name, feature_class, lng, lat, zoom, name_en,
+        qid=qid, allow_lookup=allow_create, osm_ref=osm_ref,
+    )
+    if ident is None:
+        return None, False
+    if ident.place is not None:
+        return ident.place, False
+    return mint(ident), True
 
 
 def _metres_between(a, b):
@@ -314,13 +444,12 @@ def _component_qid(component):
     return Counter(qids).most_common(1)[0][0] if qids else None
 
 
-def _create_from_element(element, qid, name, feature_class, click,
-                         name_en=None, component=None, anchor_id=None,
-                         areas=None):
-    tags = element.get('tags', {})
-    display_name = (
-        tags.get('name:en') or name_en or tags.get('name') or name
-    )
+def _create_from_element(ident):
+    element = ident.element
+    component = ident.component
+    click = ident.click
+    qid = ident.qid
+    display_name = ident.display_name
     bounds = overpass.bounds_of(element)
 
     geometry = None
@@ -377,7 +506,7 @@ def _create_from_element(element, qid, name, feature_class, click,
     area = nearest_admin_area(label_point)
 
     locality = locality_qualifier(
-        _locality_for(geometry, click, label_point, areas),
+        _locality_for(geometry, click, label_point, ident.areas),
         display_name,
         area,
     )
@@ -385,18 +514,16 @@ def _create_from_element(element, qid, name, feature_class, click,
     return Place.objects.create(
         slug=unique_slug(
             display_name,
-            admin_qualifier(area, display_name, qid, feature_class),
+            admin_qualifier(area, display_name, qid, ident.feature_class),
             locality=locality,
         ),
         **_admin_context(area),
         wikidata_qid=qid,
-        osm_type=element['type'],
-        osm_id=anchor_id if anchor_id is not None else element['id'],
-        anchor_level=(
-            Place.AnchorLevel.WIKIDATA if qid else Place.AnchorLevel.OSM
-        ),
+        osm_type=ident.osm_type,
+        osm_id=ident.osm_id,
+        anchor_level=ident.anchor_level,
         display_name=display_name,
-        feature_class=feature_class,
+        feature_class=ident.feature_class,
         geometry=geometry,
         centroid=centroid,
         label_point=label_point,
@@ -615,7 +742,9 @@ def _component_bounds(component):
     )
 
 
-def _create_name_anchor(name, feature_class, click, areas=None):
+def _create_name_anchor(ident):
+    name = ident.display_name
+    click = ident.click
     # The click is the anchor here — Overpass knows nothing about this
     # place — so it is also the right point to qualify from, and the city
     # rung needs no offset guard: `is_in` was asked about this very point.
@@ -623,20 +752,20 @@ def _create_name_anchor(name, feature_class, click, areas=None):
     return Place.objects.create(
         slug=unique_slug(
             name,
-            admin_qualifier(area, name, None, feature_class),
+            admin_qualifier(area, name, None, ident.feature_class),
             locality=locality_qualifier(
                 # No element and so no geometry: the click is the feature's
                 # only known point, and is both its label point and what
                 # the containment lookup already described.
-                _locality_for(None, click, click, areas),
+                _locality_for(None, click, click, ident.areas),
                 name,
                 area,
             ),
         ),
         **_admin_context(area),
-        anchor_level=Place.AnchorLevel.NAME,
+        anchor_level=ident.anchor_level,
         display_name=name,
-        feature_class=feature_class,
+        feature_class=ident.feature_class,
         geometry=click,
         centroid=click,
         label_point=click,
