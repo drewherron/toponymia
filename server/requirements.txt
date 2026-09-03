@@ -4,7 +4,7 @@ django-allauth>=65.19.1,<66
 psycopg[binary]>=3.3.4,<4
 requests>=2.34.2,<3
 whitenoise>=6.12.0,<7
-gunicorn>=26.0.0,<27
+gunicorn>=26.2.0,<27
 # Only imported when DJANGO_REDIS_URL is set (see CACHES in config/settings.py);
 # Django's built-in RedisCache backend needs the client library present.
 redis>=8.1.0,<9
