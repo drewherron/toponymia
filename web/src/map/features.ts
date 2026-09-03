@@ -15,7 +15,8 @@ const KIND_BY_SOURCE_LAYER: Record<string, string> = {
 /**
  * Layers that mix kinds, so the kind is each feature's own `class` rather
  * than a constant for the layer: `place` (city vs country vs state), `park`
- * (national_park vs nature_reserve), and `poi`.
+ * (national_park vs nature_reserve), `mountain_peak` (peak vs volcano vs
+ * saddle vs ridge) and `poi`.
  *
  * `poi` is here so that a click reports *what kind of POI* — a castle, not
  * the word "poi". The server allowlist (`server/core/feature_classes.py`)
@@ -23,7 +24,17 @@ const KIND_BY_SOURCE_LAYER: Record<string, string> = {
  * this layer reported one constant, that constant had to be permitted
  * wholesale and a hand-written POST claiming it said nothing.
  */
-const CLASS_BEARING_LAYERS = new Set(['place', 'park', 'poi'])
+const CLASS_BEARING_LAYERS = new Set([
+  'place',
+  'park',
+  'poi',
+  // Peaks read their class for the same reason stations are renamed below:
+  // `kindFromPhoton()` already reports a volcano as `volcano`, and the server
+  // allowlist has `volcano`, `ridge` and `saddle` alongside `peak`. Flattening
+  // every one to `peak` here would mean a map click and a search pick on the
+  // same volcano minted two Places for it.
+  'mountain_peak',
+])
 
 const STATION_KIND = 'station'
 
@@ -68,7 +79,14 @@ export function labelClassExpr(
   sourceLayer: string,
 ): ExpressionSpecification | string {
   if (CLASS_BEARING_LAYERS.has(sourceLayer)) {
-    const cls: ExpressionSpecification = ['coalesce', ['get', 'class'], '']
+    // The fallback has to be the one `kindOf` uses for a class-less feature
+    // of this layer, or a peak that carries no class would be stored as
+    // `peak` and its label looked up under '' — a highlight that never lights.
+    const cls: ExpressionSpecification = [
+      'coalesce',
+      ['get', 'class'],
+      KIND_BY_SOURCE_LAYER[sourceLayer] ?? '',
+    ]
     return ['match', cls, RAILWAY_CLASS, STATION_KIND, cls]
   }
   return KIND_BY_SOURCE_LAYER[sourceLayer] ?? sourceLayer

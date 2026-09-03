@@ -240,6 +240,14 @@ function dotCollection(features: Feature[] | null): FeatureCollection {
 // keyed by id survives tile reloads — the basis of the tier-2 highlight.
 const OMT_SOURCE = 'openmaptiles'
 const SPATIAL_SOURCE_LAYER = 'place'
+// Peaks: present in the tiles from z7, absent from the Liberty style, so we
+// draw them ourselves (see the layer added on load). z9 rather than z7 keeps
+// a zoomed-out map calm — a peak is a local landmark, not a regional one.
+const PEAK_SOURCE_LAYER = 'mountain_peak'
+const PEAK_MIN_ZOOM = 9
+// Slate, a shade off the basemap's #333 place labels: a peak reads as terrain
+// rather than settlement, and the amber highlight still lifts clearly off it.
+const PEAK_COLOR = '#5a6169'
 // A rendered label counts as an article's own only if it sits within this
 // of the article's label_point (~5.5 km). Far enough to absorb a city
 // node vs its P625 centre, tight enough to reject a same-named city in
@@ -802,6 +810,41 @@ function MapView({
     }
 
     map.on('load', () => {
+      // Liberty draws no peaks at all — `mountain_peak` appears nowhere in
+      // its 111 layers, though the tiles carry the layer from z7 with name,
+      // class and ele. That absence was three bugs at once: peaks were
+      // invisible, they could never be highlighted (no label to recolor),
+      // and they were not even clickable, because queryRenderedFeatures
+      // only returns features from layers that are in the style. Adding the
+      // layer here fixes all three, and it goes in BEFORE the loop below so
+      // that loop picks it up as an ordinary label layer with no special
+      // casing.
+      //
+      // Appended last, so it is placed last: symbol collision runs in layer
+      // order, and a peak should yield to a town's name rather than push it
+      // off the map. Among peaks, the tallest wins the collision.
+      map.addLayer({
+        id: 'mountain-peak-label',
+        type: 'symbol',
+        source: OMT_SOURCE,
+        'source-layer': PEAK_SOURCE_LAYER,
+        minzoom: PEAK_MIN_ZOOM,
+        filter: ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false],
+        layout: {
+          'text-field': nameField(propsRef.current.labelLanguage),
+          'text-font': ['Noto Sans Italic'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 14, 12],
+          'text-max-width': 9,
+          'symbol-sort-key': ['*', -1, ['coalesce', ['get', 'ele'], 0]],
+        },
+        paint: {
+          'text-color': PEAK_COLOR,
+          'text-halo-color': '#fff',
+          'text-halo-width': 1,
+          'text-halo-blur': 0.5,
+        },
+      })
+
       // Every basemap layer that draws a feature's name (skips shields,
       // which label the `ref` property).
       const labelLayers: LabelLayer[] = []
