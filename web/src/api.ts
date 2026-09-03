@@ -28,6 +28,8 @@ import type {
   TalkThread,
 } from './types'
 import { isToponymicPhotonHit } from './poi'
+// The same collapse map clicks apply, so click and search agree on a park.
+import { parkKind as parkKindFromOsm } from './map/features'
 
 function csrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)
@@ -174,6 +176,15 @@ export async function fetchRandomArticle(
   return body.place
 }
 
+/** The OSM `boundary=*` values that are parks rather than administrative
+ *  divisions. `aboriginal_lands` is here because OpenMapTiles routes it to
+ *  the park layer too, so a click already treats it as one. */
+const PARK_BOUNDARY_VALUES = new Set([
+  'national_park',
+  'protected_area',
+  'aboriginal_lands',
+])
+
 const PHOTON_TYPE: Record<string, string> = {
   N: 'node',
   W: 'way',
@@ -188,6 +199,17 @@ function kindFromPhoton(key: string, value: string): string {
   if (key === 'waterway') return 'waterway'
   if (key === 'highway') return 'road'
   if (key === 'natural') return value === 'peak' ? 'peak' : value || 'water'
+  // Parks before the generic `boundary`, and through the same collapse a map
+  // click applies (`parkKindFromOsm`) — otherwise a search pick on Mount Hood
+  // National Forest is a `boundary` while a click on it is a `protected_area`,
+  // and the two mint separate Places for one feature. `boundary` stays the
+  // answer for administrative boundaries, which is what it was always for.
+  if (key === 'boundary' && PARK_BOUNDARY_VALUES.has(value)) {
+    return parkKindFromOsm(value)
+  }
+  if (key === 'leisure' && value === 'nature_reserve') {
+    return parkKindFromOsm(value)
+  }
   if (key === 'boundary') return 'boundary'
   return value || key || 'place'
 }

@@ -248,6 +248,14 @@ const PEAK_MIN_ZOOM = 9
 // Slate, a shade off the basemap's #333 place labels: a peak reads as terrain
 // rather than settlement, and the amber highlight still lifts clearly off it.
 const PEAK_COLOR = '#5a6169'
+// Parks: polygons drawn by Liberty, never labelled. Points only, staged by
+// rank (see the layer added on load). z8 because a national park IS a
+// regional landmark, unlike a peak.
+const PARK_SOURCE_LAYER = 'park'
+const PARK_MIN_ZOOM = 8
+// Deep green, keyed to the basemap's own #d8e8c8 park fill so the label reads
+// as belonging to the area under it.
+const PARK_COLOR = '#3f6b45'
 // A rendered label counts as an article's own only if it sits within this
 // of the article's label_point (~5.5 km). Far enough to absorb a city
 // node vs its P625 centre, tight enough to reject a same-named city in
@@ -839,6 +847,54 @@ function MapView({
         },
         paint: {
           'text-color': PEAK_COLOR,
+          'text-halo-color': '#fff',
+          'text-halo-width': 1,
+          'text-halo-blur': 0.5,
+        },
+      })
+
+      // Parks: Liberty draws the polygon (fill + outline) and never its
+      // name, so a protected area was clickable but could not be labelled or
+      // highlighted. The tiles carry a separate Point feature per park with a
+      // `rank` on it — OpenMapTiles' own label anchor, which is a better
+      // placement than a centroid and the reason this filters to points. The
+      // polygons have no rank, so they would all stage as rank 1.
+      //
+      // Staged by rank because these areas are huge and overlapping: around
+      // Mount Hood a single z9 tile holds 61 of them. Rank 1 is the biggest
+      // claim in its tile and appears first; the rest wait for a closer look.
+      map.addLayer({
+        id: 'park-label',
+        type: 'symbol',
+        source: OMT_SOURCE,
+        'source-layer': PARK_SOURCE_LAYER,
+        minzoom: PARK_MIN_ZOOM,
+        filter: [
+          'all',
+          ['match', ['geometry-type'], ['Point', 'MultiPoint'], true, false],
+          [
+            '>=',
+            ['zoom'],
+            [
+              'match',
+              ['coalesce', ['get', 'rank'], 1],
+              1,
+              PARK_MIN_ZOOM,
+              2,
+              PARK_MIN_ZOOM + 1,
+              PARK_MIN_ZOOM + 2,
+            ],
+          ],
+        ],
+        layout: {
+          'text-field': nameField(propsRef.current.labelLanguage),
+          'text-font': ['Noto Sans Italic'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 14, 12],
+          'text-max-width': 8,
+          'symbol-sort-key': ['coalesce', ['get', 'rank'], 9],
+        },
+        paint: {
+          'text-color': PARK_COLOR,
           'text-halo-color': '#fff',
           'text-halo-width': 1,
           'text-halo-blur': 0.5,

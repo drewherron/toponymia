@@ -14,9 +14,10 @@ const KIND_BY_SOURCE_LAYER: Record<string, string> = {
 
 /**
  * Layers that mix kinds, so the kind is each feature's own `class` rather
- * than a constant for the layer: `place` (city vs country vs state), `park`
- * (national_park vs nature_reserve), `mountain_peak` (peak vs volcano vs
- * saddle vs ridge) and `poi`.
+ * than a constant for the layer: `place` (city vs country vs state),
+ * `mountain_peak` (peak vs volcano vs saddle vs ridge) and `poi`. `park` is
+ * class-bearing too but normalises instead of passing through — see
+ * PARK_KINDS below.
  *
  * `poi` is here so that a click reports *what kind of POI* — a castle, not
  * the word "poi". The server allowlist (`server/core/feature_classes.py`)
@@ -26,7 +27,6 @@ const KIND_BY_SOURCE_LAYER: Record<string, string> = {
  */
 const CLASS_BEARING_LAYERS = new Set([
   'place',
-  'park',
   'poi',
   // Peaks read their class for the same reason stations are renamed below:
   // `kindFromPhoton()` already reports a volcano as `volcano`, and the server
@@ -37,6 +37,35 @@ const CLASS_BEARING_LAYERS = new Set([
 ])
 
 const STATION_KIND = 'station'
+
+/**
+ * The `park` layer's `class` is an OPEN vocabulary and cannot be used raw.
+ * OpenMapTiles falls back to OSM's `protection_title` when it recognises no
+ * `protect_class`, so alongside `national_park` and `nature_reserve` the tiles
+ * carry `wilderness_preserve`, `forest_reserve`, `conservation`, `game_land`,
+ * `watershed_reserve`, `sustainable`, `biosphere_reserve`, `wildlife_refuge`,
+ * and free text in whatever language the mappers used — "Parc naturel
+ * régional", "Regionaler Naturpark", "Parco naturale regionale", "State Park",
+ * "Conservation Area", and (observed near Nairobi) the misspelling "Communty
+ * Conservancy". Measured by decoding z9 tiles over Mount Hood, Dartmoor, the
+ * Alps and Kenya.
+ *
+ * That vocabulary can never be an allowlist, and `feature_class` is half the
+ * resolve cache key and half the highlight token — so a typo reaching it would
+ * be permanent. Everything therefore collapses to the three classes the server
+ * already permits, with `protected_area` as the honest generic: whatever else
+ * one of these is, it is an area under protection.
+ */
+const PARK_SOURCE_LAYER = 'park'
+const PARK_KINDS = ['national_park', 'nature_reserve'] as const
+const PARK_FALLBACK_KIND = 'protected_area'
+
+export function parkKind(cls: unknown): string {
+  return typeof cls === 'string' &&
+    (PARK_KINDS as readonly string[]).includes(cls)
+    ? cls
+    : PARK_FALLBACK_KIND
+}
 
 /**
  * Classes renamed on the way out, where the tile schema's word differs from
@@ -55,6 +84,10 @@ const KIND_ALIASES: Record<string, string> = { [RAILWAY_CLASS]: STATION_KIND }
 
 export function kindOf(feature: MapGeoJSONFeature): string {
   const sourceLayer = feature.sourceLayer ?? ''
+  // Parks normalise rather than pass their class through — see PARK_KINDS.
+  if (sourceLayer === PARK_SOURCE_LAYER) {
+    return parkKind(feature.properties?.class)
+  }
   if (CLASS_BEARING_LAYERS.has(sourceLayer)) {
     const cls = feature.properties?.class
     if (typeof cls === 'string' && cls) return KIND_ALIASES[cls] ?? cls
@@ -78,6 +111,18 @@ export function kindOf(feature: MapGeoJSONFeature): string {
 export function labelClassExpr(
   sourceLayer: string,
 ): ExpressionSpecification | string {
+  // Must apply exactly the collapse `kindOf` applies, or a wilderness stored
+  // as `protected_area` would have its label looked up under
+  // `wilderness_preserve` and the amber would never light.
+  if (sourceLayer === PARK_SOURCE_LAYER) {
+    return [
+      'match',
+      ['coalesce', ['get', 'class'], ''],
+      [...PARK_KINDS],
+      ['get', 'class'],
+      PARK_FALLBACK_KIND,
+    ]
+  }
   if (CLASS_BEARING_LAYERS.has(sourceLayer)) {
     // The fallback has to be the one `kindOf` uses for a class-less feature
     // of this layer, or a peak that carries no class would be stored as
