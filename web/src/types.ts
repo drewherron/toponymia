@@ -150,6 +150,9 @@ export interface Etymology {
 
 export interface NameEntry {
   name: string
+  /** The name romanized, for a heading a reader can't otherwise say.
+   *  Beside `name`, never folded into it — see NameSerializer. */
+  transliteration: string
   language: string
   is_endonym: boolean
   /** Editorial order — the first entry is the primary one. */

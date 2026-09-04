@@ -1282,6 +1282,17 @@ body,
   font-weight: 600;
 }
 
+/* The romanization, parenthesised beside the name. It is part of the
+   heading, not metadata about it — it inherits the heading's colour and
+   sits a hair under its size, and only the weight drop (650 -> 400) keeps
+   the name itself leading. Faint grey at 0.8em read as a footnote, and
+   put it on the wrong side of the accent-coloured language chip it sits
+   next to. No margin: the h3's flex `gap` already spaces the row. */
+.name-translit {
+  font-size: 0.95em;
+  font-weight: 400;
+}
+
 .element-translit {
   font-style: normal;
   font-weight: 400;
@@ -1372,6 +1383,11 @@ body,
 
 .name-editor-row label:first-child {
   flex: 1;
+}
+
+/* Narrower than the name it romanizes, wider than a language code. */
+.name-editor-translit {
+  width: 160px;
 }
 
 .name-editor-lang {

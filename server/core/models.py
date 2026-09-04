@@ -165,7 +165,8 @@ class Article(models.Model):
 
 class Revision(models.Model):
     """Full JSON snapshot per edit (wiki core). content:
-    { body_md, names: [ { name, language, is_endonym, etymologies: [
+    { body_md, names: [ { name, transliteration, language, is_endonym,
+      etymologies: [
       { etymology_md, confidence, from_languages[], references[],
         elements: [ { form, language, gloss, role, script,
         transliteration } ] } ] } ],

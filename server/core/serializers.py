@@ -113,9 +113,20 @@ class NameSerializer(serializers.Serializer):
     """A name, plus every hypothesis about it. name / language /
     is_endonym are facts about the name itself; everything contestable
     hangs off `etymologies`, whose first entry is the primary one (order is
-    editorial — no separate flag to keep consistent)."""
+    editorial — no separate flag to keep consistent).
+
+    `transliteration` is the name romanized, and belongs beside `name`
+    rather than inside it. A name written in a script the reader can't
+    read is a heading they can't say, but folding the romanization into
+    `name` ("上海 (Shanghai)") would put display formatting into the value
+    that feeds search, the page <title> and the meta description, where
+    nothing can reliably take it back out again. Same reasoning, and the
+    same field, as ElementSerializer one level down."""
 
     name = serializers.CharField(max_length=255)
+    transliteration = serializers.CharField(
+        max_length=200, allow_blank=True, default=''
+    )
     language = LanguageCodeField(allow_blank=True, default='')
     is_endonym = serializers.BooleanField(default=False)
     etymologies = EtymologySerializer(

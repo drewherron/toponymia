@@ -174,6 +174,11 @@ function ArticleView({ article, onSelectSlug }: ArticleViewProps) {
                   name and its own subsections style identically. */}
               <h3 className="article-name-heading">
                 {entry.name}
+                {entry.transliteration && (
+                  <span className="name-translit">
+                    ({entry.transliteration})
+                  </span>
+                )}
                 {entry.language && (
                   <LanguageCode
                     className="name-language"

@@ -68,6 +68,7 @@ interface EtymologyDraft {
 
 interface NameDraft {
   name: string
+  transliteration: string
   language: string
   isEndonym: boolean
   etymologies: EtymologyDraft[]
@@ -118,6 +119,7 @@ function toEtymologyDraft(entry: Etymology): EtymologyDraft {
 function toDraft(entry: NameEntry): NameDraft {
   return {
     name: entry.name,
+    transliteration: entry.transliteration ?? '',
     language: entry.language,
     isEndonym: entry.is_endonym,
     // A name saved with no etymology at all still needs one editable
@@ -132,6 +134,7 @@ function toDraft(entry: NameEntry): NameDraft {
 function emptyDraft(name = ''): NameDraft {
   return {
     name,
+    transliteration: '',
     language: '',
     isEndonym: false,
     etymologies: [emptyEtymology()],
@@ -166,6 +169,7 @@ function fromEtymologyDraft(draft: EtymologyDraft): Etymology {
 function fromDraft(draft: NameDraft): NameEntry {
   return {
     name: draft.name.trim(),
+    transliteration: draft.transliteration.trim(),
     language: draft.language.trim(),
     is_endonym: draft.isEndonym,
     etymologies: draft.etymologies.map(fromEtymologyDraft),
@@ -321,6 +325,16 @@ function ArticleEditor({
               <input
                 value={draft.name}
                 onChange={(e) => updateName(index, { name: e.target.value })}
+              />
+            </label>
+            <label className="name-editor-translit">
+              Romanization
+              <input
+                value={draft.transliteration}
+                onChange={(e) =>
+                  updateName(index, { transliteration: e.target.value })
+                }
+                placeholder="optional"
               />
             </label>
             <label className="name-editor-lang">
