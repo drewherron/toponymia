@@ -1,5 +1,5 @@
 Django>=6.1.2,<6.2
-djangorestframework>=3.18.0,<4
+djangorestframework>=3.18.2,<4
 django-allauth>=65.19.2,<66
 psycopg[binary]>=3.3.6,<4
 requests>=2.34.2,<3
